@@ -24,6 +24,7 @@ import {
   TurnId,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -31,6 +32,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
@@ -226,6 +228,7 @@ describe("ProviderRuntimeIngestion", () => {
   async function createHarness(options?: {
     serverSettings?: Partial<ServerSettings>;
     threadTitle?: string;
+    testClock?: boolean;
   }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
     NodeFS.mkdirSync(NodePath.join(workspaceRoot, ".git"));
@@ -254,6 +257,7 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(options?.testClock === true ? TestClock.layer() : Layer.empty),
     );
     runtime = ManagedRuntime.make(layer);
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
@@ -324,6 +328,7 @@ describe("ProviderRuntimeIngestion", () => {
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
+      advanceTime: (duration: Duration.Input) => runtime!.runPromise(TestClock.adjust(duration)),
     };
   }
 
@@ -2381,6 +2386,332 @@ describe("ProviderRuntimeIngestion", () => {
           message.id === "assistant:item-streaming-request-segment:segment:1",
       )?.text,
     ).toBe(" after approval");
+  });
+
+  it("coalesces rapid streaming deltas until the measured timer window", async () => {
+    const harness = await createHarness({
+      serverSettings: { enableLegacyTokenStreaming: true },
+      testClock: true,
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-stream-timer");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-stream-timer"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-stream-timer-1"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-stream-timer"),
+      payload: { streamKind: "assistant_text", delta: "hel" },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-stream-timer-2"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-stream-timer"),
+      payload: { streamKind: "assistant_text", delta: "lo" },
+    });
+    await harness.drain();
+
+    let thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.messages).toHaveLength(0);
+
+    await harness.advanceTime("149 millis");
+    await harness.drain();
+    thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.messages).toHaveLength(0);
+
+    await harness.advanceTime("1 millis");
+    await harness.drain();
+    thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant:item-stream-timer",
+        text: "hello",
+        streaming: true,
+      }),
+    ]);
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const deltaEvents = events.filter(
+      (event): event is Extract<(typeof events)[number], { type: "thread.message-sent" }> =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === "assistant:item-stream-timer" &&
+        event.payload.streaming,
+    );
+    expect(deltaEvents).toHaveLength(1);
+    expect(deltaEvents[0]?.payload.text).toBe("hello");
+  });
+
+  it("flushes streaming text immediately at the character threshold", async () => {
+    const harness = await createHarness({
+      serverSettings: { enableLegacyTokenStreaming: true },
+      testClock: true,
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-stream-threshold");
+    const first = "a".repeat(600);
+    const second = "b".repeat(424);
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-stream-threshold"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-stream-threshold-1"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-stream-threshold"),
+      payload: { streamKind: "assistant_text", delta: first },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-stream-threshold-2"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-stream-threshold"),
+      payload: { streamKind: "assistant_text", delta: second },
+    });
+    await harness.drain();
+
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(
+      thread?.messages.find((message) => message.id === "assistant:item-stream-threshold"),
+    ).toMatchObject({ text: `${first}${second}`, streaming: true });
+  });
+
+  it("flushes coalesced text before a tool transition", async () => {
+    const harness = await createHarness({
+      serverSettings: { enableLegacyTokenStreaming: true },
+      testClock: true,
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-stream-tool-boundary");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-stream-tool-boundary"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-stream-tool-boundary-delta"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-stream-tool-boundary"),
+      payload: { streamKind: "assistant_text", delta: "before tool" },
+    });
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-stream-tool-boundary-tool"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("tool-stream-boundary"),
+      payload: { itemType: "command_execution", title: "pwd" },
+    });
+    await harness.drain();
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const assistantIndex = events.findIndex(
+      (event) =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === "assistant:item-stream-tool-boundary",
+    );
+    const toolIndex = events.findIndex(
+      (event) =>
+        event.type === "thread.activity-appended" &&
+        event.payload.activity.id === "evt-stream-tool-boundary-tool",
+    );
+    expect(assistantIndex).toBeGreaterThanOrEqual(0);
+    expect(toolIndex).toBeGreaterThan(assistantIndex);
+  });
+
+  it.each(["codex", "claude", "cursor", "grok", "opencode"])(
+    "preserves exact final streaming content for the %s adapter boundary",
+    async (provider) => {
+      const harness = await createHarness({
+        serverSettings: { enableLegacyTokenStreaming: true },
+        testClock: true,
+      });
+      const now = "2026-01-01T00:00:00.000Z";
+      const turnId = asTurnId(`turn-stream-exact-${provider}`);
+      const itemId = asItemId(`item-stream-exact-${provider}`);
+      const chunks = ["  hello", "\n", "world", "  "];
+
+      harness.emit({
+        type: "turn.started",
+        eventId: asEventId(`evt-turn-started-stream-exact-${provider}`),
+        provider: ProviderDriverKind.make(provider),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId,
+      });
+      for (const [index, delta] of chunks.entries()) {
+        harness.emit({
+          type: "content.delta",
+          eventId: asEventId(`evt-stream-exact-${provider}-${index}`),
+          provider: ProviderDriverKind.make(provider),
+          createdAt: now,
+          threadId: asThreadId("thread-1"),
+          turnId,
+          itemId,
+          payload: { streamKind: "assistant_text", delta },
+        });
+      }
+      harness.emit({
+        type: "item.completed",
+        eventId: asEventId(`evt-stream-exact-complete-${provider}`),
+        provider: ProviderDriverKind.make(provider),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId,
+        itemId,
+        payload: { itemType: "assistant_message", status: "completed" },
+      });
+      await harness.drain();
+
+      const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+      expect(
+        thread?.messages.find((message) => message.id === `assistant:${itemId}`),
+      ).toMatchObject({
+        text: chunks.join(""),
+        streaming: false,
+      });
+    },
+  );
+
+  it.each(["turn.aborted", "runtime.error", "session.exited"])(
+    "flushes and finalizes pending streaming text on %s",
+    async (terminalType) => {
+      const harness = await createHarness({
+        serverSettings: { enableLegacyTokenStreaming: true },
+        testClock: true,
+      });
+      const now = "2026-01-01T00:00:00.000Z";
+      const turnId = asTurnId(`turn-stream-terminal-${terminalType}`);
+      const itemId = asItemId(`item-stream-terminal-${terminalType}`);
+
+      harness.emit({
+        type: "turn.started",
+        eventId: asEventId(`evt-turn-started-stream-terminal-${terminalType}`),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId,
+      });
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId(`evt-stream-terminal-delta-${terminalType}`),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId,
+        itemId,
+        payload: { streamKind: "assistant_text", delta: "keep this exact  " },
+      });
+      harness.emit({
+        type: terminalType,
+        eventId: asEventId(`evt-stream-terminal-${terminalType}`),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId,
+        payload:
+          terminalType === "turn.aborted"
+            ? { reason: "Interrupted by user" }
+            : terminalType === "runtime.error"
+              ? { message: "Provider failed" }
+              : { exitCode: 1, signal: null },
+      });
+      await harness.drain();
+
+      const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+      expect(
+        thread?.messages.find((message) => message.id === `assistant:${itemId}`),
+      ).toMatchObject({
+        text: "keep this exact  ",
+        streaming: false,
+      });
+    },
+  );
+
+  it("flushes pending text when the user requests cancellation", async () => {
+    const harness = await createHarness({
+      serverSettings: { enableLegacyTokenStreaming: true },
+      testClock: true,
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-stream-user-cancel");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-stream-user-cancel"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-stream-user-cancel-delta"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-stream-user-cancel"),
+      payload: { streamKind: "assistant_text", delta: "before cancel" },
+    });
+    await harness.drain();
+    await harness.dispatch({
+      type: "thread.turn.interrupt",
+      commandId: CommandId.make("cmd-stream-user-cancel"),
+      threadId: asThreadId("thread-1"),
+      turnId,
+      createdAt: now,
+    });
+    await harness.drain();
+
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(
+      thread?.messages.find((message) => message.id === "assistant:item-stream-user-cancel"),
+    ).toMatchObject({ text: "before cancel", streaming: false });
   });
 
   it("streams assistant deltas when thread.turn.start requests streaming mode", async () => {

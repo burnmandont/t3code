@@ -98,6 +98,7 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
+import { makeThreadLiveBuffer, offerThreadLiveItem } from "./orchestration/ThreadLiveBuffer.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
@@ -1448,11 +1449,19 @@ const makeWsRpcLayer = (
 
               // Attach live delivery before reading either replay or snapshot state.
               // Otherwise an event published while the snapshot is loading is lost.
-              const liveBuffer = yield* Queue.unbounded<OrchestrationThreadStreamItem>();
-              yield* Effect.forkScoped(
-                liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
+              const liveBuffer = yield* makeThreadLiveBuffer<OrchestrationThreadStreamItem>(
+                input.threadId,
               );
-              const bufferedLiveStream = Stream.fromQueue(liveBuffer);
+              yield* Effect.forkScoped(
+                liveStream.pipe(
+                  Stream.runForEach((item) =>
+                    offerThreadLiveItem(liveBuffer, item).pipe(
+                      Effect.flatMap((offered) => (offered ? Effect.void : Effect.interrupt)),
+                    ),
+                  ),
+                ),
+              );
+              const bufferedLiveStream = Stream.fromQueue(liveBuffer.queue);
 
               // When the client already loaded the snapshot over HTTP it passes
               // that snapshot's sequence, and we resume the live subscription by
@@ -1501,7 +1510,7 @@ const makeWsRpcLayer = (
                     input.requestCompletionMarker === true
                       ? Stream.concat(
                           Stream.fromEffect(
-                            Queue.offer(liveBuffer, { kind: "synchronized" as const }),
+                            offerThreadLiveItem(liveBuffer, { kind: "synchronized" as const }),
                           ).pipe(Stream.drain),
                           bufferedLiveStream,
                         )
@@ -1543,7 +1552,7 @@ const makeWsRpcLayer = (
                 input.requestCompletionMarker === true
                   ? Stream.concat(
                       Stream.fromEffect(
-                        Queue.offer(liveBuffer, { kind: "synchronized" as const }),
+                        offerThreadLiveItem(liveBuffer, { kind: "synchronized" as const }),
                       ).pipe(Stream.drain),
                       bufferedLiveStream,
                     )

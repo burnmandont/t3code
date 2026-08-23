@@ -15,6 +15,7 @@ import {
 import {
   buildPendingUserInputAnswers,
   buildThreadFeed,
+  computeStableThreadFeed,
   deriveThreadFeedPresentation,
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
@@ -715,6 +716,7 @@ describe("buildThreadFeed", () => {
       icon: "command",
       toolLike: true,
       status,
+      sourceActivities: [],
     });
     const feed: ThreadFeedEntry[] = [
       {
@@ -750,6 +752,61 @@ describe("buildThreadFeed", () => {
     expect(expanded.at(-1)).toMatchObject({
       type: "work-toggle",
       expanded: true,
+    });
+  });
+});
+
+describe("computeStableThreadFeed", () => {
+  it("reuses inactive rows while only the active assistant message grows", () => {
+    const userMessage = {
+      id: MessageId.make("message-user-stable"),
+      role: "user" as const,
+      text: "Prompt",
+      turnId: TurnId.make("turn-stable"),
+      createdAt: "2026-04-01T00:00:00.000Z",
+      updatedAt: "2026-04-01T00:00:00.000Z",
+      streaming: false,
+    };
+    const assistantMessage = {
+      id: MessageId.make("message-assistant-stable"),
+      role: "assistant" as const,
+      text: "Hel",
+      turnId: TurnId.make("turn-stable"),
+      createdAt: "2026-04-01T00:00:01.000Z",
+      updatedAt: "2026-04-01T00:00:01.000Z",
+      streaming: true,
+    };
+    const thread = makeThread({
+      id: ThreadId.make("thread-stable"),
+      projectId: ProjectId.make("project-1"),
+      title: "Stable feed",
+      messages: [userMessage, assistantMessage],
+    });
+    const initial = computeStableThreadFeed(buildThreadFeed(thread), {
+      byId: new Map(),
+      result: [],
+    });
+    const updated = computeStableThreadFeed(
+      buildThreadFeed({
+        ...thread,
+        messages: [
+          userMessage,
+          {
+            ...assistantMessage,
+            text: "Hello",
+            updatedAt: "2026-04-01T00:00:02.000Z",
+          },
+        ],
+      }),
+      initial,
+    );
+
+    expect(updated.result).not.toBe(initial.result);
+    expect(updated.result[0]).toBe(initial.result[0]);
+    expect(updated.result[1]).not.toBe(initial.result[1]);
+    expect(updated.result[1]).toMatchObject({
+      type: "message",
+      message: { text: "Hello", streaming: true },
     });
   });
 });

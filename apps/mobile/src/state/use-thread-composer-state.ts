@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 import * as Cause from "effect/Cause";
 
@@ -31,7 +31,11 @@ import {
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { copyTextWithHaptic } from "../lib/copyTextWithHaptic";
-import { buildThreadFeed } from "../lib/threadActivity";
+import {
+  buildThreadFeed,
+  computeStableThreadFeed,
+  type StableThreadFeedState,
+} from "../lib/threadActivity";
 import { appAtomRegistry } from "../state/atom-registry";
 import {
   appendComposerDraftAttachments,
@@ -108,20 +112,28 @@ export function useThreadComposerState() {
     () => (selectedThreadKey ? (queuedMessagesByThreadKey[selectedThreadKey] ?? []) : []),
     [queuedMessagesByThreadKey, selectedThreadKey],
   );
+  const stableThreadFeed = useRef<StableThreadFeedState>({ byId: new Map(), result: [] });
+  const stableThreadFeedKey = useRef<string | null>(null);
   const selectedThreadFeed = useMemo(() => {
-    if (!selectedThreadDetail) {
-      return [];
+    if (stableThreadFeedKey.current !== selectedThreadKey) {
+      stableThreadFeedKey.current = selectedThreadKey;
+      stableThreadFeed.current = { byId: new Map(), result: [] };
     }
     const submissions = selectedThreadKey
       ? (feedbackSubmissionsByThreadKey[selectedThreadKey] ?? [])
       : [];
-    return buildThreadFeed(selectedThreadDetail, {
-      localMessages: submissions.flatMap((submission) =>
-        submission.status === "interrupted"
-          ? []
-          : [codexFeedbackMessage(submission), codexFeedbackMessage(submission, "assistant")],
-      ),
-    });
+    const nextFeed = selectedThreadDetail
+      ? buildThreadFeed(selectedThreadDetail, {
+          localMessages: submissions.flatMap((submission) =>
+            submission.status === "interrupted"
+              ? []
+              : [codexFeedbackMessage(submission), codexFeedbackMessage(submission, "assistant")],
+          ),
+        })
+      : [];
+    const nextStableFeed = computeStableThreadFeed(nextFeed, stableThreadFeed.current);
+    stableThreadFeed.current = nextStableFeed;
+    return nextStableFeed.result;
   }, [feedbackSubmissionsByThreadKey, selectedThreadDetail, selectedThreadKey]);
 
   const selectedDraft = selectedThreadKey ? composerDrafts[selectedThreadKey] : null;

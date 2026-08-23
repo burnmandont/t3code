@@ -130,6 +130,17 @@ function isStalePendingApprovalFailureDetail(detail: string | null): boolean {
   );
 }
 
+function activityAffectsThreadShellSummary(kind: string): boolean {
+  return (
+    kind === "approval.requested" ||
+    kind === "approval.resolved" ||
+    kind === "provider.approval.respond.failed" ||
+    kind === "user-input.requested" ||
+    kind === "user-input.resolved" ||
+    kind === "provider.user-input.respond.failed"
+  );
+}
+
 function derivePendingUserInputCountFromActivities(
   activities: ReadonlyArray<ProjectionThreadActivity>,
 ): number {
@@ -565,7 +576,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       const [messages, proposedPlans, activities, pendingApprovals] = yield* Effect.all([
         projectionThreadMessageRepository.listByThreadId({ threadId }),
         projectionThreadProposedPlanRepository.listByThreadId({ threadId }),
-        projectionThreadActivityRepository.listByThreadId({ threadId }),
+        projectionThreadActivityRepository.listUserInputStateByThreadId({ threadId }),
         projectionPendingApprovalRepository.listByThreadId({ threadId }),
       ]);
 
@@ -594,6 +605,46 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         pendingApprovalCount,
         pendingUserInputCount,
         hasActionableProposedPlan: hasActionableProposedPlan ? 1 : 0,
+      });
+    });
+
+    const refreshThreadBlockingSummary = Effect.fn("refreshThreadBlockingSummary")(function* (
+      threadId: ThreadId,
+    ) {
+      const existingRow = yield* projectionThreadRepository.getById({ threadId });
+      if (Option.isNone(existingRow)) {
+        return;
+      }
+      const [activities, pendingApprovals] = yield* Effect.all([
+        projectionThreadActivityRepository.listUserInputStateByThreadId({ threadId }),
+        projectionPendingApprovalRepository.listByThreadId({ threadId }),
+      ]);
+      yield* projectionThreadRepository.upsert({
+        ...existingRow.value,
+        pendingApprovalCount: pendingApprovals.filter((approval) => approval.status === "pending")
+          .length,
+        pendingUserInputCount: derivePendingUserInputCountFromActivities(activities),
+      });
+    });
+
+    const refreshThreadPlanSummary = Effect.fn("refreshThreadPlanSummary")(function* (
+      threadId: ThreadId,
+    ) {
+      const existingRow = yield* projectionThreadRepository.getById({ threadId });
+      if (Option.isNone(existingRow)) {
+        return;
+      }
+      const proposedPlans = yield* projectionThreadProposedPlanRepository.listByThreadId({
+        threadId,
+      });
+      yield* projectionThreadRepository.upsert({
+        ...existingRow.value,
+        hasActionableProposedPlan: deriveHasActionableProposedPlan({
+          latestTurnId: existingRow.value.latestTurnId,
+          proposedPlans,
+        })
+          ? 1
+          : 0,
       });
     });
 
@@ -850,10 +901,76 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
-        case "thread.message-sent":
-        case "thread.proposed-plan-upserted":
-        case "thread.activity-appended":
-        case "thread.approval-response-requested":
+        case "thread.message-sent": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            ...(event.payload.role === "user" &&
+            (existingRow.value.latestUserMessageAt === null ||
+              event.payload.createdAt > existingRow.value.latestUserMessageAt)
+              ? { latestUserMessageAt: event.payload.createdAt }
+              : {}),
+            updatedAt: event.occurredAt,
+          });
+          // Assistant chunks cannot change any shell-summary field. Avoid
+          // reloading the thread's complete messages, plans, activities, and
+          // approvals on every live chunk; user messages update the
+          // latest-user timestamp directly.
+          return;
+        }
+
+        case "thread.proposed-plan-upserted": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.occurredAt,
+          });
+          yield* refreshThreadPlanSummary(event.payload.threadId);
+          return;
+        }
+
+        case "thread.activity-appended": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.occurredAt,
+          });
+          if (activityAffectsThreadShellSummary(event.payload.activity.kind)) {
+            yield* refreshThreadBlockingSummary(event.payload.threadId);
+          }
+          return;
+        }
+
+        case "thread.approval-response-requested": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.occurredAt,
+          });
+          yield* refreshThreadBlockingSummary(event.payload.threadId);
+          return;
+        }
+
         case "thread.user-input-response-requested": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -865,7 +982,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             updatedAt: event.occurredAt,
           });
-          yield* refreshThreadShellSummary(event.payload.threadId);
           return;
         }
 
@@ -882,7 +998,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             latestTurnId: event.payload.session.activeTurnId ?? existingRow.value.latestTurnId,
             updatedAt: event.occurredAt,
           });
-          yield* refreshThreadShellSummary(event.payload.threadId);
+          yield* refreshThreadPlanSummary(event.payload.threadId);
           return;
         }
 
@@ -898,7 +1014,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             latestTurnId: event.payload.turnId,
             updatedAt: event.occurredAt,
           });
-          yield* refreshThreadShellSummary(event.payload.threadId);
+          yield* refreshThreadPlanSummary(event.payload.threadId);
           return;
         }
 
@@ -950,37 +1066,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     )(function* (event, attachmentSideEffects) {
       switch (event.type) {
         case "thread.message-sent": {
-          const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
-            messageId: event.payload.messageId,
-          });
-          const previousMessage = Option.getOrUndefined(existingMessage);
-          const nextText = Option.match(existingMessage, {
-            onNone: () => event.payload.text,
-            onSome: (message) => {
-              if (event.payload.streaming) {
-                return `${message.text}${event.payload.text}`;
-              }
-              if (event.payload.text.length === 0) {
-                return message.text;
-              }
-              return event.payload.text;
-            },
-          });
           const nextAttachments =
             event.payload.attachments !== undefined
               ? yield* materializeAttachmentsForProjection({
                   attachments: event.payload.attachments,
                 })
-              : previousMessage?.attachments;
-          yield* projectionThreadMessageRepository.upsert({
+              : undefined;
+          yield* projectionThreadMessageRepository.applyEvent({
             messageId: event.payload.messageId,
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
             role: event.payload.role,
-            text: nextText,
+            text: event.payload.text,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,
-            createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
+            createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });
           return;

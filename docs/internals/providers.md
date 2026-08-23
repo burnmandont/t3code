@@ -66,14 +66,42 @@ synchronization.
 3. [`CheckpointReactor`][checkpoint] captures workspace checkpoints on turn start and completion, and
    performs reverts.
 
-### Buffered assistant delivery
+### Assistant delivery
 
-A thread in `buffered` assistant delivery mode accumulates assistant text instead of streaming each
-delta. The buffer is not held until turn completion. In [`ProviderRuntimeIngestion`][ingest],
-`MAX_BUFFERED_ASSISTANT_CHARS` is 24,000: the append that would exceed it invalidates the buffer and
-spills the whole accumulated text as one delta. The buffer also flushes at interaction boundaries,
-when a request opens (approval) or user input is requested, via
-`flushBufferedAssistantMessagesForTurn`.
+Adapters for Codex, Claude, Cursor, Grok, and OpenCode normalize provider text into the same
+`content.delta` event with `streamKind: assistant_text`. Delivery policy therefore lives once in
+[`ProviderRuntimeIngestion`][ingest], after adapter normalization and before event persistence.
+
+`streaming` is bounded, coalesced incremental delivery. It starts a 150 ms window with the first
+pending delta (not a trailing-edge debounce) and flushes sooner at 1,024 buffered characters. A
+message has at most one pending timer. Threshold flushes and the 24,000-character safety cap bound
+memory even when a provider emits an unusually large burst. Approval requests, user-input requests,
+tool transitions, assistant completion, turn completion or abort, runtime errors, and provider
+session exit bypass the timer. These flushes enter the same serial ingestion worker as provider
+events, preserving persisted ordering and exact concatenated text.
+
+The existing `thread.message-sent` append contract is unchanged. Older clients and servers continue
+to understand the stream, and reconnecting clients resume from their last event sequence. Each
+thread WebSocket subscription buffers at most 256 live frames; overflow fails only that subscription
+with the existing typed snapshot error. Current clients retry and replay from their last applied
+sequence rather than accepting a silent gap. A client network disconnect does not flush global
+provider state because other devices may still be watching; a provider `session.exited` event does.
+
+There is no provider-specific delivery mode. Codex, Claude, and OpenCode can supply completion text
+as a fallback when a provider emits no deltas. Cursor and Grok use ACP's normalized content deltas and
+do not currently expose an equivalent full-text completion fallback, so their adapters depend on ACP
+delivering every content delta. Once normalized, all five providers use identical coalescing,
+persistence, replay, and boundary behavior.
+
+Web and desktop share the structurally-shared web timeline. Mobile separately stabilizes feed rows;
+on each chunk only the active assistant row receives a new object. The active Markdown document is
+still parsed from its current complete text, but coalescing caps that work to the delivery cadence
+instead of provider-token cadence.
+
+`buffered` delivery remains available and accumulates assistant text instead of periodically
+streaming it. It is not held without a bound: `MAX_BUFFERED_ASSISTANT_CHARS` is 24,000, and the append
+that exceeds it spills the accumulated text as one delta. It also flushes at approval, user-input,
+completion, abort, error, and provider-exit boundaries.
 
 [drivers]: ../../apps/server/src/provider/builtInDrivers.ts
 [codex]: ../../apps/server/src/provider/Drivers/CodexDriver.ts

@@ -54,6 +54,7 @@ export interface ThreadFeedActivity {
     | "zap";
   readonly toolLike: boolean;
   readonly status: "success" | "failure" | "neutral" | null;
+  readonly sourceActivities: ReadonlyArray<OrchestrationThreadActivity>;
 }
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
@@ -79,6 +80,7 @@ interface WorkLogEntry {
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
   activityKind: OrchestrationThreadActivity["kind"];
+  sourceActivities: ReadonlyArray<OrchestrationThreadActivity>;
   collapseKey?: string;
   /** Grouping key for subagent lifecycle rows (one row per agent). */
   taskId?: string;
@@ -136,6 +138,95 @@ export type ThreadFeedLatestTurn = Pick<
   OrchestrationLatestTurn,
   "turnId" | "state" | "startedAt" | "completedAt"
 >;
+
+export interface StableThreadFeedState {
+  readonly byId: ReadonlyMap<string, ThreadFeedEntry>;
+  readonly result: ReadonlyArray<ThreadFeedEntry>;
+}
+
+function isThreadFeedActivityUnchanged(
+  previous: ThreadFeedActivity,
+  next: ThreadFeedActivity,
+): boolean {
+  return (
+    previous.id === next.id &&
+    previous.createdAt === next.createdAt &&
+    previous.turnId === next.turnId &&
+    previous.summary === next.summary &&
+    previous.detail === next.detail &&
+    previous.canExpand === next.canExpand &&
+    previous.icon === next.icon &&
+    previous.toolLike === next.toolLike &&
+    previous.status === next.status &&
+    previous.sourceActivities.length === next.sourceActivities.length &&
+    previous.sourceActivities.every((activity, index) => activity === next.sourceActivities[index])
+  );
+}
+
+function isThreadFeedEntryUnchanged(previous: ThreadFeedEntry, next: ThreadFeedEntry): boolean {
+  if (previous.type !== next.type || previous.id !== next.id) {
+    return false;
+  }
+  switch (previous.type) {
+    case "message":
+      return previous.message === (next as typeof previous).message;
+    case "activity-group": {
+      const nextGroup = next as typeof previous;
+      return (
+        previous.createdAt === nextGroup.createdAt &&
+        previous.turnId === nextGroup.turnId &&
+        previous.activities.length === nextGroup.activities.length &&
+        previous.activities.every((activity, index) => {
+          const nextActivity = nextGroup.activities[index];
+          return (
+            nextActivity !== undefined && isThreadFeedActivityUnchanged(activity, nextActivity)
+          );
+        })
+      );
+    }
+    case "working":
+      return previous.createdAt === (next as typeof previous).createdAt;
+    case "work-toggle": {
+      const nextToggle = next as typeof previous;
+      return (
+        previous.createdAt === nextToggle.createdAt &&
+        previous.turnId === nextToggle.turnId &&
+        previous.groupId === nextToggle.groupId &&
+        previous.hiddenCount === nextToggle.hiddenCount &&
+        previous.expanded === nextToggle.expanded &&
+        previous.onlyToolActivities === nextToggle.onlyToolActivities
+      );
+    }
+    case "turn-fold": {
+      const nextFold = next as typeof previous;
+      return (
+        previous.createdAt === nextFold.createdAt &&
+        previous.turnId === nextFold.turnId &&
+        previous.label === nextFold.label &&
+        previous.expanded === nextFold.expanded
+      );
+    }
+  }
+}
+
+export function computeStableThreadFeed(
+  feed: ReadonlyArray<ThreadFeedEntry>,
+  previous: StableThreadFeedState,
+): StableThreadFeedState {
+  const byId = new Map<string, ThreadFeedEntry>();
+  let changed = feed.length !== previous.result.length;
+  const result = feed.map((entry, index) => {
+    const previousEntry = previous.byId.get(entry.id);
+    const stableEntry =
+      previousEntry && isThreadFeedEntryUnchanged(previousEntry, entry) ? previousEntry : entry;
+    byId.set(stableEntry.id, stableEntry);
+    if (!changed && previous.result[index] !== stableEntry) {
+      changed = true;
+    }
+    return stableEntry;
+  });
+  return changed ? { byId, result } : previous;
+}
 
 function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
   switch (requestType) {
@@ -388,6 +479,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
           ? "info"
           : activity.tone,
     activityKind: activity.kind,
+    sourceActivities: [activity],
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
@@ -506,6 +598,7 @@ function mergeDerivedWorkLogEntries(
   return {
     ...previous,
     ...next,
+    sourceActivities: [...previous.sourceActivities, ...next.sourceActivities],
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
     ...(rawCommand ? { rawCommand } : {}),
@@ -1581,6 +1674,7 @@ export function buildThreadFeed(
               icon: workEntryIcon(entry),
               toolLike: workLogEntryIsToolLike(entry),
               status: workEntryStatus(entry),
+              sourceActivities: entry.sourceActivities,
             },
           };
         }),

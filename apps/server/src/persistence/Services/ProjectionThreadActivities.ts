@@ -68,6 +68,20 @@ export interface ProjectionThreadActivityRepositoryShape {
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadActivity>, ProjectionRepositoryError>;
 
   /**
+   * List only activities that participate in pending user-input state.
+   *
+   * Keeps shell-summary refreshes from decoding unrelated tool payloads.
+   */
+  readonly listUserInputStateByThreadId: (
+    input: ListProjectionThreadActivitiesInput,
+  ) => Effect.Effect<ReadonlyArray<ProjectionThreadActivity>, ProjectionRepositoryError>;
+
+  /** List task lifecycle rows used to recover task titles after cache loss. */
+  readonly listTaskLifecycleByThreadId: (
+    input: ListProjectionThreadActivitiesInput,
+  ) => Effect.Effect<ReadonlyArray<ProjectionThreadActivity>, ProjectionRepositoryError>;
+
+  /**
    * Delete projected thread activity rows by thread.
    */
   readonly deleteByThreadId: (

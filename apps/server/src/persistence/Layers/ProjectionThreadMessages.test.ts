@@ -63,6 +63,7 @@ layer("ProjectionThreadMessageRepository", (it) => {
         assert.equal(rowById.value.text, "updated");
         assert.deepEqual(rowById.value.attachments, persistedAttachments);
       }
+      assert.equal(yield* repository.countUserByThreadId({ threadId }), 1);
     }),
   );
 
@@ -109,6 +110,54 @@ layer("ProjectionThreadMessageRepository", (it) => {
       assert.equal(rows.length, 1);
       assert.equal(rows[0]?.text, "cleared");
       assert.deepEqual(rows[0]?.attachments, []);
+    }),
+  );
+
+  it.effect("atomically appends streaming events and preserves text on completion", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionThreadMessageRepository;
+      const threadId = ThreadId.make("thread-stream-append");
+      const messageId = MessageId.make("message-stream-append");
+      const createdAt = "2026-02-28T20:00:00.000Z";
+
+      yield* repository.applyEvent({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "  hello",
+        isStreaming: true,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      yield* repository.applyEvent({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: " world  ",
+        isStreaming: true,
+        createdAt: "2026-02-28T20:00:01.000Z",
+        updatedAt: "2026-02-28T20:00:01.000Z",
+      });
+      yield* repository.applyEvent({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "",
+        isStreaming: false,
+        createdAt: "2026-02-28T20:00:02.000Z",
+        updatedAt: "2026-02-28T20:00:02.000Z",
+      });
+
+      const row = yield* repository.getByMessageId({ messageId });
+      assert.equal(row._tag, "Some");
+      if (row._tag === "Some") {
+        assert.equal(row.value.text, "  hello world  ");
+        assert.equal(row.value.isStreaming, false);
+        assert.equal(row.value.createdAt, createdAt);
+      }
     }),
   );
 });

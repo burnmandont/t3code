@@ -1677,4 +1677,68 @@ describe("computeStableMessagesTimelineRows", () => {
     expect(reordered).not.toBe(initial);
     expect(reordered.result).toEqual([initial.result[1], initial.result[0]]);
   });
+
+  it("reuses inactive message rows while only the streaming assistant row changes", () => {
+    const userMessage = {
+      id: "user-stable" as never,
+      role: "user" as const,
+      text: "Prompt",
+      turnId: "turn-stable" as never,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      streaming: false,
+    };
+    const assistantMessage = {
+      id: "assistant-stable" as never,
+      role: "assistant" as const,
+      text: "Hel",
+      turnId: "turn-stable" as never,
+      createdAt: "2026-01-01T00:00:01Z",
+      updatedAt: "2026-01-01T00:00:01Z",
+      streaming: true,
+    };
+    const makeRows = (assistantText: string) =>
+      deriveMessagesTimelineRows({
+        timelineEntries: [
+          {
+            id: "entry-user-stable",
+            kind: "message",
+            createdAt: userMessage.createdAt,
+            message: userMessage,
+          },
+          {
+            id: "entry-assistant-stable",
+            kind: "message",
+            createdAt: assistantMessage.createdAt,
+            message:
+              assistantText === assistantMessage.text
+                ? assistantMessage
+                : {
+                    ...assistantMessage,
+                    text: assistantText,
+                    updatedAt: "2026-01-01T00:00:02Z",
+                  },
+          },
+        ],
+        latestTurn: {
+          turnId: "turn-stable" as never,
+          state: "running",
+          startedAt: "2026-01-01T00:00:00Z",
+          completedAt: null,
+        },
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaryByAssistantMessageId: new Map(),
+        revertTurnCountByUserMessageId: new Map(),
+      });
+
+    const initial = computeStableMessagesTimelineRows(makeRows("Hel"), {
+      byId: new Map(),
+      result: [],
+    });
+    const updated = computeStableMessagesTimelineRows(makeRows("Hello"), initial);
+
+    expect(updated.result[0]).toBe(initial.result[0]);
+    expect(updated.result[1]).not.toBe(initial.result[1]);
+  });
 });

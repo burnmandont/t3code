@@ -185,7 +185,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "legacy-token-streaming",
-    title: "Stream token by token (legacy)",
+    title: "Stream responses live",
     to: "/settings/general",
   },
   {

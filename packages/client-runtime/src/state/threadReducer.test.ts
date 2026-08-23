@@ -336,9 +336,19 @@ describe("applyThreadDetailEvent", () => {
     });
 
     it("appends text for streaming messages", () => {
+      const inactiveMessage = {
+        id: MessageId.make("msg-inactive"),
+        role: "user" as const,
+        text: "Prompt",
+        turnId: TurnId.make("turn-1"),
+        streaming: false,
+        createdAt: "2026-04-01T05:59:00.000Z",
+        updatedAt: "2026-04-01T05:59:00.000Z",
+      };
       const threadWithMessage: OrchestrationThread = {
         ...baseThread,
         messages: [
+          inactiveMessage,
           {
             id: MessageId.make("msg-2"),
             role: "assistant",
@@ -372,8 +382,9 @@ describe("applyThreadDetailEvent", () => {
 
       expect(result.kind).toBe("updated");
       if (result.kind === "updated") {
-        expect(result.thread.messages).toHaveLength(1);
-        expect(result.thread.messages[0]?.text).toBe("Hello, world!");
+        expect(result.thread.messages).toHaveLength(2);
+        expect(result.thread.messages[0]).toBe(inactiveMessage);
+        expect(result.thread.messages[1]?.text).toBe("Hello, world!");
       }
     });
 

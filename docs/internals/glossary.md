@@ -110,7 +110,7 @@ The agent interaction style for a thread. In [the contracts][1], the values are 
 
 #### Assistant delivery mode
 
-Controls how assistant text reaches the thread timeline. In [the contracts][1], `streaming` updates incrementally and `buffered` accumulates text. Buffered delivery is not held until the turn completes: it spills once accumulated text would exceed 24,000 characters, and flushes at approval and user-input boundaries. See [ProviderRuntimeIngestion.ts][5].
+Controls how assistant text reaches the thread timeline. In [the contracts][1], `streaming` uses bounded coalesced updates (normally every 150 ms or 1,024 characters, sooner at ordering boundaries), while `buffered` accumulates text until a boundary or its 24,000-character safety spill. Both modes preserve the same persisted append events, replay cursor, and exact final content. See [ProviderRuntimeIngestion.ts][5].
 
 #### Snapshot
 

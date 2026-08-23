@@ -63,6 +63,15 @@ export interface ProjectionThreadMessageRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 
   /**
+   * Apply one persisted message event atomically. Streaming text is appended
+   * in SQLite; completion keeps existing text when its event carries an empty
+   * payload. This avoids reading and rewriting the growing message in JS.
+   */
+  readonly applyEvent: (
+    message: ProjectionThreadMessage,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
+
+  /**
    * Read a projected thread message by id.
    */
   readonly getByMessageId: (
@@ -77,6 +86,11 @@ export interface ProjectionThreadMessageRepositoryShape {
   readonly listByThreadId: (
     input: ListProjectionThreadMessagesInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadMessage>, ProjectionRepositoryError>;
+
+  /** Count user-authored messages without hydrating the thread body. */
+  readonly countUserByThreadId: (
+    input: ListProjectionThreadMessagesInput,
+  ) => Effect.Effect<number, ProjectionRepositoryError>;
 
   /**
    * Delete projected thread messages by thread.
