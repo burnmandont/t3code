@@ -36,7 +36,7 @@ export type ServerSelfUpdateMethod = typeof ServerSelfUpdateMethod.Type;
 
 /** What update path a client should offer for a server: one of the RPC
     self-update methods above, or "desktop-managed" when the backend's
-    version belongs to the T3 Code desktop app supervising it — updating the
+    version belongs to the Sovereign desktop app supervising it — updating the
     app on that machine is the only way to update the server. */
 export const ServerSelfUpdateCapability = Schema.Literals([
   "boot-service",
@@ -89,11 +89,23 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
+/**
+ * Compatibility identity for the client/server wire contract. Exact build
+ * versions may change for client-only releases, while this changes only when
+ * an older server can no longer safely serve the current client.
+ */
+export const CLIENT_SERVER_PROTOCOL_VERSION = 1;
+
 export const ExecutionEnvironmentDescriptor = Schema.Struct({
   environmentId: EnvironmentId,
   label: TrimmedNonEmptyString,
   platform: ExecutionEnvironmentPlatform,
   serverVersion: TrimmedNonEmptyString,
+  /** Optional for compatibility with servers released before protocol
+      identity was separated from the exact runtime build version. */
+  clientServerProtocolVersion: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  ),
   capabilities: ExecutionEnvironmentCapabilities,
 });
 export type ExecutionEnvironmentDescriptor = typeof ExecutionEnvironmentDescriptor.Type;

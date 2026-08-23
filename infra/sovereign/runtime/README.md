@@ -95,7 +95,7 @@ version, builds the clients and complete Linux runtime, signs it, archives it
 privately in Gitea, publishes it publicly to GitHub, then deploys the control
 plane and web app. Publication is blocked unless the packaged CLI contains the
 sovereign hosted-app, OAuth issuer, and relay origins; this prevents a clean
-machine from silently falling back to the upstream T3 account infrastructure.
+machine from silently falling back to the upstream Sovereign account infrastructure.
 
 Before the first workflow, mirror the pinned FRP input into Gitea. The expected
 destination is another immutable Generic Package file, for example:

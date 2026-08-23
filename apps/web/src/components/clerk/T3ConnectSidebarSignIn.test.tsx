@@ -37,7 +37,7 @@ describe("T3ConnectSidebarAvatar", () => {
       </SidebarProvider>,
     );
 
-    expect(html).toContain("Open T3 Connect account menu");
+    expect(html).toContain("Open Sovereign Relay account menu");
     expect(html).toContain("sam@example.test");
     expect(html).toContain("justify-center");
     expect(html).toContain("size-9!");

@@ -29,6 +29,7 @@ import {
   AgentAwarenessOperationError,
   __resetAgentAwarenessRemoteRegistrationForTest,
   armAgentAwarenessLiveActivityForLocalWork,
+  dismissAgentAwarenessLiveActivities,
   getAgentAwarenessRegistrationStatus,
   mergeAgentAwarenessRegistrationPreferences,
   refreshActiveLiveActivityRemoteRegistration,
@@ -248,6 +249,7 @@ describe("makeRelayDeviceRegistrationRequest", () => {
     vi.mocked(loadAgentAwarenessRegistrationRecord).mockClear();
     vi.mocked(clearAgentAwarenessRegistrationRecord).mockClear();
     vi.mocked(loadOrCreateAgentAwarenessDeviceId).mockResolvedValue("device-1");
+    vi.mocked(loadPreferences).mockResolvedValue({ liveActivitiesEnabled: false });
     widgetMocks.getInstances.mockReset();
     widgetMocks.getInstances.mockReturnValue([]);
     widgetMocks.start.mockClear();
@@ -285,6 +287,17 @@ describe("makeRelayDeviceRegistrationRequest", () => {
         notifyOnFailure: true,
       },
     });
+  });
+
+  it("immediately ends every local Live Activity when updates are disabled", async () => {
+    const first = { end: vi.fn(() => Promise.resolve()) };
+    const second = { end: vi.fn(() => Promise.resolve()) };
+    widgetMocks.getInstances.mockReturnValue([first, second] as never);
+
+    await dismissAgentAwarenessLiveActivities();
+
+    expect(first.end).toHaveBeenCalledWith("immediate");
+    expect(second.end).toHaveBeenCalledWith("immediate");
   });
 
   it("registers the app's APNs routing so the relay targets the right bundle", () => {
@@ -444,6 +457,7 @@ describe("makeRelayDeviceRegistrationRequest", () => {
         end: vi.fn(),
       };
       widgetMocks.getInstances.mockReturnValue([activity] as never);
+      vi.mocked(loadPreferences).mockResolvedValue({ liveActivitiesEnabled: true });
       setAgentAwarenessRelayTokenProvider(() => Promise.resolve("clerk-token-user-a"));
 
       return Effect.gen(function* () {
@@ -457,6 +471,24 @@ describe("makeRelayDeviceRegistrationRequest", () => {
     },
   );
 
+  it.effect("ends an orphaned Live Activity after upgrading with updates disabled", () => {
+    const activity = {
+      getPushToken: vi.fn(() => Promise.resolve("activity-token")),
+      addPushTokenListener: vi.fn(),
+      end: vi.fn(() => Promise.resolve()),
+    };
+    widgetMocks.getInstances.mockReturnValue([activity] as never);
+    vi.mocked(loadPreferences).mockResolvedValue({ liveActivitiesEnabled: false });
+    setAgentAwarenessRelayTokenProvider(() => Promise.resolve("clerk-token-user-a"));
+
+    return Effect.gen(function* () {
+      yield* refreshActiveLiveActivityRemoteRegistration();
+
+      expect(activity.end).toHaveBeenCalledWith("immediate");
+      expect(activity.getPushToken).not.toHaveBeenCalled();
+    }).pipe(Effect.provide(relayTestLayer));
+  });
+
   it.effect(
     "re-registers active Live Activity tokens when the app returns to the foreground",
     () => {
@@ -465,6 +497,7 @@ describe("makeRelayDeviceRegistrationRequest", () => {
         addPushTokenListener: vi.fn(),
       };
       widgetMocks.getInstances.mockReturnValue([activity] as never);
+      vi.mocked(loadPreferences).mockResolvedValue({ liveActivitiesEnabled: true });
       setAgentAwarenessRelayTokenProvider(() => Promise.resolve("clerk-token-user-a"));
 
       return Effect.gen(function* () {
@@ -495,6 +528,7 @@ describe("makeRelayDeviceRegistrationRequest", () => {
       end,
     };
     widgetMocks.getInstances.mockReturnValue([activity] as never);
+    vi.mocked(loadPreferences).mockResolvedValue({ liveActivitiesEnabled: true });
     setAgentAwarenessRelayTokenProvider(() => Promise.resolve("clerk-token-user-a"));
     expect(appStateMock.listeners).toHaveLength(1);
 
@@ -710,6 +744,7 @@ describe("makeRelayDeviceRegistrationRequest", () => {
       addPushTokenListener: vi.fn(),
     };
     widgetMocks.getInstances.mockReturnValue([activity] as never);
+    vi.mocked(loadPreferences).mockResolvedValue({ liveActivitiesEnabled: true });
     setAgentAwarenessRelayTokenProvider(() => Promise.resolve("clerk-token-user-a"));
 
     return Effect.gen(function* () {

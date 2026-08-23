@@ -4,7 +4,13 @@ import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
 
 const repoEnv = loadRepoEnv();
 const shouldLaunchElectronAfterPack = process.env.T3CODE_DESKTOP_DEV === "1";
+const sovereignIdentitySelected = Boolean(
+  repoEnv.T3CODE_OAUTH_ISSUER?.trim() ||
+  repoEnv.T3CODE_OAUTH_CLIENT_ID?.trim() ||
+  repoEnv.T3CODE_OAUTH_RESOURCE?.trim(),
+);
 const publicConfigDefine = {
+  __T3CODE_BUILD_SOVEREIGN__: JSON.stringify(sovereignIdentitySelected),
   __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(
     repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
   ),
@@ -42,10 +48,13 @@ export default defineConfig({
     {
       format: "cjs",
       outDir: "dist-electron",
-      sourcemap: true,
+      sourcemap: !sovereignIdentitySelected,
       outExtensions: () => ({ js: ".cjs" }),
       define: publicConfigDefine,
       entry: ["src/main.ts"],
+      alias: sovereignIdentitySelected
+        ? { "./app/DesktopClerk.ts": "./app/DesktopSovereignAuth.ts" }
+        : {},
       clean: true,
       deps: {
         alwaysBundle: (id) => id.startsWith("@t3tools/"),
@@ -55,14 +64,14 @@ export default defineConfig({
     {
       format: "cjs",
       outDir: "dist-electron",
-      sourcemap: true,
+      sourcemap: !sovereignIdentitySelected,
       outExtensions: () => ({ js: ".cjs" }),
       define: publicConfigDefine,
       entry: ["src/preload.ts"],
       deps: {
         // Sandboxed Electron preloads cannot reliably resolve package imports
-        // from inside the packaged ASAR. Bundle Clerk's preload bridge into the
-        // preload artifact instead of leaving a runtime require() behind.
+        // from inside the packaged ASAR. Provider-specific dead-code removal
+        // drops this dependency entirely from Sovereign identity builds.
         alwaysBundle: (id) => id === "@clerk/electron" || id.startsWith("@clerk/electron/"),
       },
     },

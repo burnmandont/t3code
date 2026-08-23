@@ -545,7 +545,7 @@ const relayClientRequest = <A>(
     Effect.mapError(
       (cause) =>
         new EnvironmentHttpInternalServerError({
-          message: `T3 Connect relay request failed: ${String(cause)}`,
+          message: `Sovereign Relay relay request failed: ${String(cause)}`,
         }),
     ),
     withRelayClientTracing,
@@ -570,7 +570,7 @@ export const relayEnvironmentLinkRequest = (
             Effect.mapError(
               (cause) =>
                 new EnvironmentHttpInternalServerError({
-                  message: `T3 Connect relay returned an unreadable conflict response: ${String(cause)}`,
+                  message: `Sovereign Relay relay returned an unreadable conflict response: ${String(cause)}`,
                 }),
             ),
             Effect.flatMap((error) =>
@@ -583,7 +583,7 @@ export const relayEnvironmentLinkRequest = (
             Effect.mapError(
               (cause) =>
                 new EnvironmentHttpInternalServerError({
-                  message: `T3 Connect relay request failed: ${String(cause)}`,
+                  message: `Sovereign Relay relay request failed: ${String(cause)}`,
                 }),
             ),
           ),
@@ -674,7 +674,7 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
   },
   Effect.catchIf(
     ServerSecretStore.isSecretStoreError,
-    failEnvironmentCloudInternalError("Could not persist desired T3 Connect link state."),
+    failEnvironmentCloudInternalError("Could not persist desired Sovereign Relay link state."),
   ),
   Effect.catchTags({
     CloudCliCredentialRemovalError: failCloudCliTokenManagerError,
@@ -696,7 +696,7 @@ export const markCloudLinkRemotelyRetired = Effect.fn("environment.cloud.markRem
     const dependencies = yield* cloudHttpDependencies;
     yield* dependencies.endpointRuntime.applyConfig(null);
     const retiredAt = yield* markCliEnvironmentRetired;
-    yield* Effect.logWarning("T3 Connect environment identity retired locally", { retiredAt });
+    yield* Effect.logWarning("Sovereign Relay environment identity retired locally", { retiredAt });
     return retiredAt;
   },
 );
@@ -1084,7 +1084,7 @@ const cloudMintCredentialHandler = Effect.fn("environment.cloud.mintCredential")
       scopes: AuthStandardClientScopes,
       subject: "cloud-connect",
       ttl: Duration.minutes(2),
-      label: "T3 Connect connect",
+      label: "Sovereign Relay connect",
       proofKeyThumbprint: proof.clientProofKeyThumbprint,
     });
     const responsePayload = {

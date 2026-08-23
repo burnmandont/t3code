@@ -1,22 +1,38 @@
-import { useAuth, useClerk, useUser } from "@clerk/react";
 import { encodeConnectAuthCode, readConnectAuthorizeRequest } from "@t3tools/shared/connectAuth";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import {
   buildConnectCliOAuthAuthorizeUrl,
-  connectCliSignInRedirectUrl,
   readConnectCliAuthState,
   readConnectCliCallbackResult,
   rememberConnectCliAuthState,
   resolveConnectCliOAuthConfig,
 } from "../../cloud/connectCliAuth";
-import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { AuthSurfaceShell } from "../auth/AuthSurfaceShell";
-import { resolveClerkSignInProps } from "../clerk/authRedirect";
 import { Button } from "../ui/button";
 
-function ConnectCliAuthMessage({
+declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
+
+const sovereignBuild =
+  typeof __T3CODE_BUILD_SOVEREIGN__ !== "undefined" && __T3CODE_BUILD_SOVEREIGN__;
+
+const ClerkConnectCliAuthorizeSurface = sovereignBuild
+  ? null
+  : lazy(() =>
+      import("./ConnectCliClerkAuthSurface").then((module) => ({
+        default: module.ClerkConnectCliAuthorizeSurface,
+      })),
+    );
+const ClerkConnectCliCallbackSurface = sovereignBuild
+  ? null
+  : lazy(() =>
+      import("./ConnectCliClerkAuthSurface").then((module) => ({
+        default: module.ClerkConnectCliCallbackSurface,
+      })),
+    );
+
+export function ConnectCliAuthMessage({
   eyebrow,
   title,
   description,
@@ -38,7 +54,7 @@ function ConnectCliAuthMessage({
   );
 }
 
-const invalidLinkMessage = {
+export const invalidLinkMessage = {
   eyebrow: "Authorization request",
   title: "This connect link is incomplete",
   description:
@@ -57,7 +73,14 @@ export function ConnectCliAuthorizeSurface() {
   if (config?.provider === "sovereign") {
     return <SovereignConnectCliAuthorizeSurface request={request} />;
   }
-  return <ClerkConnectCliAuthorizeSurface request={request} />;
+  if (!ClerkConnectCliAuthorizeSurface) {
+    return <SovereignConnectCliAuthorizeSurface request={request} />;
+  }
+  return (
+    <Suspense fallback={null}>
+      <ClerkConnectCliAuthorizeSurface request={request} />
+    </Suspense>
+  );
 }
 
 function SovereignConnectCliAuthorizeSurface({
@@ -82,7 +105,7 @@ function SovereignConnectCliAuthorizeSurface({
           ? {
               eyebrow: "Step 1 of 2 · Browser authorization",
               title: "Connecting your terminal",
-              description: "Redirecting to your T3 account service…",
+              description: "Redirecting to your Sovereign account service…",
             }
           : invalidLinkMessage)}
       />
@@ -99,101 +122,23 @@ function SovereignConnectCliAuthorizeSurface({
   );
 }
 
-function ClerkConnectCliAuthorizeSurface({
-  request,
-}: {
-  readonly request: ReturnType<typeof readConnectAuthorizeRequest>;
-}) {
-  const clerk = useClerk();
-  const { isLoaded, isSignedIn } = useAuth();
-  const signInOpened = useRef(false);
-  const redirecting = useRef(false);
-
-  const openSignIn = useCallback(() => {
-    if (!request) {
-      return;
-    }
-    // Clerk redirects to the authorize endpoint itself once sign-in completes,
-    // so the callback's state check has to be armed before handing off.
-    rememberConnectCliAuthState(request.state);
-    clerk.openSignIn(
-      resolveClerkSignInProps(
-        connectCliSignInRedirectUrl(request, window.location.href),
-        isElectron,
-      ),
-    );
-  }, [clerk, request]);
-
-  useEffect(() => {
-    if (!request || !isLoaded || redirecting.current) {
-      return;
-    }
-    if (!isSignedIn) {
-      if (!signInOpened.current) {
-        signInOpened.current = true;
-        openSignIn();
-      }
-      return;
-    }
-    const authorizeUrl = buildConnectCliOAuthAuthorizeUrl(request);
-    if (!authorizeUrl) {
-      return;
-    }
-    redirecting.current = true;
-    rememberConnectCliAuthState(request.state);
-    window.location.assign(authorizeUrl);
-  }, [isLoaded, isSignedIn, openSignIn, request]);
-
-  if (!request) {
-    return (
-      <AuthSurfaceShell>
-        <ConnectCliAuthMessage {...invalidLinkMessage} />
-      </AuthSurfaceShell>
-    );
-  }
-
-  return (
-    <AuthSurfaceShell>
-      <ConnectCliAuthMessage
-        eyebrow={
-          request.loopbackPort === undefined
-            ? "Step 1 of 2 · Browser authorization"
-            : "Browser authorization"
-        }
-        title="Connecting your terminal"
-        description={
-          isSignedIn
-            ? "Redirecting to authorize T3 Connect for your CLI…"
-            : "Sign in to continue authorizing T3 Connect for your CLI."
-        }
-      />
-      {isLoaded && !isSignedIn ? (
-        <div className="mt-6">
-          <Button type="button" onClick={openSignIn}>
-            Sign in
-          </Button>
-        </div>
-      ) : null}
-    </AuthSurfaceShell>
-  );
-}
-
 /** The issuer callback displays the one-time code entered in the waiting CLI. */
 export function ConnectCliCallbackSurface() {
-  return resolveConnectCliOAuthConfig()?.provider === "clerk" ? (
-    <ClerkConnectCliCallbackSurface />
-  ) : (
-    <ConnectCliCallbackContent accountLabel={null} />
+  if (resolveConnectCliOAuthConfig()?.provider !== "clerk" || !ClerkConnectCliCallbackSurface) {
+    return <ConnectCliCallbackContent accountLabel={null} />;
+  }
+  return (
+    <Suspense fallback={null}>
+      <ClerkConnectCliCallbackSurface />
+    </Suspense>
   );
 }
 
-function ClerkConnectCliCallbackSurface() {
-  const { user } = useUser();
-  const accountLabel = user?.primaryEmailAddress?.emailAddress ?? user?.username ?? null;
-  return <ConnectCliCallbackContent accountLabel={accountLabel} />;
-}
-
-function ConnectCliCallbackContent({ accountLabel }: { readonly accountLabel: string | null }) {
+export function ConnectCliCallbackContent({
+  accountLabel,
+}: {
+  readonly accountLabel: string | null;
+}) {
   const [result] = useState(readConnectCliCallbackResult);
   const [expectedState] = useState(readConnectCliAuthState);
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "authentication code" });
@@ -263,7 +208,7 @@ function ConnectCliCallbackContent({ accountLabel }: { readonly accountLabel: st
 
       <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
         Only enter this code in a terminal session you started yourself. Anyone holding it can link
-        their machine to your T3 Connect account while it is valid.
+        their machine to your Sovereign Relay account while it is valid.
       </p>
     </AuthSurfaceShell>
   );

@@ -372,6 +372,7 @@ import {
   buildVersionMismatchDismissalKey,
   dismissVersionMismatch,
   isVersionMismatchDismissed,
+  resolveServerConfigRuntimeDrift,
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   serverUpdateGuidance,
@@ -2094,26 +2095,28 @@ function ChatViewContent(props: ChatViewProps) {
     : (primaryEnvironment?.serverConfig ?? null);
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
-  const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
-  const versionMismatchDismissKey =
-    versionMismatch && activeThread
-      ? buildVersionMismatchDismissalKey(activeThread.environmentId, versionMismatch)
+  const protocolMismatch = resolveServerConfigVersionMismatch(serverConfig);
+  const runtimeDrift = resolveServerConfigRuntimeDrift(serverConfig);
+  const serverVersionNotice = protocolMismatch ?? runtimeDrift;
+  const serverVersionNoticeDismissKey =
+    serverVersionNotice && activeThread
+      ? buildVersionMismatchDismissalKey(activeThread.environmentId, serverVersionNotice)
       : null;
-  const [dismissedVersionMismatchKey, setDismissedVersionMismatchKey] = useState<string | null>(
-    null,
-  );
-  const versionMismatchDismissed =
-    versionMismatchDismissKey === dismissedVersionMismatchKey ||
-    isVersionMismatchDismissed(versionMismatchDismissKey);
-  const showVersionMismatchBanner =
-    versionMismatch !== null && versionMismatchDismissKey !== null && !versionMismatchDismissed;
+  const [dismissedServerVersionKey, setDismissedServerVersionKey] = useState<string | null>(null);
+  const serverVersionNoticeDismissed =
+    serverVersionNoticeDismissKey === dismissedServerVersionKey ||
+    isVersionMismatchDismissed(serverVersionNoticeDismissKey);
+  const showServerVersionBanner =
+    serverVersionNotice !== null &&
+    serverVersionNoticeDismissKey !== null &&
+    !serverVersionNoticeDismissed;
   const hasMultipleRegisteredEnvironments = environments.length > 1;
-  const versionMismatchServerLabel =
+  const serverVersionServerLabel =
     hasMultipleRegisteredEnvironments && activeThread
       ? `${environmentById.get(activeThread.environmentId)?.label ?? serverConfig?.environment.label ?? activeThread.environmentId} server`
       : "server";
   const serverUpdateEnvironmentId = activeThread?.environmentId ?? null;
-  const versionMismatchSelfUpdate = resolveServerSelfUpdateCapability(serverConfig);
+  const serverSelfUpdate = resolveServerSelfUpdateCapability(serverConfig);
   const serverUpdateState = useAtomValue(
     serverEnvironment.updateStateAtom(serverUpdateEnvironmentId),
   );
@@ -2132,7 +2135,9 @@ function ChatViewContent(props: ChatViewProps) {
     // "versions differ". A failed update never folds: its error and retry
     // action must stay visible.
     const reconnectingThroughVersionSkew =
-      serverUpdateState.status === "idle" && environmentReconnecting && versionMismatch !== null;
+      serverUpdateState.status === "idle" &&
+      environmentReconnecting &&
+      serverVersionNotice !== null;
     // While an update runs, transient connect blips are expected (the server
     // restarts) and the update banner already shows progress. Hard failure
     // phases still surface so the Reconnect action stays reachable.
@@ -2193,7 +2198,7 @@ function ChatViewContent(props: ChatViewProps) {
       serverUpdateEnvironmentId &&
       !reconnectingThroughVersionSkew &&
       (serverUpdateState.status !== "idle" ||
-        (showVersionMismatchBanner && versionMismatch && versionMismatchDismissKey))
+        (showServerVersionBanner && serverVersionNotice && serverVersionNoticeDismissKey))
     ) {
       const updateInProgress = serverUpdateState.status === "running";
       const updateFailed = serverUpdateState.status === "failed";
@@ -2214,51 +2219,51 @@ function ChatViewContent(props: ChatViewProps) {
           ),
         title:
           updateInProgress || updateFailed ? (
-            `${updateFailed ? "Could not update" : "Updating"} ${versionMismatchServerLabel}`
-          ) : versionMismatch ? (
+            `${updateFailed ? "Could not sync" : "Syncing"} ${serverVersionServerLabel}`
+          ) : serverVersionNotice ? (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <button type="button" className="cursor-help rounded-sm text-left">
-                    Server update available
+                    {protocolMismatch ? "Server update required" : "Server build differs"}
                   </button>
                 }
               />
               <TooltipPopup side="top">
-                {versionMismatchServerLabel} {versionMismatch.serverVersion}{" "}
-                <span aria-hidden="true">→</span> {versionMismatch.clientVersion}
+                {serverVersionServerLabel} {serverVersionNotice.serverVersion}{" "}
+                <span aria-hidden="true">→</span> {serverVersionNotice.clientVersion}
               </TooltipPopup>
             </Tooltip>
           ) : (
-            "Server update available"
+            "Server sync available"
           ),
         description:
           updateInProgress || updateFailed ? (
             <ServerUpdateProgress state={serverUpdateState} />
-          ) : versionMismatchSelfUpdate === "desktop-managed" ? (
-            serverUpdateGuidance(versionMismatchSelfUpdate, versionMismatchServerLabel)
+          ) : serverSelfUpdate === "desktop-managed" ? (
+            serverUpdateGuidance(serverSelfUpdate, serverVersionServerLabel)
           ) : null,
         // The desktop-managed guidance is already the description; the action
         // slot would only repeat it.
         actions:
           updateInProgress ||
-          !versionMismatch ||
-          versionMismatchSelfUpdate === "desktop-managed" ? undefined : (
+          !runtimeDrift ||
+          serverSelfUpdate === "desktop-managed" ? undefined : (
             <ServerUpdateAction
               environmentId={serverUpdateEnvironmentId}
-              serverLabel={versionMismatchServerLabel}
-              selfUpdate={versionMismatchSelfUpdate}
-              targetVersion={versionMismatch.clientVersion}
-              label={updateFailed ? "Retry" : "Update"}
+              serverLabel={serverVersionServerLabel}
+              selfUpdate={serverSelfUpdate}
+              targetVersion={runtimeDrift.clientVersion}
+              label={updateFailed ? "Retry" : "Sync"}
             />
           ),
-        ...(updateInProgress || updateFailed || !versionMismatchDismissKey
+        ...(updateInProgress || updateFailed || !serverVersionNoticeDismissKey
           ? {}
           : {
-              dismissLabel: "Dismiss update notice",
+              dismissLabel: "Dismiss server sync notice",
               onDismiss: () => {
-                dismissVersionMismatch(versionMismatchDismissKey);
-                setDismissedVersionMismatchKey(versionMismatchDismissKey);
+                dismissVersionMismatch(serverVersionNoticeDismissKey);
+                setDismissedServerVersionKey(serverVersionNoticeDismissKey);
               },
             }),
       });
@@ -2269,14 +2274,16 @@ function ChatViewContent(props: ChatViewProps) {
     reconnectWarningGraceElapsed,
     handleReconnectActiveEnvironment,
     navigate,
-    setDismissedVersionMismatchKey,
-    showVersionMismatchBanner,
+    setDismissedServerVersionKey,
+    showServerVersionBanner,
     serverUpdateState,
-    versionMismatch,
-    versionMismatchDismissKey,
+    protocolMismatch,
+    runtimeDrift,
+    serverVersionNotice,
+    serverVersionNoticeDismissKey,
     serverUpdateEnvironmentId,
-    versionMismatchSelfUpdate,
-    versionMismatchServerLabel,
+    serverSelfUpdate,
+    serverVersionServerLabel,
   ]);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
   const unlockedSelectedProvider = resolveSelectableProvider(
@@ -6494,7 +6501,7 @@ function ChatViewContent(props: ChatViewProps) {
     ) : activeRightPanelSurface?.kind === "pull-request" && !supportsPullRequests ? (
       <PullRequestsUnavailableState
         title="Pull requests unavailable"
-        error="Update this environment's T3 Code server to browse pull requests."
+        error="Update this environment's Sovereign server to browse pull requests."
       />
     ) : activeRightPanelSurface?.kind === "pull-request" ? (
       // No onClose: the surface tab's own X owns closing here, and a second X in the header

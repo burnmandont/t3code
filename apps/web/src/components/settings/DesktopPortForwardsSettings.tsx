@@ -71,7 +71,7 @@ export function DesktopPortForwardsSettings() {
     <SettingsSection title="Port forwarding">
       <SettingsRow
         title="New TCP forward"
-        description="Expose a remote loopback port on this computer. Leaving the local port blank tries the same port first, then nearby free ports. Forwards last until you stop them or quit T3 Code."
+        description="Expose a remote loopback port on this computer. Leaving the local port blank tries the same port first, then nearby free ports. Forwards last until you stop them or quit Sovereign."
         status={error === null ? null : <span className="text-destructive">{error}</span>}
       >
         <div className="space-y-1 pb-2">

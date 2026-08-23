@@ -36,6 +36,7 @@ import {
   resolveFffNativeDependencies,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
+  resolveDesktopClientRuntimeVersion,
   resolveDesktopProductName,
   resolveDesktopUpdateChannel,
   resolveDesktopWebAssetBrand,
@@ -61,6 +62,7 @@ import {
   WINDOWS_SERVER_ASAR_RESOURCE,
   WINDOWS_SERVER_ASAR_UNPACK_GLOB,
   WINDOWS_SERVER_RESOURCE_SOURCE_DIR,
+  usesSovereignDesktopIdentity,
 } from "./build-desktop-artifact.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -157,8 +159,41 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code (Alpha)");
-    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "Sovereign (Alpha)");
+    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "Sovereign (Nightly)");
+  });
+
+  it("embeds the exact signed runtime identity in sovereign desktop clients", () => {
+    assert.equal(
+      resolveDesktopClientRuntimeVersion({
+        packageVersion: "0.0.33",
+        commitHash: "ac5c3dafabb04b23a2155396e861f45538dbcc71",
+        hostedAppChannel: "sovereign",
+        explicitAppVersion: undefined,
+      }),
+      "0.0.33+sovereign.gac5c3dafabb0",
+    );
+  });
+
+  it("keeps explicit and non-sovereign client versions unchanged", () => {
+    assert.equal(
+      resolveDesktopClientRuntimeVersion({
+        packageVersion: "0.0.33",
+        commitHash: "ac5c3dafabb04b23a2155396e861f45538dbcc71",
+        hostedAppChannel: "sovereign",
+        explicitAppVersion: "0.0.33+sovereign.gexplicit1234",
+      }),
+      "0.0.33+sovereign.gexplicit1234",
+    );
+    assert.equal(
+      resolveDesktopClientRuntimeVersion({
+        packageVersion: "0.0.33",
+        commitHash: "ac5c3dafabb04b23a2155396e861f45538dbcc71",
+        hostedAppChannel: "latest",
+        explicitAppVersion: undefined,
+      }),
+      "0.0.33",
+    );
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
@@ -242,6 +277,26 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "@effect/platform-node": "4.0.0-beta.59",
         effect: "4.0.0-beta.59",
       },
+    );
+  });
+
+  it("omits Clerk desktop packages from sovereign identity artifacts", () => {
+    assert.deepStrictEqual(
+      resolveDesktopRuntimeDependencies(
+        {
+          "@clerk/electron": "catalog:",
+          "@clerk/electron-passkeys": "catalog:",
+          effect: "catalog:",
+          electron: "41.5.0",
+        },
+        {
+          "@clerk/electron": "6.4.0",
+          "@clerk/electron-passkeys": "0.1.0",
+          effect: "4.0.0-beta.59",
+        },
+        true,
+      ),
+      { effect: "4.0.0-beta.59" },
     );
   });
 
@@ -468,7 +523,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/node_modules/.bin/**",
       ]);
       assert.deepStrictEqual(mac.dmg, {
-        title: "T3 Code (Alpha) 1.2.3 Installer",
+        title: "Sovereign (Alpha) 1.2.3 Installer",
         background: "dmg/dmg-background-latest.png",
         window: { width: 540, height: 412 },
         contents: [
@@ -481,7 +536,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       // Linux must register the renderer schemes so the generated .desktop
       // entry advertises MimeType=x-scheme-handler/t3code; for OAuth deep links.
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
-        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+        { name: "Sovereign", schemes: ["t3code", "t3code-dev"] },
       ]);
       for (const config of [mac, linux, win]) {
         assert.deepStrictEqual(config.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
@@ -716,15 +771,19 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
     return Effect.scoped(
       Effect.gen(function* () {
+        const path = yield* Path.Path;
         const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
+        commands.length = 0;
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
           appExecutableName: fixture.appExecutableName,
           targetArch: "arm64",
         });
-
         assert.isFalse(
-          commands.some((command) => command.options.env?.ELECTRON_RUN_AS_NODE === "1"),
+          commands.some(
+            (command) =>
+              command.command === path.join(fixture.packagedAppDir, fixture.appExecutableName),
+          ),
         );
         assert.isTrue(
           commands.some(
@@ -994,11 +1053,26 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     });
 
     assert.deepStrictEqual(configuration, {
-      appId: "com.t3tools.t3code",
+      appId: "com.moondiner.t3code.desktop",
       teamId: "ABC1234567",
       rpDomains: ["example.clerk.accounts.dev"],
       provisioningProfilePath: "/tmp/t3code.provisionprofile",
     });
+  });
+
+  it("does not configure Clerk passkey signing for sovereign desktop identity builds", () => {
+    assert.isTrue(
+      usesSovereignDesktopIdentity({
+        T3CODE_OAUTH_ISSUER: "https://auth.example.com/api/auth",
+        T3CODE_OAUTH_CLIENT_ID: "t3-code",
+        T3CODE_OAUTH_RESOURCE: "https://relay.example.com",
+      }),
+    );
+    assert.isFalse(
+      usesSovereignDesktopIdentity({
+        T3CODE_CLERK_PUBLISHABLE_KEY: `pk_test_${btoa("example.clerk.accounts.dev$")}`,
+      }),
+    );
   });
 
   it("normalizes explicit macOS passkey RP domains and renders required entitlements", () => {
@@ -1014,7 +1088,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "clerk.example.com",
       "example.clerk.accounts.dev",
     ]);
-    assert.include(entitlements, "<string>ABC1234567.com.t3tools.t3code</string>");
+    assert.include(entitlements, "<string>ABC1234567.com.moondiner.t3code.desktop</string>");
     assert.include(entitlements, "<string>webcredentials:clerk.example.com</string>");
     assert.include(entitlements, "<string>webcredentials:example.clerk.accounts.dev</string>");
     assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
@@ -1109,11 +1183,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       });
 
       const mac = config.mac as Record<string, unknown>;
-      assert.equal(config.appId, "com.t3tools.t3code");
+      assert.equal(config.appId, "com.moondiner.t3code.desktop");
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
       assert.deepStrictEqual(mac.protocols, [
-        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+        { name: "Sovereign", schemes: ["t3code", "t3code-dev"] },
       ]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );

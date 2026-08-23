@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { CLIENT_SERVER_PROTOCOL_VERSION, EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { APP_VERSION } from "./branding";
@@ -8,7 +8,9 @@ import {
   dismissVersionMismatch,
   isVersionMismatchDismissed,
   resolveServerConfigVersionMismatch,
+  resolveServerConfigRuntimeDrift,
   resolveServerSelfUpdateCapability,
+  resolveServerRuntimeDrift,
   resolveVersionMismatch,
   manualServerUpdateCommand,
   serverUpdateGuidance,
@@ -19,11 +21,57 @@ describe("versionSkew", () => {
     expect(resolveVersionMismatch(APP_VERSION)).toBeNull();
   });
 
-  it("returns a mismatch when the server version differs from the client", () => {
+  it("returns a mismatch when a legacy server is on a different release line", () => {
     expect(resolveVersionMismatch("9.9.9")).toEqual({
       clientVersion: APP_VERSION,
       serverVersion: "9.9.9",
-      hint: "Version mismatch. Try syncing the client and server to the same T3 Code version.",
+      hint: "Version mismatch. Try syncing the client and server to the same Sovereign version.",
+    });
+  });
+
+  it("does not warn when exact sovereign builds share the current protocol", () => {
+    expect(
+      resolveVersionMismatch("9.9.9+sovereign.gabcdef012345", CLIENT_SERVER_PROTOCOL_VERSION),
+    ).toBeNull();
+  });
+
+  it("detects exact runtime drift even when the server protocol is compatible", () => {
+    const serverVersion = "9.9.9+sovereign.gabcdef012345";
+
+    expect(resolveVersionMismatch(serverVersion, CLIENT_SERVER_PROTOCOL_VERSION)).toBeNull();
+    expect(resolveServerRuntimeDrift(serverVersion)).toEqual({
+      clientVersion: APP_VERSION,
+      serverVersion,
+    });
+  });
+
+  it("does not report runtime drift when exact builds match", () => {
+    expect(resolveServerRuntimeDrift(APP_VERSION)).toBeNull();
+  });
+
+  it("warns when the server reports an incompatible protocol", () => {
+    expect(resolveVersionMismatch("9.9.9", CLIENT_SERVER_PROTOCOL_VERSION + 1)).toEqual({
+      clientVersion: APP_VERSION,
+      serverVersion: "9.9.9",
+      hint: "Version mismatch. Try syncing the client and server to the same Sovereign version.",
+    });
+  });
+
+  it("trusts an explicit protocol mismatch over equal build versions", () => {
+    expect(resolveVersionMismatch(APP_VERSION, CLIENT_SERVER_PROTOCOL_VERSION + 1)).toMatchObject({
+      clientVersion: APP_VERSION,
+      serverVersion: APP_VERSION,
+    });
+  });
+
+  it("treats legacy sovereign builds on the same release line as compatible", () => {
+    const clientReleaseLine = APP_VERSION.split(/[+-]/u, 1)[0];
+    expect(resolveVersionMismatch(`${clientReleaseLine}+sovereign.gabcdef012345`)).toBeNull();
+  });
+
+  it("keeps strict fallback behavior for malformed legacy versions", () => {
+    expect(resolveVersionMismatch("development-build")).toMatchObject({
+      serverVersion: "development-build",
     });
   });
 
@@ -38,6 +86,7 @@ describe("versionSkew", () => {
             arch: "arm64",
           },
           serverVersion: "9.9.9",
+          clientServerProtocolVersion: CLIENT_SERVER_PROTOCOL_VERSION + 1,
           capabilities: {
             repositoryIdentity: true,
           },
@@ -45,6 +94,24 @@ describe("versionSkew", () => {
       }),
     ).toMatchObject({
       serverVersion: "9.9.9",
+    });
+  });
+
+  it("reads exact runtime drift from config descriptors", () => {
+    expect(
+      resolveServerConfigRuntimeDrift({
+        environment: {
+          environmentId: EnvironmentId.make("environment-runtime-drift"),
+          label: "Remote",
+          platform: { os: "linux", arch: "x64" },
+          serverVersion: "9.9.9+sovereign.gabcdef012345",
+          clientServerProtocolVersion: CLIENT_SERVER_PROTOCOL_VERSION,
+          capabilities: { repositoryIdentity: true },
+        },
+      }),
+    ).toEqual({
+      clientVersion: APP_VERSION,
+      serverVersion: "9.9.9+sovereign.gabcdef012345",
     });
   });
 
@@ -75,7 +142,7 @@ describe("versionSkew", () => {
     const mismatch = resolveVersionMismatch("9.9.9");
 
     expect(appendVersionMismatchHint("Socket closed.", mismatch)).toBe(
-      "Socket closed. Hint: Version mismatch. Try syncing the client and server to the same T3 Code version.",
+      "Socket closed. Hint: Version mismatch. Try syncing the client and server to the same Sovereign version.",
     );
   });
 

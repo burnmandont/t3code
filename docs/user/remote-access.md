@@ -1,6 +1,6 @@
 # Remote Access
 
-Use this when you want to connect to a T3 Code server from another device such as a phone, tablet, or separate desktop app.
+Use this when you want to connect to a Sovereign server from another device such as a phone, tablet, or separate desktop app.
 
 ## Quick Pairing for a Running Server
 
@@ -35,7 +35,7 @@ That gives you:
 ## Enabling Network Access
 
 There are three ways to reach your server from another device: expose the desktop app's backend,
-run a headless server from the CLI, or have the desktop app launch T3 Code over SSH.
+run a headless server from the CLI, or have the desktop app launch Sovereign over SSH.
 
 ### Option 1: Desktop App
 
@@ -124,7 +124,7 @@ the environment the project lives on. Every saved environment is offered, not on
 
 ### Option 3: Desktop-Managed SSH Launch
 
-Use this when you want the desktop app to start or reuse T3 Code on another machine over SSH.
+Use this when you want the desktop app to start or reuse Sovereign on another machine over SSH.
 
 1. Open **Settings** → **Connections**.
 2. Under **Remote Environments**, choose **Add environment**.
@@ -136,16 +136,16 @@ After setup, the renderer connects to a local forwarded HTTP/WebSocket endpoint.
 
 SSH launch is a desktop feature because it needs local process and SSH access. Once the environment is paired and saved, it uses the same environment list and connection model as direct LAN, Tailscale, HTTPS, or future tunnel-backed environments.
 
-If the same server is already saved through T3 Connect, adding it through SSH does not create a
+If the same server is already saved through Sovereign Relay, adding it through SSH does not create a
 second environment. The desktop keeps both access methods under the server's stable environment
-identity. Choose **T3 Connect** or **SSH** from the environment's connection-method menu. The choice
-is manual and applies only to that desktop; T3 Code does not silently fall back to the other method.
+identity. Choose **Sovereign Relay** or **SSH** from the environment's connection-method menu. The choice
+is manual and applies only to that desktop; Sovereign does not silently fall back to the other method.
 Before switching, the desktop prepares the selected route and verifies that it reaches the same
 environment, then hands the active session over. If preparation fails, the current connection stays
 active.
 
 All clients still talk to the same T3 server, regardless of their route. A thread created by the
-desktop over SSH is therefore available to mobile over T3 Connect, and server events continue to fan
+desktop over SSH is therefore available to mobile over Sovereign Relay, and server events continue to fan
 out to every connected client.
 
 #### SSH Launch Troubleshooting
@@ -154,21 +154,21 @@ The desktop SSH launcher connects with a non-interactive `sh` session, writes a 
 
 Before starting another server, the launcher inspects the remote T3 service and running-process
 metadata, then validates the recorded server through its environment descriptor. This lets SSH reuse
-a server started by T3 Connect even when that service uses a private `T3CODE_HOME` that the SSH login
+a server started by Sovereign Relay even when that service uses a private `T3CODE_HOME` that the SSH login
 shell does not inherit; the forwarded remote port is the port reported by that server.
 
-The remote host must have a compatible Node.js runtime. T3 Code uses the server package's `engines.node` requirement:
+The remote host must have a compatible Node.js runtime. Sovereign uses the server package's `engines.node` requirement:
 
 ```text
 ^22.16 || ^23.11 || >=24.10
 ```
 
-During SSH launch, T3 Code first checks whether `node` is on `PATH`. If it is missing, the launcher
+During SSH launch, Sovereign first checks whether `node` is on `PATH`. If it is missing, the launcher
 looks in the usual install directories and tries to activate a version manager if it finds one
 (Volta, asdf, mise, fnm, nodenv, nvm). That covers most setups, but a version manager that only
 initializes from an interactive shell profile will not be picked up.
 
-If launch fails with `node: command not found`, a port-scan failure, or a message that the remote Node version does not satisfy the required range, SSH into the host and check the same non-interactive shell path T3 Code uses:
+If launch fails with `node: command not found`, a port-scan failure, or a message that the remote Node version does not satisfy the required range, SSH into the host and check the same non-interactive shell path Sovereign uses:
 
 ```bash
 ssh user@example.com 'sh -lc "command -v node && node --version"'
@@ -190,13 +190,13 @@ processes manually.
 ### Forward a Remote Port to the Desktop
 
 The desktop app can expose a service listening on an environment's loopback
-interface as a loopback port on your computer. This works with T3 Connect,
+interface as a loopback port on your computer. This works with Sovereign Relay,
 direct HTTPS or Tailscale connections, and desktop-managed SSH environments.
 
 1. Open **Settings** → **Connections** in the desktop app.
 2. Under **Port forwarding**, select an environment.
 3. Enter the remote port. Leave the local port blank to choose an available
-   port automatically. T3 Code first tries the same port, then nearby ports,
+   port automatically. Sovereign first tries the same port, then nearby ports,
    and finally an operating-system-assigned free port. Enter a local port when
    you need an exact mapping; an exact-port conflict is reported instead of
    silently changing it.
@@ -205,7 +205,7 @@ direct HTTPS or Tailscale connections, and desktop-managed SSH environments.
 For the active environment, the cable icon in the conversation header opens a
 compact version of the same controls and shows how many forwards are running.
 Each forward reports **Listening** until a local application connects,
-**connecting** while T3 Code authorizes and opens the remote bridge, and
+**connecting** while Sovereign authorizes and opens the remote bridge, and
 **connected** only after that bridge is established. A failed bridge shows its
 error without stopping the loopback listener, so a later connection can retry.
 Long-running relay connections refresh their authorization automatically; if a
@@ -213,7 +213,7 @@ credential is rejected during forwarding, the desktop reconnects that
 environment and retries once.
 
 A forward always uses the connection method currently selected for its
-environment. When you switch between T3 Connect and SSH, T3 Code keeps the
+environment. When you switch between Sovereign Relay and SSH, Sovereign keeps the
 desktop loopback listener but closes its active TCP sessions; applications that
 reconnect use the newly selected method. Existing TCP streams cannot be moved
 between transports without interruption.
@@ -226,16 +226,16 @@ the desktop app, remove the environment, or choose **Stop**.
 
 ## Updating a Remote Server
 
-When the T3 Code web or desktop app and a remote server use different versions, a warning appears in
-the conversation and in **Settings** → **Connections**. Follow the action shown there: T3 Code may
+When the Sovereign web or desktop app and a remote server use different versions, a warning appears in
+the conversation and in **Settings** → **Connections**. Follow the action shown there: Sovereign may
 be able to update and reconnect the server for you, or it may ask you to update the desktop app or
 run a copied command on the server machine.
 
 Finish active work before updating because the server restarts briefly. For step-by-step guidance,
-see [Keeping T3 Code in Sync](./updating.md).
+see [Keeping Sovereign in Sync](./updating.md).
 
 On a Linux host, you can keep the server running after logout and manage it independently of the
-connection method. See [Running T3 Code in the Background](./background-service.md).
+connection method. See [Running Sovereign in the Background](./background-service.md).
 
 ## How Pairing Works
 
@@ -261,12 +261,12 @@ Use hosted pairing when the backend is reachable from the browser over HTTPS/WSS
 
 Do not use hosted pairing for plain HTTP LAN URLs such as `http://192.168.x.y:3773`. Browsers block an HTTPS page from connecting to an insecure HTTP or WS backend. For those endpoints, use the direct pairing URL shown by the desktop app or CLI from a client that can open that HTTP URL directly.
 
-Hosted pairing does not proxy traffic through T3 Code. The browser still connects directly to the backend URL in the pairing link.
+Hosted pairing does not proxy traffic through Sovereign. The browser still connects directly to the backend URL in the pairing link.
 
 ## Managing Access Later
 
-For a T3 Connect environment, open **Settings → Connections**, open the environment's actions menu,
-and choose **Remove from T3 Connect** to revoke it remotely. This works whether the environment is
+For a Sovereign Relay environment, open **Settings → Connections**, open the environment's actions menu,
+and choose **Remove from Sovereign Relay** to revoke it remotely. This works whether the environment is
 online or offline. It revokes the relay credential and tunnel and permanently retires that
 environment identity for your account, so a still-running background service cannot silently add
 itself again.
@@ -277,7 +277,7 @@ identity to your account.
 
 If the removed environment is running, it stops its relay connector after the relay rejects the old
 allocation. `t3 connect status` then reports **remotely revoked** with the recorded time. Its local T3
-server may continue running for local use, but it no longer retries T3 Connect. Stored account login
+server may continue running for local use, but it no longer retries Sovereign Relay. Stored account login
 is retained; the immutable environment identity, rather than the entire account, is what was
 revoked.
 
@@ -291,11 +291,11 @@ Typical uses:
 
 Use `t3 auth --help` and the nested subcommand help pages for the full reference.
 
-### Deregister a T3 Connect Environment
+### Deregister a Sovereign Relay Environment
 
-Open your account menu and choose **T3 Connect** to see every environment registered to your
-account. On mobile, open **Settings** → **T3 Connect**. Choose **Deregister** to revoke an
-environment's T3 Connect access, remove any managed tunnel, and free its host space.
+Open your account menu and choose **Sovereign Relay** to see every environment registered to your
+account. On mobile, open **Settings** → **Sovereign Relay**. Choose **Deregister** to revoke an
+environment's Sovereign Relay access, remove any managed tunnel, and free its host space.
 
 Deregistration is an account action and does not need a connection to the environment, so it also
 works for a server that was wiped or is no longer reachable. Device-local connect and disconnect

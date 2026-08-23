@@ -52,7 +52,7 @@ export function loadPublicClientProvisioningConfiguration(
   const clientId = environment.T3_ACCOUNT_CLIENT_ID?.trim() || "t3-code";
   return {
     clientId,
-    name: environment.T3_ACCOUNT_CLIENT_NAME?.trim() || "T3 Code",
+    name: environment.T3_ACCOUNT_CLIENT_NAME?.trim() || "Sovereign",
     redirectUris: parseUris(
       "T3_ACCOUNT_CLIENT_REDIRECT_URIS",
       environment.T3_ACCOUNT_CLIENT_REDIRECT_URIS,

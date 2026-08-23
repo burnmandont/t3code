@@ -117,6 +117,14 @@ export const make = Effect.gen(function* () {
     });
   };
 
+  const isRetryableOutcome = (input: {
+    readonly apnsStatus: number | null;
+    readonly transportError: string | null;
+  }) =>
+    input.transportError !== null ||
+    input.apnsStatus === 429 ||
+    (input.apnsStatus !== null && input.apnsStatus >= 500);
+
   return DeliveryAttempts.of({
     record: Effect.fn("relay.delivery_attempts.record")(function* (input) {
       yield* Effect.annotateCurrentSpan({
@@ -158,17 +166,20 @@ export const make = Effect.gen(function* () {
         const id = yield* crypto.randomUUIDv4;
         const now = yield* DateTime.now;
         const createdAt = DateTime.formatIso(now);
-        const inserted = yield* db
-          .insert(relayDeliveryAttempts)
-          .values(insertValues(input, id, createdAt))
-          .onConflictDoNothing({ target: relayDeliveryAttempts.sourceJobId })
-          .returning({ id: relayDeliveryAttempts.id });
+        const tryInsertClaim = (claimId: string) =>
+          db
+            .insert(relayDeliveryAttempts)
+            .values(insertValues(input, claimId, createdAt))
+            .onConflictDoNothing({ target: relayDeliveryAttempts.sourceJobId })
+            .returning({ id: relayDeliveryAttempts.id });
+        const inserted = yield* tryInsertClaim(id);
         if (inserted.length > 0) {
           return "claimed";
         }
 
         const existing = yield* db
           .select({
+            id: relayDeliveryAttempts.id,
             createdAt: relayDeliveryAttempts.createdAt,
             apnsStatus: relayDeliveryAttempts.apnsStatus,
             apnsReason: relayDeliveryAttempts.apnsReason,
@@ -188,6 +199,26 @@ export const make = Effect.gen(function* () {
           row.apnsId !== null ||
           row.transportError !== null
         ) {
+          if (isRetryableOutcome(row)) {
+            // Preserve the failed attempt for diagnostics, but release the
+            // logical identity so a later publish can retry the same state.
+            const released = yield* db
+              .update(relayDeliveryAttempts)
+              .set({ sourceJobId: null })
+              .where(
+                and(
+                  eq(relayDeliveryAttempts.id, row.id),
+                  eq(relayDeliveryAttempts.sourceJobId, input.sourceJobId),
+                ),
+              )
+              .returning({ id: relayDeliveryAttempts.id });
+            if (released.length === 0) {
+              return "in_flight";
+            }
+            const retryId = yield* crypto.randomUUIDv4;
+            const retried = yield* tryInsertClaim(retryId);
+            return retried.length > 0 ? "claimed" : "in_flight";
+          }
           return "completed";
         }
         if (!isExpiredClaim(row.createdAt, now)) {

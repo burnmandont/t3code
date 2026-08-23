@@ -34,7 +34,6 @@ import * as ElectronWindow from "./electron/ElectronWindow.ts";
 import * as DesktopApp from "./app/DesktopApp.ts";
 import * as DesktopAppIdentity from "./app/DesktopAppIdentity.ts";
 import * as DesktopConnectionCatalogStore from "./app/DesktopConnectionCatalogStore.ts";
-import * as DesktopClerk from "./app/DesktopClerk.ts";
 import * as DesktopSovereignAuth from "./app/DesktopSovereignAuth.ts";
 import * as DesktopApplicationMenu from "./window/DesktopApplicationMenu.ts";
 import * as DesktopAssets from "./app/DesktopAssets.ts";
@@ -65,6 +64,8 @@ import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
 import * as DesktopWslServerTree from "./wsl/DesktopWslServerTree.ts";
 import * as DesktopPortForwardManager from "./portForward/DesktopPortForwardManager.ts";
+
+declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
 
 const desktopEnvironmentLayer = Layer.unwrap(
   Effect.gen(function* () {
@@ -197,11 +198,17 @@ const desktopApplicationLayer = Layer.mergeAll(
   Layer.provideMerge(desktopLocalEnvironmentAuthLayer),
 );
 
-const desktopClerkIdentityLayer = DesktopClerk.layer.pipe(
-  Layer.provideMerge(desktopEnvironmentLayer),
-  Layer.provideMerge(NodeServices.layer),
-  Layer.provideMerge(electronLayer),
-  Layer.orDie,
+const desktopClerkIdentityLayer = Layer.unwrap(
+  Effect.promise(() => import("./app/DesktopClerk.ts")).pipe(
+    Effect.map((DesktopClerk) =>
+      DesktopClerk.layer.pipe(
+        Layer.provideMerge(desktopEnvironmentLayer),
+        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(electronLayer),
+        Layer.orDie,
+      ),
+    ),
+  ),
 );
 
 const desktopSovereignIdentityLayer = DesktopSovereignAuth.layer.pipe(
@@ -211,7 +218,7 @@ const desktopSovereignIdentityLayer = DesktopSovereignAuth.layer.pipe(
   Layer.orDie,
 );
 
-const desktopIdentityLayer = DesktopSovereignAuth.desktopSovereignIdentitySelected
+const desktopIdentityLayer = __T3CODE_BUILD_SOVEREIGN__
   ? desktopSovereignIdentityLayer
   : desktopClerkIdentityLayer;
 

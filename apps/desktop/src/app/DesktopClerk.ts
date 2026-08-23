@@ -108,6 +108,7 @@ export const make = Effect.gen(function* () {
 
   return DesktopIdentity.DesktopIdentity.of({
     mode: "clerk",
+    clerkFrontendApiHostname: desktopClerkFrontendApiHostname,
     configure: Effect.gen(function* () {
       const electronApp = yield* ElectronApp.ElectronApp;
       const electronWindow = yield* ElectronWindow.ElectronWindow;

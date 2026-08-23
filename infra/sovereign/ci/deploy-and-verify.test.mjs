@@ -179,7 +179,7 @@ test("keeps the FRPS control listener behind the exact WebSocket route", () => {
   const edge = readSovereignFile("../proxy/edge.nginx.conf");
   const second = readSovereignFile("../proxy/second.nginx.conf");
   const edgeApex = edge.slice(
-    edge.indexOf("# Public T3 Connect FRPC control channel"),
+    edge.indexOf("# Public Sovereign Relay FRPC control channel"),
     edge.indexOf("# Public HTTP/WebSocket traffic for linked environments"),
   );
   const secondApex = second.slice(
@@ -401,6 +401,17 @@ test("installs dependencies for source trees included by the desktop typecheck",
   assert.match(workflow, /--filter @t3tools\/desktop[.][.][.]/u);
   assert.match(workflow, /--filter @t3tools\/mobile[.][.][.]/u);
   assert.match(workflow, /--filter @t3tools\/scripts[.][.][.]/u);
+  assert.match(workflow, /pnpm rebuild esbuild node-pty/u);
+  assert.match(workflow, /node apps\/desktop\/node_modules\/electron\/install[.]js/u);
+  assert.equal(
+    [
+      ...workflow.matchAll(
+        /for attempt in 1 2 3; do\s+if node apps\/desktop\/node_modules\/electron\/install[.]js;/gu,
+      ),
+    ].length,
+    1,
+  );
+  assert.match(workflow, /Electron executable missing/u);
 });
 
 test("publishes a signed complete remote runtime before production deployment", () => {
@@ -437,6 +448,85 @@ test("publishes the credentialless installer and runtime before production deplo
   assert.match(workflow, /SOVEREIGN_GITHUB_PAGES_ORIGIN/u);
   assert.match(workflow, /SOVEREIGN_GITHUB_TOKEN/u);
   assert.match(workflow, /publish-github-runtime[.]mjs/u);
+});
+
+test("dispatches desktop and iOS releases to a separately trusted GitHub builder", () => {
+  const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
+  const builder = readSovereignFile("../apple-builder/.github/workflows/release-apple.yml");
+
+  assert.match(workflow, /Dispatch Apple release to ephemeral GitHub runners/u);
+  assert.match(workflow, /github[.]ref == 'refs\/heads\/sovereign-direct'/u);
+  assert.doesNotMatch(workflow, /SOVEREIGN_GITHUB_BUILDER_REPOSITORY/u);
+  assert.match(workflow, /SOVEREIGN_GITHUB_REPOSITORY/u);
+  assert.match(
+    workflow,
+    /SOVEREIGN_GITHUB_BUILDER_TOKEN: \$\{\{ secrets[.]SOVEREIGN_GITHUB_TOKEN \}\}/u,
+  );
+  assert.match(workflow, /dispatch-apple-release[.]mjs/u);
+  assert.doesNotMatch(workflow, /runs-on: sovereign-macos-arm64/u);
+  assert.match(builder, /repository_dispatch:/u);
+  assert.match(builder, /ios_build_number:/u);
+  assert.match(builder, /validate-config:/u);
+  assert.match(builder, /Missing GitHub Actions configuration/u);
+  assert.doesNotMatch(builder, /CLERK_PASSKEY_RP_DOMAINS/u);
+  assert.doesNotMatch(builder, /MACOS_PROVISIONING_PROFILE/u);
+  assert.match(builder, /APPLE_TEAM_ID/u);
+  assert.match(builder, /IOS_BUNDLE_ID/u);
+  assert.doesNotMatch(builder, /APPLE_DISTRIBUTION_P12/u);
+  assert.doesNotMatch(builder, /security create-keychain/u);
+  assert.match(builder, /GITEA_CLONE_USERNAME/u);
+  assert.match(builder, /GITEA_CLONE_TOKEN/u);
+  assert.match(builder, /Verify read-only Gitea source access/u);
+  assert.match(builder, /GIT_ASKPASS/u);
+  assert.match(builder, /GIT_TERMINAL_PROMPT=0/u);
+  assert.match(builder, /https:\/\/source[.]moondiner[.]com\/t3_fork\/sovereign[.]git/u);
+  assert.doesNotMatch(builder, /GITEA_DEPLOY_KEY/u);
+  assert.doesNotMatch(builder, /ssh-ed25519/u);
+  assert.doesNotMatch(builder, /IdentitiesOnly=yes/u);
+  assert.match(builder, /needs: validate-config/u);
+  assert.match(builder, /runs-on: macos-15/u);
+  assert.doesNotMatch(builder, /runs-on: macos-15-intel/u);
+  assert.match(builder, /timeout-minutes: 90/u);
+  assert.match(builder, /timeout-minutes: 120/u);
+  assert.match(builder, /artifact_run_id:/u);
+  assert.match(builder, /run-id: \$\{\{ inputs[.]artifact_run_id \}\}/u);
+  assert.match(builder, /actions: read/u);
+  assert.match(builder, /git fetch --depth=1 origin "\$SOURCE_SHA"/u);
+  assert.match(builder, /test "\$\(git rev-parse HEAD\)" = "\$SOURCE_SHA"/u);
+  assert.match(builder, /--arch "\$\{\{ matrix[.]arch \}\}"/u);
+  assert.match(builder, /hdiutil attach "\$dmg" -readonly -nobrowse -mountpoint/u);
+  assert.match(builder, /codesign --verify --deep --strict/u);
+  assert.match(builder, /xcrun stapler validate "\$app"/u);
+  assert.match(builder, /spctl --assess --type execute --verbose "\$app"/u);
+  assert.doesNotMatch(builder, /xcrun stapler validate "\$dmg"/u);
+  assert.match(builder, /build-ios:/u);
+  assert.match(builder, /DEVELOPER_DIR: \/Applications\/Xcode_26[.]3[.]app\/Contents\/Developer/u);
+  assert.ok(builder.includes("swift --version | grep -Eq 'Swift version (6[.][2-9]|[7-9][.])'"));
+  assert.match(
+    builder,
+    /T3CODE_IOS_BUILD_NUMBER: \$\{\{ github[.]event[.]client_payload[.]ios_build_number \|\| inputs[.]ios_build_number \}\}/u,
+  );
+  assert.match(builder, /T3CODE_EXPO_UPDATES_URL: ""/u);
+  assert.match(builder, /expo prebuild --clean --platform ios/u);
+  assert.match(builder, /-workspace apps\/mobile\/ios\/T3Code[.]xcworkspace/u);
+  assert.match(builder, /-destination 'generic\/platform=iOS'/u);
+  assert.match(builder, /-allowProvisioningUpdates/u);
+  assert.match(builder, /-authenticationKeyPath "\$APPLE_API_KEY"/u);
+  assert.match(builder, /codesign --verify --deep --strict --verbose=2 "\$app"/u);
+  assert.match(builder, /test "\$archive_bundle_id" = "\$T3CODE_IOS_BUNDLE_ID_PRODUCTION"/u);
+  assert.match(builder, /test "\$archive_build_number" = "\$IOS_BUILD_NUMBER"/u);
+  assert.match(builder, /-exportOptionsPlist infra\/sovereign\/ci\/ExportOptions[.]plist/u);
+  assert.match(builder, /SOVEREIGN_GITHUB_TOKEN: \$\{\{ github[.]token \}\}/u);
+  assert.match(builder, /publish-desktop-release[.]mjs/u);
+});
+
+test("rejects Clerk and cloudflared implementations in sovereign artifacts", () => {
+  const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
+
+  assert.match(workflow, /-e '@clerk\/electron'/u);
+  assert.match(workflow, /-e '@clerk\/react'/u);
+  assert.match(workflow, /-e 'cloudflared\/releases\/download'/u);
+  assert.match(workflow, /inactive external provider implementation/u);
 });
 
 test("allows only the hosted and exact desktop origins to call the sovereign relay", () => {

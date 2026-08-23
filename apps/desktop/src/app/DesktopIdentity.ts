@@ -21,6 +21,7 @@ export class DesktopIdentity extends Context.Service<
   DesktopIdentity,
   {
     readonly mode: "clerk" | "sovereign";
+    readonly clerkFrontendApiHostname: string | undefined;
     /** Installs pre-ready single-instance and deep-link handling. */
     readonly configure: Effect.Effect<
       void,

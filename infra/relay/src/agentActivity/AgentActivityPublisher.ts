@@ -15,6 +15,7 @@ import {
   isTerminalPhase,
   MAX_ACTIVITY_ROWS,
   sanitizeAgentActivityAggregateState,
+  statusForAgentActivityPhase,
 } from "./agentActivityPayloads.ts";
 
 export { isExpiredAgentActivityState } from "./agentActivityPayloads.ts";
@@ -66,39 +67,20 @@ export const make = Effect.gen(function* () {
           nowMs: input.nowMs,
         })
       : null;
-    const notificationOnlyAggregate =
-      input.deliveryUser.notificationsEnabled &&
-      !input.deliveryUser.liveActivitiesEnabled &&
-      input.state !== null
-        ? makeAggregateState({
-            activeStates: isTerminalPhase(input.state) ? [] : [input.state],
-            terminalState: isTerminalPhase(input.state) ? input.state : null,
-            nowMs: input.nowMs,
-          })
-        : null;
     const targets = yield* liveActivities.listTargets({ userId: input.deliveryUser.userId });
     const deliveriesByTarget = yield* Effect.forEach(
       targets,
       (target) =>
-        Effect.all(
-          [
-            apnsDeliveries.sendForTarget({
-              target,
-              aggregate: liveActivityAggregate,
-              nowMs: input.nowMs,
-            }),
-            notificationOnlyAggregate === null
-              ? Effect.succeed(null)
-              : apnsDeliveries.sendPushNotificationForTarget({
-                  target,
-                  aggregate: notificationOnlyAggregate,
-                }),
-          ],
-          { concurrency: 2 },
-        ),
+        apnsDeliveries.sendForTarget({
+          target,
+          aggregate: liveActivityAggregate,
+          triggeringState: input.state,
+          pushNotificationsEnabled: input.deliveryUser.notificationsEnabled,
+          nowMs: input.nowMs,
+        }),
       { concurrency: 4 },
     );
-    return deliveriesByTarget.flat();
+    return deliveriesByTarget;
   });
 
   return AgentActivityPublisher.of({
@@ -129,6 +111,8 @@ export const make = Effect.gen(function* () {
       return yield* apnsDeliveries.sendForTarget({
         target,
         aggregate,
+        triggeringState: null,
+        pushNotificationsEnabled: false,
         nowMs: now.epochMilliseconds,
       });
     }),
@@ -195,27 +179,6 @@ export const make = Effect.gen(function* () {
   });
 });
 
-function statusForPhase(phase: RelayAgentActivityState["phase"]): string {
-  switch (phase) {
-    case "waiting_for_approval":
-      return "Approval";
-    case "waiting_for_input":
-      return "Input";
-    case "completed":
-      return "Done";
-    case "failed":
-      return "Failed";
-    case "starting":
-      // Matches the web sidebar's pill wording (Sidebar.logic.ts) so the same
-      // thread reads the same across surfaces.
-      return "Connecting";
-    case "running":
-      return "Working";
-    case "stale":
-      return "Waiting";
-  }
-}
-
 function aggregateRowForState(state: RelayAgentActivityState) {
   return {
     environmentId: state.environmentId,
@@ -224,7 +187,7 @@ function aggregateRowForState(state: RelayAgentActivityState) {
     threadTitle: state.threadTitle,
     modelTitle: state.modelTitle,
     phase: state.phase,
-    status: statusForPhase(state.phase),
+    status: statusForAgentActivityPhase(state.phase),
     updatedAt: state.updatedAt,
     deepLink: state.deepLink,
   };
@@ -232,7 +195,7 @@ function aggregateRowForState(state: RelayAgentActivityState) {
 
 function terminalAggregateState(state: RelayAgentActivityState): RelayAgentActivityAggregateState {
   return sanitizeAgentActivityAggregateState({
-    title: "T3 Code",
+    title: "Sovereign",
     subtitle: state.phase === "failed" ? "Agent work failed" : "Agent work completed",
     activeCount: 0,
     updatedAt: state.updatedAt,
@@ -268,7 +231,7 @@ export function makeAggregateState(input: {
     (state) => !isTerminalPhase(state) && !isExpiredAgentActivityState(state, input.nowMs),
   );
   if (activeStates.length === 0) {
-    if (input.terminalState !== null) {
+    if (input.terminalState !== null && isRecentTerminalState(input.terminalState, input.nowMs)) {
       return terminalAggregateState(input.terminalState);
     }
     // With no live work, recently finished threads keep the card showing
@@ -284,7 +247,7 @@ export function makeAggregateState(input: {
       return null;
     }
     return sanitizeAgentActivityAggregateState({
-      title: "T3 Code",
+      title: "Sovereign",
       subtitle: newest.phase === "failed" ? "Agent work failed" : "Agent work completed",
       activeCount: 0,
       updatedAt: newest.updatedAt,
@@ -305,7 +268,7 @@ export function makeAggregateState(input: {
     state.updatedAt.localeCompare(latest.updatedAt) > 0 ? state : latest,
   ).updatedAt;
   return sanitizeAgentActivityAggregateState({
-    title: "T3 Code",
+    title: "Sovereign",
     subtitle: "Agent work in progress",
     activeCount: activeStates.length,
     updatedAt,

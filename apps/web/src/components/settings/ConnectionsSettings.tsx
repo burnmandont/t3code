@@ -107,6 +107,7 @@ import {
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { useUiStateStore } from "~/uiStateStore";
 import {
+  resolveServerConfigRuntimeDrift,
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
 } from "~/versionSkew";
@@ -1372,7 +1373,7 @@ type SavedBackendListRowProps = {
 function connectionRouteLabel(entry: ConnectionCatalogEntry): string {
   switch (entry.target._tag) {
     case "RelayConnectionTarget":
-      return "T3 Connect";
+      return "Sovereign Relay";
     case "SshConnectionTarget":
       return Option.isSome(entry.profile) && entry.profile.value._tag === "SshConnectionProfile"
         ? `SSH ${formatDesktopSshTarget(entry.profile.value.target)}`
@@ -1433,7 +1434,9 @@ function SavedBackendListRow({
     },
     [copyTraceIdToClipboard],
   );
-  const versionMismatch = resolveServerConfigVersionMismatch(environment.serverConfig);
+  const protocolMismatch = resolveServerConfigVersionMismatch(environment.serverConfig);
+  const runtimeDrift = resolveServerConfigRuntimeDrift(environment.serverConfig);
+  const serverVersionNotice = protocolMismatch ?? runtimeDrift;
   const serverUpdateState = useAtomValue(serverEnvironment.updateStateAtom(environmentId));
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
@@ -1445,7 +1448,7 @@ function SavedBackendListRow({
       : null;
   const metadataBits = [
     sshTarget ? `SSH ${formatDesktopSshTarget(sshTarget)}` : null,
-    environment.relayManaged ? "T3 Connect" : null,
+    environment.relayManaged ? "Sovereign Relay" : null,
   ].filter((value): value is string => value !== null);
 
   // The WSL backend is a desktop-managed local backend (it surfaces as a bearer
@@ -1477,7 +1480,7 @@ function SavedBackendListRow({
             <div className="max-w-md">
               <ServerUpdateProgress state={serverUpdateState} />
             </div>
-          ) : versionMismatch ? (
+          ) : serverVersionNotice ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -1485,13 +1488,13 @@ function SavedBackendListRow({
                     type="button"
                     className="w-fit cursor-help rounded-sm text-left text-muted-foreground text-xs"
                   >
-                    Server update available
+                    {protocolMismatch ? "Server update required" : "Server build differs"}
                   </button>
                 }
               />
               <TooltipPopup side="top">
-                {versionMismatch.serverVersion} <span aria-hidden="true">→</span>{" "}
-                {versionMismatch.clientVersion}
+                {serverVersionNotice.serverVersion} <span aria-hidden="true">→</span>{" "}
+                {serverVersionNotice.clientVersion}
               </TooltipPopup>
             </Tooltip>
           ) : null}
@@ -1548,14 +1551,14 @@ function SavedBackendListRow({
               </SelectPopup>
             </Select>
           ) : null}
-          {versionMismatch &&
+          {runtimeDrift &&
           (serverUpdateState.status === "idle" || serverUpdateState.status === "failed") ? (
             <ServerUpdateAction
               environmentId={environmentId}
               serverLabel={`${environment.label} server`}
               selfUpdate={resolveServerSelfUpdateCapability(environment.serverConfig)}
-              targetVersion={versionMismatch.clientVersion}
-              label={serverUpdateState.status === "failed" ? "Retry" : "Update"}
+              targetVersion={runtimeDrift.clientVersion}
+              label={serverUpdateState.status === "failed" ? "Retry" : "Sync"}
             />
           ) : null}
           {isWslEnvironment ? (
@@ -1660,7 +1663,7 @@ function CloudLinkSwitch({
   disabled,
   disabledReason,
   onCheckedChange,
-  ariaLabel = "Enable T3 Connect",
+  ariaLabel = "Enable Sovereign Relay",
 }: {
   readonly checked: boolean;
   readonly disabled: boolean;
@@ -1699,9 +1702,9 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
 
   const disabledReason = !isSignedIn
-    ? "Sign in to T3 Connect to manage this environment."
+    ? "Sign in to Sovereign Relay to manage this environment."
     : !canManageRelay
-      ? "Your session does not have permission to manage T3 Connect access."
+      ? "Your session does not have permission to manage Sovereign Relay access."
       : null;
   const isBusy = isUpdating || isUpdatingPreference;
 
@@ -1714,15 +1717,15 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       toastManager.add({
         type: "success",
         title: enabled
-          ? "T3 Connect linked"
+          ? "Sovereign Relay linked"
           : publishAgentActivity
-            ? "T3 Connect tunnel disabled"
-            : "T3 Connect unlinked",
+            ? "Sovereign Relay tunnel disabled"
+            : "Sovereign Relay unlinked",
         description: enabled
-          ? "This environment is available through T3 Connect."
+          ? "This environment is available through Sovereign Relay."
           : publishAgentActivity
             ? "The managed tunnel was removed. Agent activity publishing stays on."
-            : "This environment is no longer available through T3 Connect.",
+            : "This environment is no longer available through Sovereign Relay.",
       });
     }
     setIsUpdating(false);
@@ -1747,11 +1750,11 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     <>
       {window.desktopBridge ? (
         <SettingsRow
-          title="T3 Connect"
+          title="Sovereign Relay"
           description={
             managedTunnelActive
-              ? "This environment is available to your other devices through T3 Connect."
-              : "Make this environment available to your other devices through T3 Connect."
+              ? "This environment is available to your other devices through Sovereign Relay."
+              : "Make this environment available to your other devices through Sovereign Relay."
           }
           status={operationError ?? primaryCloudLinkState.error}
           control={
@@ -1766,7 +1769,7 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       ) : null}
       <SettingsRow
         title="Publish agent activity"
-        description="Send activity from this environment to your mobile clients for push notifications and Live Activities. Works without a T3 Connect tunnel."
+        description="Send activity from this environment to your mobile clients for push notifications and Live Activities. Works without a Sovereign Relay tunnel."
         control={
           <CloudLinkSwitch
             ariaLabel="Publish agent activity to mobile clients"
@@ -1795,7 +1798,7 @@ function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnable
         <EmptyTitle>No saved remote environments</EmptyTitle>
         <EmptyDescription>
           {cloudEnabled
-            ? "Click “Add environment” to pair another environment, or connect one from T3 Connect."
+            ? "Click “Add environment” to pair another environment, or connect one from Sovereign Relay."
             : "Click “Add environment” to pair another environment."}
         </EmptyDescription>
       </EmptyHeader>
@@ -1953,7 +1956,9 @@ export function ConnectionsSettings() {
     DesktopServerExposureState["mode"] | null
   >(null);
   const primaryServerConfig = primaryEnvironment?.serverConfig ?? null;
-  const primaryVersionMismatch = resolveServerConfigVersionMismatch(primaryServerConfig);
+  const primaryProtocolMismatch = resolveServerConfigVersionMismatch(primaryServerConfig);
+  const primaryRuntimeDrift = resolveServerConfigRuntimeDrift(primaryServerConfig);
+  const primaryServerVersionNotice = primaryProtocolMismatch ?? primaryRuntimeDrift;
   const primaryServerUpdateState = useAtomValue(
     serverEnvironment.updateStateAtom(primaryEnvironmentId),
   );
@@ -2997,7 +3002,7 @@ export function ConnectionsSettings() {
         {desktopWslState.enabled ? (
           <SettingsRow
             title="WSL only"
-            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. T3 Code restarts when you change this."
+            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. Sovereign restarts when you change this."
             className="bg-muted/20 pl-7 sm:pl-8"
             control={
               <Switch
@@ -3130,44 +3135,46 @@ export function ConnectionsSettings() {
       {canManageLocalBackend ? (
         <>
           <SettingsSection title="This environment">
-            {primaryVersionMismatch || primaryServerUpdateState.status !== "idle" ? (
+            {primaryServerVersionNotice || primaryServerUpdateState.status !== "idle" ? (
               <SettingsRow
                 title={
                   primaryServerUpdateState.status === "failed"
                     ? "Update failed"
                     : primaryServerUpdateState.status === "running"
                       ? "Updating server"
-                      : "Server update available"
+                      : primaryProtocolMismatch
+                        ? "Server update required"
+                        : "Server build differs"
                 }
                 description={
                   primaryServerUpdateState.status !== "idle" ? (
                     <ServerUpdateProgress state={primaryServerUpdateState} />
-                  ) : primaryVersionMismatch ? (
+                  ) : primaryServerVersionNotice ? (
                     <Tooltip>
                       <TooltipTrigger
                         render={
                           <button type="button" className="w-fit cursor-help rounded-sm text-left">
-                            Update to match this client.
+                            Sync this server to the client build.
                           </button>
                         }
                       />
                       <TooltipPopup side="top">
-                        {primaryVersionMismatch.serverVersion} <span aria-hidden="true">→</span>{" "}
-                        {primaryVersionMismatch.clientVersion}
+                        {primaryServerVersionNotice.serverVersion} <span aria-hidden="true">→</span>{" "}
+                        {primaryServerVersionNotice.clientVersion}
                       </TooltipPopup>
                     </Tooltip>
                   ) : null
                 }
                 control={
-                  primaryVersionMismatch &&
+                  primaryRuntimeDrift &&
                   primaryEnvironmentId !== null &&
                   primaryServerUpdateState.status !== "running" ? (
                     <ServerUpdateAction
                       environmentId={primaryEnvironmentId}
                       serverLabel={primaryEnvironment?.label ?? "this server"}
                       selfUpdate={resolveServerSelfUpdateCapability(primaryServerConfig)}
-                      targetVersion={primaryVersionMismatch.clientVersion}
-                      label={primaryServerUpdateState.status === "failed" ? "Retry" : "Update"}
+                      targetVersion={primaryRuntimeDrift.clientVersion}
+                      label={primaryServerUpdateState.status === "failed" ? "Retry" : "Sync"}
                     />
                   ) : undefined
                 }
@@ -3228,8 +3235,8 @@ export function ConnectionsSettings() {
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {pendingDesktopServerExposureMode === "network-accessible"
-                    ? "T3 Code will restart to expose this environment over the network."
-                    : "T3 Code will restart and limit this environment back to this machine."}
+                    ? "Sovereign will restart to expose this environment over the network."
+                    : "Sovereign will restart and limit this environment back to this machine."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -3287,15 +3294,15 @@ export function ConnectionsSettings() {
                 <AlertDialogDescription>
                   {pendingWslChange?.kind === "disable"
                     ? pendingWslChange.wasWslOnly
-                      ? "T3 Code will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
-                      : "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in T3 Code until you re-enable WSL."
+                      ? "Sovereign will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
+                      : "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in Sovereign until you re-enable WSL."
                     : pendingWslChange?.kind === "distro"
-                      ? "T3 Code will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
+                      ? "Sovereign will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
                       : pendingWslChange?.kind === "enable"
                         ? "Run the WSL backend alongside the Windows one, or stop the Windows backend and use only WSL? You can change this later from Settings."
                         : pendingWslChange?.nextValue
-                          ? "T3 Code will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
-                          : "T3 Code will restart and bring the Windows backend back up alongside WSL."}
+                          ? "Sovereign will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
+                          : "Sovereign will restart and bring the Windows backend back up alongside WSL."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -3381,7 +3388,7 @@ export function ConnectionsSettings() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Disable Tailscale HTTPS?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  T3 Code will restart the local backend without Tailscale Serve.
+                  Sovereign will restart the local backend without Tailscale Serve.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -3419,7 +3426,7 @@ export function ConnectionsSettings() {
               <DialogHeader>
                 <DialogTitle>Set up Tailscale HTTPS?</DialogTitle>
                 <DialogDescription>
-                  T3 Code will restart the local backend with Tailscale Serve enabled and ask
+                  Sovereign will restart the local backend with Tailscale Serve enabled and ask
                   Tailscale to proxy HTTPS traffic to this backend.
                 </DialogDescription>
               </DialogHeader>

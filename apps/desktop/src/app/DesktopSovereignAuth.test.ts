@@ -66,8 +66,8 @@ describe("DesktopSovereignAuth", () => {
     assert.deepEqual(
       resolveProtocolRegistration({
         isDefaultApp: false,
-        executablePath: "/Applications/T3 Code.app/Contents/MacOS/T3 Code",
-        commandLine: ["T3 Code"],
+        executablePath: "/Applications/Sovereign.app/Contents/MacOS/Sovereign",
+        commandLine: ["Sovereign"],
       }),
       {},
     );

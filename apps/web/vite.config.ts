@@ -38,6 +38,12 @@ const configuredClerkCliOAuthClientId = repoEnv.VITE_CLERK_CLI_OAUTH_CLIENT_ID?.
 const configuredOAuthIssuer = repoEnv.VITE_T3CODE_OAUTH_ISSUER?.trim() || "";
 const configuredOAuthClientId = repoEnv.VITE_T3CODE_OAUTH_CLIENT_ID?.trim() || "";
 const configuredOAuthResource = repoEnv.VITE_T3CODE_OAUTH_RESOURCE?.trim() || "";
+const sovereignIdentitySelected = Boolean(
+  process.env.T3CODE_BUILD_NEUTRAL_PUBLIC_RUNTIME === "1" ||
+  configuredOAuthIssuer ||
+  configuredOAuthClientId ||
+  configuredOAuthResource,
+);
 const configuredRelayTracingUrl = repoEnv.VITE_RELAY_OTLP_TRACES_URL?.trim() || "";
 const configuredRelayTracingDataset = repoEnv.VITE_RELAY_OTLP_TRACES_DATASET?.trim() || "";
 const configuredRelayTracingToken = repoEnv.VITE_RELAY_OTLP_TRACES_TOKEN?.trim() || "";
@@ -75,6 +81,9 @@ const buildSourcemap: boolean | "hidden" =
 
 const unitTestProject = {
   extends: true,
+  define: {
+    __T3CODE_BUILD_SOVEREIGN__: "false",
+  },
   test: {
     name: "unit",
     include: ["src/**/*.test.{ts,tsx}"],
@@ -185,6 +194,7 @@ export default defineConfig(() => {
       ],
     },
     define: {
+      __T3CODE_BUILD_SOVEREIGN__: JSON.stringify(sovereignIdentitySelected),
       // In dev mode, tell the web app where the WebSocket server lives
       "import.meta.env.VITE_WS_URL": JSON.stringify(configuredWsUrl ?? ""),
       // Pinned explicitly rather than left to Vite's automatic VITE_ exposure:

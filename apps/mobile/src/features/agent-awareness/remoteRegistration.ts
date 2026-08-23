@@ -50,6 +50,7 @@ const AgentAwarenessOperation = Schema.Literals([
   "read-live-activity-push-token",
   "load-live-activity-registration-identifier",
   "list-active-live-activities",
+  "load-live-activity-reconcile-preferences",
   "load-live-activity-prime-preferences",
   "prime-live-activity",
 ]);
@@ -492,6 +493,27 @@ export function armAgentAwarenessLiveActivityForLocalWork(input: {
     });
 }
 
+// End every ActivityKit instance owned by this app immediately. The relay also
+// sends a remote end event, but local teardown makes the user's disable action
+// deterministic even if APNs delivery is delayed or the activity token has
+// already rotated.
+export async function dismissAgentAwarenessLiveActivities(): Promise<void> {
+  let activities: ReadonlyArray<LiveActivity<AgentActivityProps>>;
+  try {
+    activities = AgentActivity.getInstances();
+  } catch (error) {
+    logRegistrationError("active live activity lookup during disable failed", error);
+    return;
+  }
+
+  const results = await Promise.allSettled(activities.map((activity) => activity.end("immediate")));
+  for (const result of results) {
+    if (result.status === "rejected") {
+      logRegistrationError("local live activity disable failed", result.reason);
+    }
+  }
+}
+
 function armAgentAwarenessLiveActivityForLocalWorkNow(input: {
   readonly threadTitle: string;
   readonly projectTitle: string;
@@ -502,7 +524,7 @@ function armAgentAwarenessLiveActivityForLocalWorkNow(input: {
     }
     const nowIso = new Date(Date.now()).toISOString();
     const activity = AgentActivity.start({
-      title: "T3 Code",
+      title: "Sovereign",
       subtitle: "Agent work in progress",
       activeCount: 1,
       updatedAt: nowIso,
@@ -1047,6 +1069,25 @@ export function refreshActiveLiveActivityRemoteRegistration(): Effect.Effect<
         }),
       ),
     );
+
+    // A production upgrade preserves both the user's stored preference and
+    // ActivityKit state. If an older build failed to end a card when the
+    // preference was disabled, clean it up as soon as the new build returns
+    // to the foreground instead of re-registering the orphan with the relay.
+    if (activities.length > 0) {
+      const preferences = yield* Effect.tryPromise({
+        try: () => loadPreferences(),
+        catch: (cause) =>
+          new AgentAwarenessOperationError({
+            operation: "load-live-activity-reconcile-preferences",
+            cause,
+          }),
+      }).pipe(Effect.orElseSucceed(() => null));
+      if (preferences?.liveActivitiesEnabled === false) {
+        yield* Effect.promise(() => dismissAgentAwarenessLiveActivities());
+        return;
+      }
+    }
 
     // The relay tracks exactly one card per device; if concurrent arming ever
     // produced extras, end them so only one keeps receiving updates.

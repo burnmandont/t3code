@@ -155,7 +155,9 @@ async function publishRelease(client, repository, release) {
   await client.json(`/repos/${repository}/releases/${release.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ draft: false, make_latest: "true" }),
+    // Runtime releases are addressed by their exact signed tag. Keep GitHub's
+    // `latest` pointer reserved for the complete desktop updater release.
+    body: JSON.stringify({ draft: false, make_latest: "false" }),
   });
   process.stdout.write(`Published GitHub release ${release.tag_name}.\n`);
 }

@@ -68,9 +68,9 @@ const sourceTreeIconFileNames = {
     universalPng: "blueprint-universal-1024.png",
   },
   prod: {
-    ico: "t3-black-windows.ico",
-    macPng: "black-macos-1024.png",
-    universalPng: "black-universal-1024.png",
+    ico: "sovereign-windows.ico",
+    macPng: "sovereign-macos-1024.png",
+    universalPng: "sovereign-universal-1024.png",
   },
 } as const;
 

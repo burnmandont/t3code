@@ -24,6 +24,18 @@ if (sovereignOAuthValueCount > 0 && sovereignOAuthValueCount < 4) {
 }
 const isSovereignBuild = sovereignOAuthValueCount === 4;
 
+const sovereignIosBundleIdentifier =
+  APP_VARIANT === "development"
+    ? (repoEnv.T3CODE_IOS_BUNDLE_ID_DEVELOPMENT?.trim() ??
+      // Backward compatibility for existing local development checkouts. Do
+      // not use the unscoped value for preview or production: doing so could
+      // silently sign a release artifact with the development App ID.
+      repoEnv.T3CODE_IOS_BUNDLE_ID?.trim())
+    : APP_VARIANT === "preview"
+      ? repoEnv.T3CODE_IOS_BUNDLE_ID_PREVIEW?.trim()
+      : repoEnv.T3CODE_IOS_BUNDLE_ID_PRODUCTION?.trim();
+const iosBuildNumber = repoEnv.T3CODE_IOS_BUILD_NUMBER?.trim() ?? "1";
+
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 
@@ -37,6 +49,20 @@ if (
   throw new Error(
     "T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when T3CODE_IOS_PERSONAL_TEAM=1.",
   );
+}
+
+if (
+  isSovereignBuild &&
+  (!sovereignIosBundleIdentifier ||
+    !IOS_BUNDLE_IDENTIFIER_PATTERN.test(sovereignIosBundleIdentifier))
+) {
+  throw new Error(
+    `T3CODE_IOS_BUNDLE_ID_${APP_VARIANT.toUpperCase()} must be a reverse-DNS identifier for sovereign ${APP_VARIANT} builds.`,
+  );
+}
+
+if (!/^\d+$/.test(iosBuildNumber) || Number(iosBuildNumber) < 1) {
+  throw new Error("T3CODE_IOS_BUILD_NUMBER must be a positive integer.");
 }
 
 const DEVELOPMENT_ASSETS = {
@@ -63,18 +89,17 @@ const PREVIEW_ASSETS = {
 
 const RELEASE_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIconComposerProject),
+  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  androidAdaptiveForeground: "./assets/android-icon-mark.png",
+  androidAdaptiveForeground: fromRepoRoot(BRAND_ASSET_PATHS.productionLinuxIconPng),
   androidAdaptiveBackgroundColor: "#000000",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
   androidNotificationColor: "#FFFFFF",
 } as const;
 
 const VARIANT_CONFIG = {
   development: {
-    appName: "T3 Code Dev",
+    appName: "Sovereign Dev",
     scheme: "t3code-dev",
     iosBundleIdentifier: "com.t3tools.t3code.dev",
     androidPackage: "com.t3tools.t3code.dev",
@@ -82,7 +107,7 @@ const VARIANT_CONFIG = {
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
-    appName: "T3 Code Preview",
+    appName: "Sovereign Preview",
     scheme: "t3code-preview",
     iosBundleIdentifier: "com.t3tools.t3code.preview",
     androidPackage: "com.t3tools.t3code.preview",
@@ -90,7 +115,7 @@ const VARIANT_CONFIG = {
     assets: PREVIEW_ASSETS,
   },
   production: {
-    appName: "T3 Code",
+    appName: "Sovereign",
     scheme: "t3code",
     iosBundleIdentifier: "com.t3tools.t3code",
     androidPackage: "com.t3tools.t3code",
@@ -114,7 +139,7 @@ const variant = VARIANT_CONFIG[APP_VARIANT];
 const iosBundleIdentifier = isIosPersonalTeamBuild
   ? personalTeamBundleIdentifier!
   : isSovereignBuild
-    ? (repoEnv.T3CODE_IOS_BUNDLE_ID?.trim() ?? `com.moondiner.t3code.${APP_VARIANT}`)
+    ? sovereignIosBundleIdentifier!
     : variant.iosBundleIdentifier;
 const sovereignUpdatesUrl = repoEnv.T3CODE_EXPO_UPDATES_URL?.trim();
 const appUpdatesEnabled = !isSovereignBuild || Boolean(sovereignUpdatesUrl);
@@ -138,7 +163,7 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
       {
         name: "AgentActivity",
         displayName: "Agent Activity",
-        description: "Shows the current state of active T3 Code agents.",
+        description: "Shows the current state of active Sovereign agents.",
         supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular"],
       },
     ],
@@ -174,6 +199,29 @@ const clerkPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild },
 ];
 
+type ExpoPlugin = NonNullable<ExpoConfig["plugins"]>[number];
+
+// Explicitly type conditional plugin groups before spreading them. Without
+// this boundary TypeScript widens two-element plugin tuples into arbitrary
+// arrays and ExpoConfig can no longer prove that each entry is a valid plugin.
+const sharingPlugins: ReadonlyArray<ExpoPlugin> = isIosPersonalTeamBuild
+  ? [sharingPlugin]
+  : ["./plugins/withShareExtensionDisplayName.cjs", sharingPlugin];
+const identityPlugins: ReadonlyArray<ExpoPlugin> = !isSovereignBuild ? [clerkPlugin] : [];
+const widgetPlugins: ReadonlyArray<ExpoPlugin> = !isIosPersonalTeamBuild
+  ? [
+      [
+        "./plugins/withIosApsEnvironment.cjs",
+        { environment: APP_VARIANT === "development" ? "development" : "production" },
+      ],
+      "./plugins/withWidgetLogoAsset.cjs",
+      widgetsPlugin,
+    ]
+  : [];
+const personalTeamPlugins: ReadonlyArray<ExpoPlugin> = isIosPersonalTeamBuild
+  ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"]
+  : [];
+
 // These aliases match the fonts' PostScript names on iOS. Register the same
 // names on Android so React Native and the native composer use one set of
 // family names without waiting for runtime font loading.
@@ -205,6 +253,14 @@ const config: ExpoConfig = {
   ios: {
     icon: variant.assets.iosIcon,
     supportsTablet: true,
+    buildNumber: iosBuildNumber,
+    entitlements: {
+      // Distribution builds must register against production APNs. Declare
+      // this at the app-config boundary because another native plugin may
+      // create the entitlement before expo-notifications runs, in which case
+      // that plugin deliberately preserves the existing value.
+      "aps-environment": APP_VARIANT === "development" ? "development" : "production",
+    },
     // Multitasking-capable iPad apps cannot rotate programmatically, so the
     // showcase capture build requires full screen (see infoPlist below).
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
@@ -221,7 +277,7 @@ const config: ExpoConfig = {
         NSAllowsArbitraryLoads: true,
       },
       NSLocalNetworkUsageDescription:
-        "Allow T3 Code to connect to T3 Code servers on your local network or tailnet.",
+        "Allow Sovereign to connect to Sovereign servers on your local network or tailnet.",
       ITSAppUsesNonExemptEncryption: false,
       // The App Store screenshot harness rotates the iPad interface from
       // inside the app (CI denies osascript the Accessibility access that
@@ -246,7 +302,9 @@ const config: ExpoConfig = {
     adaptiveIcon: {
       backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
       foregroundImage: variant.assets.androidAdaptiveForeground,
-      monochromeImage: variant.assets.androidMonochromeIcon,
+      ...("androidMonochromeIcon" in variant.assets
+        ? { monochromeImage: variant.assets.androidMonochromeIcon }
+        : {}),
     },
     // Opts into OnBackInvokedCallback-based back dispatch (Android 13+).
     // JS back handling survives it via react-native's Android 16 shim plus
@@ -284,9 +342,7 @@ const config: ExpoConfig = {
     ],
     "expo-secure-store",
     "expo-sqlite",
-    ...(isIosPersonalTeamBuild
-      ? [sharingPlugin]
-      : ["./plugins/withShareExtensionDisplayName.cjs", sharingPlugin]),
+    ...sharingPlugins,
     [
       "expo-notifications",
       {
@@ -297,7 +353,7 @@ const config: ExpoConfig = {
     ],
     // Sovereign clients use first-party browser OAuth and must not install
     // Clerk's native identity configuration.
-    ...(!isSovereignBuild ? [clerkPlugin] : []),
+    ...identityPlugins,
     "expo-web-browser",
     [
       "expo-quick-actions",
@@ -315,7 +371,7 @@ const config: ExpoConfig = {
     [
       "expo-camera",
       {
-        cameraPermission: "Allow T3 Code to access your camera so you can scan pairing QR codes.",
+        cameraPermission: "Allow Sovereign to access your camera so you can scan pairing QR codes.",
         microphonePermission: false,
         barcodeScannerEnabled: true,
         recordAudioAndroid: false,
@@ -358,7 +414,7 @@ const config: ExpoConfig = {
     // expo-widgets' — its dangerous mod wipes ios/ExpoWidgetsTarget/ (which
     // would delete the asset catalog) and its xcodeproj mod creates the widget
     // target (which must exist before the compile phase can be attached).
-    ...(!isIosPersonalTeamBuild ? ["./plugins/withWidgetLogoAsset.cjs", widgetsPlugin] : []),
+    ...widgetPlugins,
     "./plugins/withIosSceneLifecycle.cjs",
     "./plugins/withAndroidCleartextTraffic.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
@@ -366,7 +422,7 @@ const config: ExpoConfig = {
     "./plugins/withAndroidModernAlertDialog.cjs",
     "./plugins/withAndroidPredictiveBackCompat.cjs",
     "./plugins/withAndroidTabletOrientation.cjs",
-    ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
+    ...personalTeamPlugins,
   ],
   extra: {
     appVariant: APP_VARIANT,

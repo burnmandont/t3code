@@ -4,6 +4,7 @@ import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Encoding from "effect/Encoding";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
@@ -24,6 +25,7 @@ import {
   type SignedApnsDeliveryJob,
 } from "./apnsDeliveryJobs.ts";
 import * as RelayConfiguration from "../Config.ts";
+import { stableStringify } from "@t3tools/shared/relaySigning";
 
 export class ApnsDeliveryQueueSendError extends Schema.TaggedErrorClass<ApnsDeliveryQueueSendError>()(
   "ApnsDeliveryQueueSendError",
@@ -43,10 +45,19 @@ export class ApnsDeliveryQueueSendError extends Schema.TaggedErrorClass<ApnsDeli
 
 export type ApnsDeliveryQueueError = ApnsDeliveryQueueSendError;
 
+export class ApnsDeliveryQueueSenderError extends Schema.TaggedErrorClass<ApnsDeliveryQueueSenderError>()(
+  "ApnsDeliveryQueueSenderError",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
+
 export class ApnsDeliveryQueueSender extends Context.Service<
   ApnsDeliveryQueueSender,
   {
-    readonly send: (body: SignedApnsDeliveryJob) => Effect.Effect<void, Error>;
+    readonly send: (
+      body: SignedApnsDeliveryJob,
+    ) => Effect.Effect<void, ApnsDeliveryQueueSenderError>;
   }
 >()("t3code-relay/agentActivity/ApnsDeliveryQueue/ApnsDeliveryQueueSender") {}
 
@@ -78,6 +89,34 @@ export const make = Effect.gen(function* () {
   const sender = yield* ApnsDeliveryQueueSender;
   const crypto = yield* Crypto.Crypto;
   const config = yield* RelayConfiguration.RelayConfiguration;
+
+  // Queue retries keep their ordinary source-job identity. Notification state
+  // replays additionally converge on this logical identity, so a server
+  // restart cannot enqueue a fresh alert for an already delivered transition.
+  const makePushNotificationJobId = Effect.fnUntraced(function* (input: {
+    readonly userId: string;
+    readonly deviceId: string;
+    readonly notification: NonNullable<ApnsDeliveryJobPayload["notification"]>;
+  }) {
+    if (input.notification.phase === undefined || input.notification.updatedAt === undefined) {
+      return yield* crypto.randomUUIDv4;
+    }
+    const digest = yield* crypto.digest(
+      "SHA-256",
+      new TextEncoder().encode(
+        stableStringify({
+          version: 1,
+          userId: input.userId,
+          deviceId: input.deviceId,
+          environmentId: input.notification.environmentId,
+          threadId: input.notification.threadId,
+          phase: input.notification.phase,
+          updatedAt: input.notification.updatedAt,
+        }),
+      ),
+    );
+    return `push:v1:${Encoding.encodeBase64Url(digest)}`;
+  });
 
   return ApnsDeliveryQueue.of({
     enqueueLiveActivity: Effect.fn("relay.apns_delivery_queue.enqueue_live_activity")(
@@ -146,7 +185,7 @@ export const make = Effect.gen(function* () {
           "relay.thread_id": input.notification.threadId,
         });
         const now = yield* DateTime.now;
-        const jobId = yield* crypto.randomUUIDv4.pipe(
+        const jobId = yield* makePushNotificationJobId(input).pipe(
           Effect.mapError(
             (cause) =>
               new ApnsDeliveryQueueSendError({
@@ -216,9 +255,10 @@ export const layerCloudflareQueues = (
         ApnsDeliveryQueueSender,
         ApnsDeliveryQueueSender.of({
           send: (body) =>
-            sender
-              .send(body)
-              .pipe(Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext)),
+            sender.send(body).pipe(
+              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+              Effect.mapError((cause) => new ApnsDeliveryQueueSenderError({ cause })),
+            ),
         }),
       ),
     ),

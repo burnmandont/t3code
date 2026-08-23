@@ -77,7 +77,7 @@ const state: RelayAgentActivityState = {
 };
 
 const aggregate: RelayAgentActivityAggregateState = {
-  title: "T3 Code",
+  title: "Sovereign",
   subtitle: "Agent work in progress",
   activeCount: 1,
   updatedAt: state.updatedAt,
@@ -264,6 +264,8 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target: {
           ...target,
           activity_push_token: null,
@@ -294,6 +296,8 @@ describe("ApnsDeliveries", () => {
       // Within the freshly-armed grace window an empty aggregate delivers
       // nothing: the environment's first publish may still be in flight.
       const graced = yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target,
         aggregate: null,
         nowMs: 5_000,
@@ -301,6 +305,8 @@ describe("ApnsDeliveries", () => {
       expect(graced).toBeNull();
 
       const result = yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target,
         aggregate: null,
         nowMs: 5_000 + 3 * 60 * 1_000,
@@ -332,6 +338,8 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target: {
           ...target,
           activity_push_token: null,
@@ -356,6 +364,8 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target: {
           ...target,
           activity_push_token: null,
@@ -396,6 +406,8 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target,
         aggregate: inputAggregate,
         nowMs: 10_000,
@@ -419,6 +431,8 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target: {
           ...target,
           bundle_id: "com.t3tools.t3code.preview",
@@ -510,6 +524,12 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          triggeringState: {
+            ...state,
+            phase: "waiting_for_input",
+            headline: "Needs input",
+          },
+          pushNotificationsEnabled: true,
           target: {
             ...target,
             // A registered alert token must not turn the suppressed Live
@@ -549,6 +569,12 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          triggeringState: {
+            ...state,
+            phase: "waiting_for_input",
+            headline: "Needs input",
+          },
+          pushNotificationsEnabled: true,
           target: {
             ...target,
             last_aggregate_json: previousAggregateJson,
@@ -587,6 +613,8 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          triggeringState: null,
+          pushNotificationsEnabled: true,
           target: {
             ...target,
             last_aggregate_json: previousAggregateJson,
@@ -609,6 +637,8 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target: {
           ...target,
           preferences_json: disabledPreferences,
@@ -651,6 +681,12 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          triggeringState: {
+            ...state,
+            phase: "waiting_for_input",
+            headline: "Needs input",
+          },
+          pushNotificationsEnabled: true,
           target: {
             ...target,
             push_token: "apns-device-token",
@@ -710,6 +746,8 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target: {
           ...target,
           push_token: "apns-device-token",
@@ -753,6 +791,12 @@ describe("ApnsDeliveries", () => {
       return Effect.gen(function* () {
         const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
         const result = yield* deliveries.sendForTarget({
+          triggeringState: {
+            ...state,
+            phase: "waiting_for_input",
+            headline: "Needs input",
+          },
+          pushNotificationsEnabled: true,
           target: {
             ...target,
             push_token: "apns-device-token",
@@ -788,6 +832,98 @@ describe("ApnsDeliveries", () => {
     },
   );
 
+  it.effect("does not notify for another thread selected by the display aggregate", () => {
+    const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
+    const queuedJobs: Array<SignedApnsDeliveryJob> = [];
+    const waitingAggregate: RelayAgentActivityAggregateState = {
+      ...aggregate,
+      activities: [
+        {
+          ...aggregate.activities[0]!,
+          threadId: "thread-waiting" as RelayAgentActivityState["threadId"],
+          phase: "waiting_for_input",
+          status: "Input",
+        },
+      ],
+    };
+
+    return Effect.gen(function* () {
+      const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
+      const result = yield* deliveries.sendForTarget({
+        triggeringState: {
+          ...state,
+          threadId: "thread-completed" as RelayAgentActivityState["threadId"],
+          phase: "completed",
+          headline: "Done",
+        },
+        pushNotificationsEnabled: true,
+        target: {
+          ...target,
+          push_token: "apns-device-token",
+          activity_push_token: null,
+          remote_started_at: null,
+        },
+        aggregate: waitingAggregate,
+        nowMs: 3 * 60 * 1_000,
+      });
+
+      expect(result).toBeNull();
+      expect(queuedJobs).toEqual([]);
+    }).pipe(Effect.provide(makeLayer({ attempts, queuedJobs })));
+  });
+
+  it.effect("uses task-completion copy for a completion notification", () => {
+    const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
+    const queuedJobs: Array<SignedApnsDeliveryJob> = [];
+    const completedAggregate: RelayAgentActivityAggregateState = {
+      ...aggregate,
+      activeCount: 0,
+      activities: [
+        {
+          ...aggregate.activities[0]!,
+          phase: "completed",
+          status: "Done",
+        },
+      ],
+    };
+
+    return Effect.gen(function* () {
+      const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
+      const result = yield* deliveries.sendForTarget({
+        triggeringState: {
+          ...state,
+          phase: "completed",
+          headline: "Done",
+        },
+        pushNotificationsEnabled: true,
+        target: {
+          ...target,
+          push_token: "apns-device-token",
+          push_to_start_token: null,
+          activity_push_token: null,
+          remote_started_at: null,
+        },
+        aggregate: completedAggregate,
+        nowMs: 5_000,
+      });
+
+      expect(result?.kind).toBe("push_notification");
+      expect(queuedJobs).toMatchObject([
+        {
+          payload: {
+            kind: "push_notification",
+            notification: {
+              title: "Completed Task",
+              body: "Thread",
+              phase: "completed",
+            },
+          },
+        },
+      ]);
+      expect(attempts).toEqual([]);
+    }).pipe(Effect.provide(makeLayer({ attempts, queuedJobs })));
+  });
+
   it.effect("does not queue a push notification when a thread starts working", () => {
     const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
     const queuedJobs: Array<SignedApnsDeliveryJob> = [];
@@ -795,6 +931,8 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       const result = yield* deliveries.sendForTarget({
+        triggeringState: null,
+        pushNotificationsEnabled: true,
         target: {
           ...target,
           push_token: "apns-device-token",
@@ -833,6 +971,15 @@ describe("ApnsDeliveries", () => {
     return Effect.gen(function* () {
       const deliveries = yield* ApnsDeliveries.ApnsDeliveries;
       yield* deliveries.sendForTarget({
+        triggeringState: {
+          ...state,
+          projectTitle: longTitle,
+          threadTitle: longTitle,
+          phase: "waiting_for_input",
+          headline: "Needs input",
+          deepLink: "https://example.test/not-an-app-link",
+        },
+        pushNotificationsEnabled: true,
         target: {
           ...target,
           push_token: "apns-device-token",
@@ -1629,23 +1776,20 @@ describe("live activity alert decisions", () => {
     notifyOnFailure: true,
   };
 
-  const attentionRow = {
-    ...aggregate.activities[0]!,
+  const attentionState: RelayAgentActivityState = {
+    ...state,
     threadId: "thread-2" as RelayAgentActivityState["threadId"],
     threadTitle: "Blocked thread",
-    phase: "waiting_for_approval" as const,
-    status: "Approval",
+    phase: "waiting_for_approval",
+    headline: "Needs approval",
   };
 
   it("alerts when a thread newly enters an attention phase", () => {
-    const alert = ApnsDeliveries.alertForAttentionTransition({
+    const alert = ApnsDeliveries.alertForTriggeringState({
       previousAggregate: aggregate,
-      nextAggregate: {
-        ...aggregate,
-        activeCount: 2,
-        activities: [...aggregate.activities, attentionRow],
-      },
+      triggeringState: attentionState,
       preferences,
+      nowMs: 0,
     });
     expect(alert).toEqual({ title: "Blocked thread", body: "Approval: Project" });
   });
@@ -1654,134 +1798,86 @@ describe("live activity alert decisions", () => {
     const withAttention = {
       ...aggregate,
       activeCount: 2,
-      activities: [...aggregate.activities, attentionRow],
+      activities: [
+        ...aggregate.activities,
+        {
+          ...aggregate.activities[0]!,
+          environmentId: attentionState.environmentId,
+          threadId: attentionState.threadId,
+          threadTitle: attentionState.threadTitle,
+          phase: attentionState.phase,
+          status: "Approval",
+        },
+      ],
     };
     expect(
-      ApnsDeliveries.alertForAttentionTransition({
+      ApnsDeliveries.alertForTriggeringState({
         previousAggregate: withAttention,
-        nextAggregate: withAttention,
+        triggeringState: attentionState,
         preferences,
+        nowMs: 0,
       }),
     ).toBeNull();
   });
 
   it("stays silent without a delivered baseline so replays cannot buzz", () => {
     expect(
-      ApnsDeliveries.alertForAttentionTransition({
+      ApnsDeliveries.alertForTriggeringState({
         previousAggregate: null,
-        nextAggregate: { ...aggregate, activities: [attentionRow] },
+        triggeringState: attentionState,
         preferences,
+        nowMs: 0,
       }),
     ).toBeNull();
   });
 
   it("honors the per-event notification switch for attention alerts", () => {
     expect(
-      ApnsDeliveries.alertForAttentionTransition({
+      ApnsDeliveries.alertForTriggeringState({
         previousAggregate: aggregate,
-        nextAggregate: {
-          ...aggregate,
-          activeCount: 2,
-          activities: [...aggregate.activities, attentionRow],
-        },
+        triggeringState: attentionState,
         preferences: { ...preferences, notifyOnApproval: false },
+        nowMs: 0,
       }),
     ).toBeNull();
   });
 
-  it("summarizes multiple newly blocked threads in one alert", () => {
-    const secondAttentionRow = {
-      ...attentionRow,
-      threadId: "thread-3" as RelayAgentActivityState["threadId"],
-      threadTitle: "Other blocked thread",
-      phase: "waiting_for_input" as const,
-      status: "Input",
-    };
-    const alert = ApnsDeliveries.alertForAttentionTransition({
-      previousAggregate: aggregate,
-      nextAggregate: {
-        ...aggregate,
-        activeCount: 3,
-        activities: [...aggregate.activities, attentionRow, secondAttentionRow],
-      },
-      preferences,
-    });
-    expect(alert).toEqual({
-      title: "2 agents need attention",
-      body: "Blocked thread, Other blocked thread",
-    });
-  });
-
-  it("alerts for a terminal aggregate and honors the completion switch", () => {
-    const terminalAggregate = {
-      ...aggregate,
-      activeCount: 0,
-      activities: [{ ...aggregate.activities[0]!, phase: "completed" as const, status: "Done" }],
+  it("alerts only for a fresh completion of the triggering thread", () => {
+    const completion: RelayAgentActivityState = {
+      ...state,
+      phase: "completed",
+      headline: "Done",
     };
     expect(
-      ApnsDeliveries.alertForTerminalAggregate({ aggregate: terminalAggregate, preferences }),
-    ).toEqual({ title: "Thread", body: "Done: Project" });
-    expect(
-      ApnsDeliveries.alertForTerminalAggregate({
-        aggregate: terminalAggregate,
-        preferences: { ...preferences, notifyOnCompletion: false },
-      }),
-    ).toBeNull();
-    expect(ApnsDeliveries.alertForTerminalAggregate({ aggregate: null, preferences })).toBeNull();
-  });
-
-  it("alerts when a previously active thread finishes mid-flight", () => {
-    const doneRow = {
-      ...aggregate.activities[0]!,
-      phase: "completed" as const,
-      status: "Done",
-    };
-    const next = {
-      ...aggregate,
-      activeCount: 0,
-      activities: [attentionRow, doneRow],
-    };
-    expect(
-      ApnsDeliveries.alertForNewlyTerminal({
+      ApnsDeliveries.alertForTriggeringState({
         previousAggregate: aggregate,
-        nextAggregate: next,
+        triggeringState: completion,
         preferences,
         nowMs: 0,
       }),
-    ).toEqual({ title: "Thread", body: "Done: Project" });
-    // The completion switch mutes it.
+    ).toEqual({ title: "Completed Task", body: "Thread" });
     expect(
-      ApnsDeliveries.alertForNewlyTerminal({
+      ApnsDeliveries.alertForTriggeringState({
         previousAggregate: aggregate,
-        nextAggregate: next,
+        triggeringState: completion,
         preferences: { ...preferences, notifyOnCompletion: false },
         nowMs: 0,
       }),
     ).toBeNull();
-    // No baseline means no transition to ring on.
     expect(
-      ApnsDeliveries.alertForNewlyTerminal({
+      ApnsDeliveries.alertForTriggeringState({
         previousAggregate: null,
-        nextAggregate: next,
-        preferences,
-        nowMs: 0,
-      }),
-    ).toBeNull();
-    // A Done row that was already terminal (or absent) before stays silent.
-    expect(
-      ApnsDeliveries.alertForNewlyTerminal({
-        previousAggregate: next,
-        nextAggregate: next,
+        triggeringState: completion,
         preferences,
         nowMs: 0,
       }),
     ).toBeNull();
     expect(
-      ApnsDeliveries.alertForNewlyTerminal({
-        previousAggregate: { ...aggregate, activities: [attentionRow] },
-        nextAggregate: next,
+      ApnsDeliveries.alertForTriggeringState({
+        previousAggregate: aggregate,
+        triggeringState: completion,
         preferences,
-        nowMs: 0,
+        nowMs: 2 * 60 * 1_000 + 1,
       }),
     ).toBeNull();
   });

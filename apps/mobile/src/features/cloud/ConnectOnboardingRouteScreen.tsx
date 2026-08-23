@@ -16,9 +16,9 @@ import { useMobileCloudAuth } from "./CloudAuthProvider";
 import { hasCloudPublicConfig } from "./publicConfig";
 
 /**
- * Post-sign-in onboarding sheet for T3 Connect. Mobile never publishes
+ * Post-sign-in onboarding sheet for Sovereign Relay. Mobile never publishes
  * environments itself — it consumes ones published elsewhere — so this simply
- * surfaces the account's T3 Connect environments right after sign-in so every
+ * surfaces the account's Sovereign Relay environments right after sign-in so every
  * device can be connected in one go. It shows on every sign-in: sign-out
  * clears the connected environments, so each new session starts from zero.
  */
@@ -84,7 +84,7 @@ function ConfiguredConnectOnboardingRouteScreen() {
     <View collapsable={false} className="flex-1 bg-sheet">
       {Platform.OS === "android" ? (
         <AndroidSheetHeader
-          title="Set up T3 Connect"
+          title="Set up Sovereign Relay"
           actions={[{ accessibilityLabel: "Close", icon: "xmark", onPress: handleClose }]}
         />
       ) : (
@@ -116,7 +116,7 @@ function ConfiguredConnectOnboardingRouteScreen() {
         ) : (
           <View collapsable={false} className="rounded-[24px] bg-card p-5">
             <Text className="text-sm leading-normal text-foreground-muted">
-              Sign in to your T3 account to set up T3 Connect.
+              Sign in to your Sovereign account to set up Sovereign Relay.
             </Text>
           </View>
         )}

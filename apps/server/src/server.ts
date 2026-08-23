@@ -119,11 +119,13 @@ import {
 } from "./serverRuntimeState.ts";
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
 import * as NetService from "@t3tools/shared/Net";
-import * as RelayClient from "@t3tools/shared/relayClient";
+import * as ConnectorClient from "@t3tools/shared/connectorClient";
 import * as FrpcClient from "@t3tools/shared/frpcClient";
 import * as ManagedConnectorClients from "@t3tools/shared/managedConnectorClients";
 import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
 import { forkParked, ServerActivation } from "./serverActivation.ts";
+
+declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
 
 // Effect's default preemptive shutdown waits 20s before finalizing request scopes.
 // T3's primary transport is long-lived WebSocket RPC, whose Effect scope finalizer
@@ -178,13 +180,6 @@ const ResourceDiagnosticsLayerLive = Layer.mergeAll(
   ProcessResourceMonitor.layer.pipe(Layer.provide(ResourceTelemetryLayerLive)),
 );
 
-const RelayClientLive = Layer.unwrap(
-  Effect.gen(function* () {
-    const config = yield* ServerConfig.ServerConfig;
-    return RelayClient.layerCloudflared({ baseDir: config.baseDir });
-  }),
-);
-
 const FrpcClientLive = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
@@ -192,9 +187,36 @@ const FrpcClientLive = Layer.unwrap(
   }),
 );
 
-const ManagedConnectorClientsLive = ManagedConnectorClients.layerFromConnectorClients.pipe(
-  Layer.provideMerge(RelayClientLive),
-  Layer.provideMerge(FrpcClientLive),
+const ConnectorClientLive = Layer.unwrap(
+  Effect.gen(function* () {
+    if (__T3CODE_BUILD_SOVEREIGN__) {
+      return Layer.effect(ConnectorClient.RelayClient, FrpcClient.FrpcClient).pipe(
+        Layer.provideMerge(FrpcClientLive),
+      );
+    }
+
+    const config = yield* ServerConfig.ServerConfig;
+    const CloudflareConnectorLayer = yield* Effect.promise(
+      () => import("./cloud/CloudflareConnectorLayer.ts"),
+    );
+    return CloudflareConnectorLayer.relayClientLayer(config.baseDir);
+  }),
+);
+
+const ManagedConnectorClientsLive = Layer.unwrap(
+  Effect.gen(function* () {
+    if (__T3CODE_BUILD_SOVEREIGN__) {
+      return ManagedConnectorClients.layerFromFrpcClient.pipe(Layer.provideMerge(FrpcClientLive));
+    }
+
+    const CloudflareConnectorLayer = yield* Effect.promise(
+      () => import("./cloud/CloudflareConnectorLayer.ts"),
+    );
+    return CloudflareConnectorLayer.layer.pipe(
+      Layer.provideMerge(ConnectorClientLive),
+      Layer.provideMerge(FrpcClientLive),
+    );
+  }),
 );
 
 const HttpServerLive = Layer.unwrap(
@@ -373,7 +395,7 @@ const AuthLayerLive = EnvironmentAuth.layer.pipe(
 );
 
 const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
-  RelayClientLive,
+  ConnectorClientLive,
   FrpcClientLive,
   ManagedConnectorClientsLive,
   CloudManagedEndpointRuntime.layer.pipe(
@@ -656,19 +678,21 @@ export const makeServerLayer = Layer.unwrap(
                       ? retrySchedule.pipe(Schedule.upTo({ duration: "10 minutes" }))
                       : retrySchedule,
                 }),
-                Effect.tap(() => Effect.logInfo("T3 Connect desired link reconciled", { trigger })),
+                Effect.tap(() =>
+                  Effect.logInfo("Sovereign Relay desired link reconciled", { trigger }),
+                ),
                 Effect.catchTag("EnvironmentCloudRemotelyRetired", (error) =>
                   markCloudLinkRemotelyRetired().pipe(
                     Effect.tap(() =>
                       Effect.logWarning(
-                        "T3 Connect environment was remotely revoked; connector disabled",
+                        "Sovereign Relay environment was remotely revoked; connector disabled",
                         { trigger, traceId: error.traceId },
                       ),
                     ),
                   ),
                 ),
                 Effect.catch((cause) =>
-                  Effect.logWarning("Failed to reconcile T3 Connect desired link", {
+                  Effect.logWarning("Failed to reconcile Sovereign Relay desired link", {
                     cause,
                     trigger,
                   }),
@@ -685,7 +709,7 @@ export const makeServerLayer = Layer.unwrap(
             return yield* Effect.forever(
               runtime.takeAuthorizationRejection.pipe(
                 Effect.tap((event) =>
-                  Effect.logWarning("Reconciling rejected T3 Connect authorization", event),
+                  Effect.logWarning("Reconciling rejected Sovereign Relay authorization", event),
                 ),
                 Effect.flatMap(() =>
                   CloudCliState.readCliDesiredCloudLink.pipe(

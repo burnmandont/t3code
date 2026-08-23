@@ -3,7 +3,7 @@
 Last reviewed: 2026-08-10
 
 This review covers the Internet-facing sovereign deployment, not the complete
-upstream T3 Code product. Its primary security property is that possession of a
+upstream Sovereign product. Its primary security property is that possession of a
 hostname is never sufficient to orchestrate an environment.
 
 ## Trust boundaries

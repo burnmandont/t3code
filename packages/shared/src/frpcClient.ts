@@ -23,7 +23,7 @@ import {
   RelayClientInstallError,
   type AvailableRelayClient,
   type RelayClientShape,
-} from "./relayClient.ts";
+} from "./connectorClient.ts";
 
 export const FRPC_VERSION = "0.70.1";
 export const FRPC_PATH_ENV_NAME = "T3CODE_FRPC_PATH";
@@ -316,7 +316,7 @@ export const makeFrpcClient = Effect.fn("frpc.make")(function* (
     if (!releaseAsset) {
       return yield* new RelayClientInstallError({
         reason: "unsupported_platform",
-        message: `T3 Code does not provide a managed frpc binary for ${platform}-${arch}.`,
+        message: `Sovereign does not provide a managed frpc binary for ${platform}-${arch}.`,
       });
     }
 

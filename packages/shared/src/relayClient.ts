@@ -1,10 +1,6 @@
 import * as Clock from "effect/Clock";
-import type {
-  RelayClientInstallProgressEvent,
-  RelayClientInstallProgressStage,
-} from "@t3tools/contracts";
+import type { RelayClientInstallProgressStage } from "@t3tools/contracts";
 import * as Config from "effect/Config";
-import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -17,45 +13,25 @@ import * as PlatformError from "effect/PlatformError";
 import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import {
+  RelayClient,
+  RelayClientInstallError,
+  type AvailableRelayClient,
+  type RelayClientShape,
+} from "./connectorClient.ts";
 import { HostProcessArchitecture, HostProcessPlatform } from "./hostProcess.ts";
+
+export {
+  RelayClient,
+  RelayClientInstallError,
+  type AvailableRelayClient,
+  type RelayClientExecutableSource,
+  type RelayClientShape,
+  type RelayClientStatus,
+} from "./connectorClient.ts";
 
 export const CLOUDFLARED_VERSION = "2026.5.2";
 export const CLOUDFLARED_PATH_ENV_NAME = "T3CODE_CLOUDFLARED_PATH";
-
-export type RelayClientExecutableSource = "override" | "managed" | "path";
-
-export type RelayClientStatus =
-  | {
-      readonly status: "available";
-      readonly executablePath: string;
-      readonly source: RelayClientExecutableSource;
-      readonly version: string;
-    }
-  | {
-      readonly status: "missing";
-      readonly version: string;
-    }
-  | {
-      readonly status: "unsupported";
-      readonly platform: NodeJS.Platform;
-      readonly arch: string;
-      readonly version: string;
-    };
-
-export type AvailableRelayClient = Extract<RelayClientStatus, { readonly status: "available" }>;
-
-export class RelayClientInstallError extends Data.TaggedError("RelayClientInstallError")<{
-  readonly reason:
-    | "download_failed"
-    | "invalid_checksum"
-    | "install_locked"
-    | "override_missing"
-    | "unsupported_platform"
-    | "validation_failed"
-    | "write_failed";
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
 
 class CloudflaredCommandError extends Data.TaggedError("CloudflaredCommandError")<{
   readonly command: string;
@@ -122,18 +98,6 @@ export interface CloudflaredRelayClientOptions {
   readonly baseDir: string;
   readonly releaseAsset?: CloudflaredReleaseAsset;
 }
-
-export interface RelayClientShape {
-  readonly resolve: Effect.Effect<RelayClientStatus>;
-  readonly install: Effect.Effect<AvailableRelayClient, RelayClientInstallError>;
-  readonly installWithProgress: (
-    report: (event: RelayClientInstallProgressEvent) => Effect.Effect<void>,
-  ) => Effect.Effect<AvailableRelayClient, RelayClientInstallError>;
-}
-
-export class RelayClient extends Context.Service<RelayClient, RelayClientShape>()(
-  "@t3tools/shared/relayClient",
-) {}
 
 function executableFileName(platform: NodeJS.Platform): string {
   return platform === "win32" ? "cloudflared.exe" : "cloudflared";
@@ -368,7 +332,7 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
     if (!releaseAsset) {
       return yield* new RelayClientInstallError({
         reason: "unsupported_platform",
-        message: `T3 Code does not provide a managed relay client binary for ${platform}-${arch}.`,
+        message: `Sovereign does not provide a managed relay client binary for ${platform}-${arch}.`,
       });
     }
 

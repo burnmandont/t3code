@@ -30,7 +30,7 @@ export function makeOauthProviderOptions(config: AccountConfiguration) {
 
 export function makeAccountOptions(config: AccountConfiguration) {
   return {
-    appName: "T3 Code",
+    appName: "Sovereign",
     baseURL: config.baseUrl,
     basePath: config.basePath,
     secret: config.secret,
@@ -84,7 +84,7 @@ export function makeAccountOptions(config: AccountConfiguration) {
       }),
       passkey({
         rpID: new URL(config.baseUrl).hostname,
-        rpName: "T3 Code Sovereign",
+        rpName: "Sovereign",
         origin: new URL(config.baseUrl).origin,
         authenticatorSelection: {
           residentKey: "required",

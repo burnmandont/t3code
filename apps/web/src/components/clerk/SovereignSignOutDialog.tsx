@@ -45,7 +45,7 @@ export function SovereignSignOutDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogPopup>
         <AlertDialogHeader>
-          <AlertDialogTitle>Sign out of T3 Connect?</AlertDialogTitle>
+          <AlertDialogTitle>Sign out of Sovereign Relay?</AlertDialogTitle>
           <AlertDialogDescription>
             {accountLabel ? `This signs ${accountLabel} out` : "This signs this account out"} on
             this client and revokes its session. Your remote environments will keep running and

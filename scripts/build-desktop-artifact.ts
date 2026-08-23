@@ -51,7 +51,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "com.t3tools.t3code";
+const DESKTOP_APP_ID = "com.moondiner.t3code.desktop";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -786,7 +786,7 @@ interface StagePackageJson {
 export const STAGE_INSTALL_ARGS = ["install", "--prod"] as const;
 export const DESKTOP_ELECTRON_LANGUAGES = ["en-US"] as const;
 export const DESKTOP_FILE_EXCLUSIONS = [
-  // T3 Code always passes the user's installed Claude executable to the SDK,
+  // Sovereign always passes the user's installed Claude executable to the SDK,
   // so the SDK's optional platform packages (each a ~200MB bundled executable)
   // are dead weight. The trailing dash keeps the SDK's own JS package.
   "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
@@ -859,6 +859,16 @@ export interface MacPasskeySigningConfiguration {
   readonly teamId: string;
   readonly rpDomains: readonly string[];
   readonly provisioningProfilePath: string;
+}
+
+export function usesSovereignDesktopIdentity(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  return Boolean(
+    env.T3CODE_OAUTH_ISSUER?.trim() ||
+    env.T3CODE_OAUTH_CLIENT_ID?.trim() ||
+    env.T3CODE_OAUTH_RESOURCE?.trim(),
+  );
 }
 
 export const InvalidMacPasskeyRpDomainReason = Schema.Literals([
@@ -1954,6 +1964,7 @@ function validateBundledClientAssets(clientDir: string) {
 export function resolveDesktopRuntimeDependencies(
   dependencies: Record<string, string> | undefined,
   catalog: Record<string, string>,
+  sovereignIdentity = false,
 ): Record<string, string> {
   if (!dependencies || Object.keys(dependencies).length === 0) {
     return {};
@@ -1962,7 +1973,9 @@ export function resolveDesktopRuntimeDependencies(
   const runtimeDependencies = Object.fromEntries(
     Object.entries(dependencies).filter(
       ([dependencyName, dependencySpec]) =>
-        dependencyName !== "electron" && !dependencySpec.startsWith("workspace:"),
+        dependencyName !== "electron" &&
+        !dependencySpec.startsWith("workspace:") &&
+        (!sovereignIdentity || !dependencyName.startsWith("@clerk/electron")),
     ),
   );
 
@@ -2038,8 +2051,38 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+    ? "Sovereign (Nightly)"
+    : (desktopPackageJson.productName ?? "Sovereign");
+}
+
+/**
+ * Native packagers require the ordinary desktop release version, while the
+ * sovereign renderer must address the exact immutable server artifact. Keep
+ * those identities separate so a version-skew action never asks a sovereign
+ * server to install an unsigned bare upstream version.
+ */
+export function resolveDesktopClientRuntimeVersion(input: {
+  readonly packageVersion: string;
+  readonly commitHash: string;
+  readonly hostedAppChannel: string | undefined;
+  readonly explicitAppVersion: string | undefined;
+}): string {
+  const explicitAppVersion = input.explicitAppVersion?.trim();
+  if (explicitAppVersion) {
+    return explicitAppVersion;
+  }
+  if (input.hostedAppChannel?.trim().toLowerCase() !== "sovereign") {
+    return input.packageVersion;
+  }
+
+  const [baseVersion] = input.packageVersion.split(/[+-]/u, 1);
+  if (!/^\d+\.\d+\.\d+$/u.test(baseVersion ?? "")) {
+    throw new Error(`Sovereign desktop base version is invalid: ${input.packageVersion}`);
+  }
+  if (!/^[a-f0-9]{7,64}$/u.test(input.commitHash)) {
+    throw new Error("Sovereign desktop build requires a Git commit SHA.");
+  }
+  return `${baseVersion}+sovereign.g${input.commitHash.slice(0, 12)}`;
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -2059,7 +2102,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
-    artifactName: "T3-Code-${version}-${arch}.${ext}",
+    artifactName: "Sovereign-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [...DESKTOP_FILE_EXCLUSIONS],
     directories: {
@@ -2094,7 +2137,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       category: "public.app-category.developer-tools",
       protocols: [
         {
-          name: "T3 Code",
+          name: "Sovereign",
           schemes: ["t3code", "t3code-dev"],
         },
       ],
@@ -2141,7 +2184,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // t3code:// OAuth callbacks to the app.
       protocols: [
         {
-          name: "T3 Code",
+          name: "Sovereign",
           schemes: ["t3code", "t3code-dev"],
         },
       ],
@@ -2659,6 +2702,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const workspaceOverrides = workspaceConfig.overrides ?? {};
   const workspacePatchedDependencies = workspaceConfig.patchedDependencies ?? {};
   const workspaceAllowBuilds = workspaceConfig.allowBuilds ?? {};
+  const repoPublicEnv = loadRepoEnv({ repoRoot });
+  const sovereignIdentity = usesSovereignDesktopIdentity(repoPublicEnv);
 
   const platformConfig = PLATFORM_CONFIG[options.platform];
   if (!platformConfig) {
@@ -2699,7 +2744,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     resolvedServerDependencies,
   );
   const resolvedDesktopRuntimeDependencies = yield* Effect.try({
-    try: () => resolveDesktopRuntimeDependencies(desktopPackageJson.dependencies, workspaceCatalog),
+    try: () =>
+      resolveDesktopRuntimeDependencies(
+        desktopPackageJson.dependencies,
+        workspaceCatalog,
+        sovereignIdentity,
+      ),
     catch: (cause) =>
       new DesktopBuildDependencyResolutionError({
         kind: "desktop-runtime",
@@ -2711,6 +2761,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const appVersion = options.version ?? serverPackageJson.version;
   const iconAssets = resolveDesktopBuildIconAssets(appVersion);
   const commitHash = yield* resolveGitCommitHash(repoRoot);
+  const clientRuntimeVersion = resolveDesktopClientRuntimeVersion({
+    packageVersion: serverPackageJson.version,
+    commitHash,
+    hostedAppChannel: repoPublicEnv.VITE_HOSTED_APP_CHANNEL,
+    explicitAppVersion: process.env.APP_VERSION,
+  });
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
     prefix: `t3code-desktop-${options.platform}-stage-`,
@@ -2731,6 +2787,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     yield* runCommand(
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         cwd: repoRoot,
+        env: {
+          ...process.env,
+          APP_VERSION: clientRuntimeVersion,
+        },
         shell: spawnCommand.shell,
       }),
       { label: "vp run build:desktop", verbose: options.verbose },
@@ -2870,9 +2930,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(stageResourcesDir, stageProdResourcesDir);
 
   const configuredMacPasskeySigning =
-    options.platform === "mac" && options.signed
+    options.platform === "mac" && options.signed && !usesSovereignDesktopIdentity(repoPublicEnv)
       ? yield* Effect.try({
-          try: () => resolveMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
+          try: () => resolveMacPasskeySigningConfiguration(repoPublicEnv),
           catch: MacPasskeySigningConfigurationResolutionError.fromCause,
         })
       : undefined;
@@ -2929,8 +2989,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     t3codeCommitHash: commitHash,
     private: true,
     packageManager: rootPackageJson.packageManager,
-    description: "T3 Code desktop build",
-    author: "T3 Tools",
+    description: "Sovereign desktop build",
+    author: "Sovereign",
     main: "apps/desktop/dist-electron/main.cjs",
     build: yield* createBuildConfig(
       options.platform,
@@ -3185,7 +3245,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     Flag.optional,
   ),
 }).pipe(
-  Command.withDescription("Build a desktop artifact for T3 Code."),
+  Command.withDescription("Build a desktop artifact for Sovereign."),
   Command.withHandler((input) => Effect.flatMap(resolveBuildOptions(input), buildDesktopArtifact)),
 );
 

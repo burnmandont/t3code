@@ -28,7 +28,7 @@ export function ProfileSettings() {
         {auth.isSignedIn ? (
           <>
             <SettingsRow
-              title={auth.accountName ?? auth.accountEmail ?? "T3 Connect account"}
+              title={auth.accountName ?? auth.accountEmail ?? "Sovereign Relay account"}
               description="The account currently used by this browser or desktop client."
               status={auth.accountEmail ?? undefined}
             />

@@ -72,7 +72,8 @@ Create a Docker Compose application from the private fork with:
 
 - base directory `/`;
 - Compose file `/infra/sovereign/compose.observability.yaml`;
-- branch `master`;
+- branch `sovereign-direct` (move this to `sovereign/main` only during the
+  separately approved production branch cutover);
 - gateway domain `https://observe.moondiner.com:8080`;
 - health check path `/health` on the gateway;
 - Include Source Commit in Build enabled.

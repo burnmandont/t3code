@@ -54,7 +54,6 @@ export interface ThreadFeedActivity {
     | "zap";
   readonly toolLike: boolean;
   readonly status: "success" | "failure" | "neutral" | null;
-  readonly sourceActivities: ReadonlyArray<OrchestrationThreadActivity>;
 }
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
@@ -144,6 +143,26 @@ export interface StableThreadFeedState {
   readonly result: ReadonlyArray<ThreadFeedEntry>;
 }
 
+const threadFeedActivitySources = new WeakMap<
+  ThreadFeedActivity,
+  ReadonlyArray<OrchestrationThreadActivity>
+>();
+
+function haveSameThreadFeedActivitySources(
+  previous: ThreadFeedActivity,
+  next: ThreadFeedActivity,
+): boolean {
+  const previousSources = threadFeedActivitySources.get(previous);
+  const nextSources = threadFeedActivitySources.get(next);
+  if (previousSources === undefined || nextSources === undefined) {
+    return previousSources === nextSources;
+  }
+  return (
+    previousSources.length === nextSources.length &&
+    previousSources.every((activity, index) => activity === nextSources[index])
+  );
+}
+
 function isThreadFeedActivityUnchanged(
   previous: ThreadFeedActivity,
   next: ThreadFeedActivity,
@@ -158,8 +177,7 @@ function isThreadFeedActivityUnchanged(
     previous.icon === next.icon &&
     previous.toolLike === next.toolLike &&
     previous.status === next.status &&
-    previous.sourceActivities.length === next.sourceActivities.length &&
-    previous.sourceActivities.every((activity, index) => activity === next.sourceActivities[index])
+    haveSameThreadFeedActivitySources(previous, next)
   );
 }
 
@@ -1657,25 +1675,26 @@ export function buildThreadFeed(
               })
               .join("\n"),
           );
+          const activity: ThreadFeedActivity = {
+            id: entry.id,
+            createdAt: entry.createdAt,
+            turnId: entry.turnId,
+            summary,
+            detail,
+            canExpand: workEntryHasExpandedBody(entry),
+            getFullDetail,
+            getCopyText,
+            icon: workEntryIcon(entry),
+            toolLike: workLogEntryIsToolLike(entry),
+            status: workEntryStatus(entry),
+          };
+          threadFeedActivitySources.set(activity, entry.sourceActivities);
           return {
             type: "activity",
             id: entry.id,
             createdAt: entry.createdAt,
             turnId: entry.turnId,
-            activity: {
-              id: entry.id,
-              createdAt: entry.createdAt,
-              turnId: entry.turnId,
-              summary,
-              detail,
-              canExpand: workEntryHasExpandedBody(entry),
-              getFullDetail,
-              getCopyText,
-              icon: workEntryIcon(entry),
-              toolLike: workLogEntryIsToolLike(entry),
-              status: workEntryStatus(entry),
-              sourceActivities: entry.sourceActivities,
-            },
+            activity,
           };
         }),
     ],

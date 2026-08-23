@@ -99,7 +99,6 @@ function makeApnsDeliveries(
 ): ApnsDeliveries.ApnsDeliveries["Service"] {
   return {
     sendForTarget: () => Effect.succeed(null),
-    sendPushNotificationForTarget: () => Effect.succeed(null),
     sendLiveActivity: () =>
       Effect.succeed({
         deviceId: "device",
@@ -302,6 +301,70 @@ describe("AgentActivityPublisher", () => {
     });
   });
 
+  it.effect("keeps the triggering thread separate from the user-wide aggregate", () => {
+    const staleCompletion: RelayAgentActivityState = {
+      ...state,
+      threadId: "thread-completed" as RelayAgentActivityState["threadId"],
+      phase: "completed",
+      headline: "Done",
+      updatedAt: "1970-01-01T00:00:00.000Z",
+    };
+    const waitingState: RelayAgentActivityState = {
+      ...state,
+      threadId: "thread-waiting" as RelayAgentActivityState["threadId"],
+      phase: "waiting_for_input",
+      headline: "Needs input",
+      updatedAt: "9999-01-01T00:00:00.000Z",
+    };
+    const sent: Array<Parameters<ApnsDeliveries.ApnsDeliveries["Service"]["sendForTarget"]>[0]> =
+      [];
+
+    return Effect.gen(function* () {
+      const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
+      yield* publisher.publish({
+        environmentId: "env",
+        environmentPublicKey: "environment-public-key",
+        threadId: staleCompletion.threadId,
+        state: staleCompletion,
+      });
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0]?.aggregate?.activities[0]).toMatchObject({
+        threadId: waitingState.threadId,
+        phase: "waiting_for_input",
+      });
+      expect(sent[0]?.triggeringState).toEqual(staleCompletion);
+    }).pipe(
+      Effect.provide(
+        AgentActivityPublisher.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(
+                AgentActivityRows.AgentActivityRows,
+                makeAgentActivityRows({ listForUser: () => Effect.succeed([waitingState]) }),
+              ),
+              Layer.succeed(EnvironmentLinks.EnvironmentLinks, makeEnvironmentLinks()),
+              Layer.succeed(
+                LiveActivities.LiveActivities,
+                makeLiveActivities({ listTargets: () => Effect.succeed([target("device-1")]) }),
+              ),
+              Layer.succeed(
+                ApnsDeliveries.ApnsDeliveries,
+                makeApnsDeliveries({
+                  sendForTarget: (input) =>
+                    Effect.sync(() => {
+                      sent.push(input);
+                      return null;
+                    }),
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+
   it.effect("ends the last remote Live Activity with a terminal content state", () => {
     const completedState: RelayAgentActivityState = {
       ...state,
@@ -421,11 +484,8 @@ describe("AgentActivityPublisher", () => {
       phase: "waiting_for_input",
       headline: "Needs input",
     };
-    const liveAggregates: Array<
+    const deliveries: Array<
       Parameters<ApnsDeliveries.ApnsDeliveries["Service"]["sendForTarget"]>[0]
-    > = [];
-    const pushAggregates: Array<
-      Parameters<ApnsDeliveries.ApnsDeliveries["Service"]["sendPushNotificationForTarget"]>[0]
     > = [];
 
     return Effect.gen(function* () {
@@ -479,12 +539,7 @@ describe("AgentActivityPublisher", () => {
                   makeApnsDeliveries({
                     sendForTarget: (input) =>
                       Effect.sync(() => {
-                        liveAggregates.push(input);
-                        return null;
-                      }),
-                    sendPushNotificationForTarget: (input) =>
-                      Effect.sync(() => {
-                        pushAggregates.push(input);
+                        deliveries.push(input);
                         return {
                           deviceId: input.target.device_id,
                           kind: "push_notification",
@@ -503,18 +558,13 @@ describe("AgentActivityPublisher", () => {
         ),
       );
 
-      expect(liveAggregates).toMatchObject([{ aggregate: null }]);
-      expect(pushAggregates).toHaveLength(1);
-      expect(pushAggregates[0]?.aggregate).toMatchObject({
-        activeCount: 1,
-        activities: [
-          {
-            phase: "waiting_for_input",
-            status: "Input",
-            threadId: notificationState.threadId,
-          },
-        ],
-      });
+      expect(deliveries).toMatchObject([
+        {
+          aggregate: null,
+          triggeringState: notificationState,
+          pushNotificationsEnabled: true,
+        },
+      ]);
       expect(result.deliveries).toMatchObject([
         {
           deviceId: "device-1",
@@ -533,11 +583,8 @@ describe("AgentActivityPublisher", () => {
         phase: "waiting_for_approval",
         headline: "Needs approval",
       };
-      const liveAggregates: Array<
+      const deliveries: Array<
         Parameters<ApnsDeliveries.ApnsDeliveries["Service"]["sendForTarget"]>[0]
-      > = [];
-      const pushAggregates: Array<
-        Parameters<ApnsDeliveries.ApnsDeliveries["Service"]["sendPushNotificationForTarget"]>[0]
       > = [];
 
       return Effect.gen(function* () {
@@ -598,12 +645,7 @@ describe("AgentActivityPublisher", () => {
                     makeApnsDeliveries({
                       sendForTarget: (input) =>
                         Effect.sync(() => {
-                          liveAggregates.push(input);
-                          return null;
-                        }),
-                      sendPushNotificationForTarget: (input) =>
-                        Effect.sync(() => {
-                          pushAggregates.push(input);
+                          deliveries.push(input);
                           return {
                             deviceId: input.target.device_id,
                             kind: "push_notification",
@@ -622,13 +664,11 @@ describe("AgentActivityPublisher", () => {
           ),
         );
 
-        expect(liveAggregates).toMatchObject([{ aggregate: null }]);
-        expect(pushAggregates).toHaveLength(1);
-        expect(pushAggregates[0]?.aggregate?.activities).toMatchObject([
+        expect(deliveries).toMatchObject([
           {
-            environmentId: notificationState.environmentId,
-            threadId: notificationState.threadId,
-            phase: "waiting_for_approval",
+            aggregate: null,
+            triggeringState: notificationState,
+            pushNotificationsEnabled: true,
           },
         ]);
         expect(result.deliveries).toMatchObject([
@@ -689,6 +729,22 @@ describe("makeAggregateState", () => {
         activeStates: [state],
         terminalState: null,
         nowMs: 3 * hourMs,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not revive an explicitly published terminal state after its display TTL", () => {
+    const staleCompletion: RelayAgentActivityState = {
+      ...state,
+      phase: "completed",
+      headline: "Done",
+      updatedAt: "1970-01-01T00:00:00.000Z",
+    };
+    expect(
+      AgentActivityPublisher.makeAggregateState({
+        activeStates: [],
+        terminalState: staleCompletion,
+        nowMs: AgentActivityPublisher.TERMINAL_AGENT_ACTIVITY_DISPLAY_TTL_MS + 1,
       }),
     ).toBeNull();
   });

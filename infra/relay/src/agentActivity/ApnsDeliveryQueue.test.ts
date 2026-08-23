@@ -8,6 +8,7 @@ import * as Redacted from "effect/Redacted";
 
 import * as RelayConfiguration from "../Config.ts";
 import * as ApnsDeliveryQueue from "./ApnsDeliveryQueue.ts";
+import type { SignedApnsDeliveryJob } from "./apnsDeliveryJobs.ts";
 
 const config: RelayConfiguration.RelayConfiguration["Service"] = {
   relayIssuer: "https://relay.example.com",
@@ -75,7 +76,8 @@ describe("ApnsDeliveryQueue", () => {
       Layer.provide(RelayConfiguration.layer(config)),
       Layer.provide(
         Layer.succeed(ApnsDeliveryQueue.ApnsDeliveryQueueSender, {
-          send: () => Effect.fail(senderCause),
+          send: () =>
+            Effect.fail(new ApnsDeliveryQueue.ApnsDeliveryQueueSenderError({ cause: senderCause })),
         }),
       ),
     );
@@ -104,12 +106,74 @@ describe("ApnsDeliveryQueue", () => {
         kind: "push_notification",
         userId: "user-1",
         deviceId: "device-1",
-        cause: senderCause,
+        cause: {
+          _tag: "ApnsDeliveryQueueSenderError",
+          cause: senderCause,
+        },
       });
       expect(senderCause.cause).toBe(cause);
       expect(error.message).toBe(
         "Failed to enqueue APNs push notification delivery during send for device device-1.",
       );
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("uses one durable job identity for the same device and thread state", () => {
+    const sent: SignedApnsDeliveryJob[] = [];
+    const layer = ApnsDeliveryQueue.layer.pipe(
+      Layer.provide(NodeCryptoLayer.layer),
+      Layer.provide(RelayConfiguration.layer(config)),
+      Layer.provide(
+        Layer.succeed(ApnsDeliveryQueue.ApnsDeliveryQueueSender, {
+          send: (body) =>
+            Effect.sync(() => {
+              sent.push(body);
+            }),
+        }),
+      ),
+    );
+    const notification = {
+      title: "Thread",
+      body: "Input: Project",
+      environmentId: "env-1",
+      threadId: "thread-1",
+      deepLink: "/threads/env-1/thread-1",
+      phase: "waiting_for_input" as const,
+      updatedAt: "2026-08-17T00:00:00.000Z",
+    };
+
+    return Effect.gen(function* () {
+      const queue = yield* ApnsDeliveryQueue.ApnsDeliveryQueue;
+      yield* queue.enqueuePushNotification({
+        userId: "user-1",
+        deviceId: "device-1",
+        token: "push-token",
+        notification,
+      });
+      yield* queue.enqueuePushNotification({
+        userId: "user-1",
+        deviceId: "device-1",
+        token: "push-token",
+        notification,
+      });
+      yield* queue.enqueuePushNotification({
+        userId: "user-1",
+        deviceId: "device-1",
+        token: "push-token",
+        notification: { ...notification, updatedAt: "2026-08-17T00:01:00.000Z" },
+      });
+      yield* queue.enqueuePushNotification({
+        userId: "user-1",
+        deviceId: "device-2",
+        token: "second-push-token",
+        notification,
+      });
+
+      expect(sent).toHaveLength(4);
+      expect(sent[0]?.payload.jobId).toBe(sent[1]?.payload.jobId);
+      expect(sent[2]?.payload.jobId).not.toBe(sent[0]?.payload.jobId);
+      expect(sent[3]?.payload.jobId).not.toBe(sent[0]?.payload.jobId);
+      expect(sent[0]?.payload.jobId).toMatch(/^push:v1:/);
     }).pipe(Effect.provide(layer));
   });
 });

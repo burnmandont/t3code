@@ -716,7 +716,6 @@ describe("buildThreadFeed", () => {
       icon: "command",
       toolLike: true,
       status,
-      sourceActivities: [],
     });
     const feed: ThreadFeedEntry[] = [
       {
@@ -808,6 +807,37 @@ describe("computeStableThreadFeed", () => {
       type: "message",
       message: { text: "Hello", streaming: true },
     });
+  });
+
+  it("reuses derived activity rows without exposing their source payloads", () => {
+    const activity = makeActivity({
+      id: EventId.make("activity-stable"),
+      kind: "runtime.warning",
+      summary: "Stable warning",
+      createdAt: "2026-04-01T00:00:00.000Z",
+      payload: { message: "Keep this row stable", ignored: "private source payload" },
+    });
+    const thread = makeThread({
+      id: ThreadId.make("thread-stable-activity"),
+      projectId: ProjectId.make("project-1"),
+      title: "Stable activity feed",
+      activities: [activity],
+    });
+    const initial = computeStableThreadFeed(buildThreadFeed(thread), {
+      byId: new Map(),
+      result: [],
+    });
+    const updated = computeStableThreadFeed(
+      buildThreadFeed({ ...thread, updatedAt: "later" }),
+      initial,
+    );
+
+    expect(updated).toBe(initial);
+    const group = updated.result[0];
+    expect(group?.type).toBe("activity-group");
+    if (group?.type === "activity-group") {
+      expect(group.activities[0]).not.toHaveProperty("sourceActivities");
+    }
   });
 });
 

@@ -331,6 +331,7 @@ export const makeWithConfiguration = (config: DesktopSovereignAuthConfiguration)
 
     return DesktopIdentity.DesktopIdentity.of({
       mode: "sovereign",
+      clerkFrontendApiHostname: undefined,
       configure: Effect.gen(function* () {
         if (!isPrimaryInstance) {
           yield* electronApp.quit;

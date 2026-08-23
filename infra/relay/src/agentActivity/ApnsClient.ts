@@ -21,10 +21,10 @@ const LIVE_ACTIVITY_NAME = "AgentActivity";
 // environment can look alive.
 const STALE_AFTER_SECONDS = 10 * 60;
 const DISMISS_AFTER_SECONDS = 5 * 60;
-// An end without a final content-state leaves whatever the card last showed
-// frozen on the lock screen until dismissal — get it off quickly instead of
-// parading stale state for the full window.
-const CONTENTLESS_DISMISS_AFTER_SECONDS = 15;
+// Apple requires a date in the past for immediate lock-screen removal. A
+// contentless end means the activity was disabled/revoked rather than normally
+// completed, so retaining its previous content even briefly is misleading.
+const IMMEDIATE_DISMISSAL_OFFSET_SECONDS = 1;
 
 const ApnsLiveActivityEventSchema = Schema.Literals(["start", "update", "end"]);
 export type ApnsLiveActivityEvent = typeof ApnsLiveActivityEventSchema.Type;
@@ -136,8 +136,9 @@ export function makeLiveActivityRequest(
           event: "end",
           ...(input.state ? { "content-state": contentState(input.state) } : {}),
           ...(input.alert ? liveActivityAlertPayload(input.alert) : {}),
-          "dismissal-date":
-            timestamp + (input.state ? DISMISS_AFTER_SECONDS : CONTENTLESS_DISMISS_AFTER_SECONDS),
+          "dismissal-date": input.state
+            ? timestamp + DISMISS_AFTER_SECONDS
+            : timestamp - IMMEDIATE_DISMISSAL_OFFSET_SECONDS,
         },
       },
     };

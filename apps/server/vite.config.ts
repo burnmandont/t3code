@@ -22,6 +22,12 @@ export { shouldBundleCliDependency };
 
 const repoEnv = loadRepoEnv();
 const cliBuildChannel = packageJson.version.includes("-nightly.") ? "nightly" : "latest";
+const sovereignProvidersSelected = Boolean(
+  process.env.T3CODE_BUILD_NEUTRAL_PUBLIC_RUNTIME === "1" ||
+  repoEnv.T3CODE_OAUTH_ISSUER?.trim() ||
+  repoEnv.T3CODE_OAUTH_CLIENT_ID?.trim() ||
+  repoEnv.T3CODE_OAUTH_RESOURCE?.trim(),
+);
 
 export default mergeConfig(
   baseConfig,
@@ -55,6 +61,7 @@ export default mergeConfig(
         js: "#!/usr/bin/env node\n",
       },
       define: {
+        __T3CODE_BUILD_SOVEREIGN__: JSON.stringify(sovereignProvidersSelected),
         __T3CODE_BUILD_CHANNEL__: JSON.stringify(cliBuildChannel),
         __T3CODE_BUILD_RELAY_URL__: JSON.stringify(repoEnv.T3CODE_RELAY_URL?.trim() ?? ""),
         __T3CODE_BUILD_HOSTED_APP_URL__: JSON.stringify(

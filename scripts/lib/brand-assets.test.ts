@@ -87,14 +87,17 @@ describe("brand-assets", () => {
     expect([
       BRAND_ASSET_PATHS.developmentIconComposerProject,
       BRAND_ASSET_PATHS.nightlyIconComposerProject,
-      BRAND_ASSET_PATHS.productionIconComposerProject,
+      BRAND_ASSET_PATHS.productionRasterIconDirectory,
     ]).toEqual([
       "assets/dev/app-icon.icon",
       "assets/nightly/app-icon.icon",
-      "assets/prod/app-icon.icon",
+      "assets/prod/sovereign-logo",
     ]);
     expect(BRAND_ASSET_PATHS.developmentDesktopIconPng).toMatch(/^assets\/dev\/blueprint-/);
     expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toMatch(/^assets\/nightly\/nightly-/);
-    expect(BRAND_ASSET_PATHS.productionMacIconPng).toMatch(/^assets\/prod\/black-/);
+    expect(BRAND_ASSET_PATHS.productionMacIconPng).toMatch(/^assets\/prod\/sovereign-/);
+    expect(BRAND_ASSET_PATHS.productionMacRasterIconPng).toBe(
+      "assets/prod/sovereign-logo/macos-1024.png",
+    );
   });
 });

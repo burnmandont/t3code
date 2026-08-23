@@ -8,23 +8,9 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
 
-declare const __T3CODE_BUILD_OAUTH_ISSUER__: string | undefined;
-declare const __T3CODE_BUILD_OAUTH_CLIENT_ID__: string | undefined;
-declare const __T3CODE_BUILD_OAUTH_RESOURCE__: string | undefined;
+declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
 
-const sovereignIdentitySelected = Boolean(
-  (typeof __T3CODE_BUILD_OAUTH_ISSUER__ === "undefined"
-    ? ""
-    : __T3CODE_BUILD_OAUTH_ISSUER__?.trim()) ||
-  (typeof __T3CODE_BUILD_OAUTH_CLIENT_ID__ === "undefined"
-    ? ""
-    : __T3CODE_BUILD_OAUTH_CLIENT_ID__?.trim()) ||
-  (typeof __T3CODE_BUILD_OAUTH_RESOURCE__ === "undefined"
-    ? ""
-    : __T3CODE_BUILD_OAUTH_RESOURCE__?.trim()),
-);
-
-if (!sovereignIdentitySelected) {
+if (!__T3CODE_BUILD_SOVEREIGN__) {
   const { exposeClerkBridge } =
     require("@clerk/electron/preload") as typeof import("@clerk/electron/preload");
   exposeClerkBridge({ passkeys: true });

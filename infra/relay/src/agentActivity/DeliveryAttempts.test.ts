@@ -125,6 +125,7 @@ describe("DeliveryAttempts", () => {
             limit: () =>
               Effect.succeed([
                 {
+                  id: "attempt-completed",
                   createdAt: "2026-05-26T00:00:00.000Z",
                   apnsStatus: 200,
                   apnsReason: null,
@@ -160,6 +161,74 @@ describe("DeliveryAttempts", () => {
     );
   });
 
+  it.effect("reclaims a logical source job after a retryable APNs failure", () => {
+    let insertCount = 0;
+    const updatedValues: Array<Record<string, unknown>> = [];
+    const fakeDb = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoNothing: () => ({
+            returning: () => {
+              insertCount += 1;
+              return Effect.succeed(insertCount === 1 ? [] : [{ id: "attempt-retry" }]);
+            },
+          }),
+        }),
+      }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () =>
+              Effect.succeed([
+                {
+                  id: "attempt-failed",
+                  createdAt: "2026-05-26T00:00:00.000Z",
+                  apnsStatus: 503,
+                  apnsReason: "ServiceUnavailable",
+                  apnsId: null,
+                  transportError: null,
+                },
+              ]),
+          }),
+        }),
+      }),
+      update: () => ({
+        set: (values: Record<string, unknown>) => {
+          updatedValues.push(values);
+          return {
+            where: () => ({
+              returning: () => Effect.succeed([{ id: "attempt-failed" }]),
+            }),
+          };
+        },
+      }),
+    } as unknown as RelayDb.RelayDb["Service"];
+
+    return Effect.gen(function* () {
+      const attempts = yield* DeliveryAttempts.DeliveryAttempts;
+      const claimed = yield* attempts.claimSourceJob({
+        userId: "user-1",
+        environmentId: "env-1",
+        threadId: "thread-1",
+        deviceId: "device-1",
+        kind: "push_notification",
+        sourceJobId: "push:v1:logical-delivery",
+        token: "apns-token",
+      });
+
+      expect(claimed).toBe("claimed");
+      expect(insertCount).toBe(2);
+      expect(updatedValues).toEqual([{ sourceJobId: null }]);
+    }).pipe(
+      Effect.provide(
+        DeliveryAttempts.layer.pipe(
+          Layer.provide(NodeCryptoLayer.layer),
+          Layer.provide(Layer.succeed(RelayDb.RelayDb, fakeDb)),
+        ),
+      ),
+    );
+  });
+
   it.effect("reports in-flight source jobs while an active claim lease exists", () => {
     const fakeDb = {
       insert: () => ({
@@ -175,6 +244,7 @@ describe("DeliveryAttempts", () => {
             limit: () =>
               Effect.succeed([
                 {
+                  id: "attempt-in-flight",
                   createdAt: "2999-01-01T00:00:00.000Z",
                   apnsStatus: null,
                   apnsReason: null,
@@ -226,6 +296,7 @@ describe("DeliveryAttempts", () => {
             limit: () =>
               Effect.succeed([
                 {
+                  id: "attempt-expired",
                   createdAt: "1969-12-31T23:00:00.000Z",
                   apnsStatus: null,
                   apnsReason: null,

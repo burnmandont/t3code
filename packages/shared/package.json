@@ -195,6 +195,10 @@
       "types": "./src/relayClient.ts",
       "import": "./src/relayClient.ts"
     },
+    "./connectorClient": {
+      "types": "./src/connectorClient.ts",
+      "import": "./src/connectorClient.ts"
+    },
     "./frpcClient": {
       "types": "./src/frpcClient.ts",
       "import": "./src/frpcClient.ts"

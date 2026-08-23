@@ -30,7 +30,8 @@ RUN pnpm rebuild esbuild
 RUN test -n "$SOURCE_COMMIT" \
     && runtime_version="$(SOURCE_COMMIT="$SOURCE_COMMIT" node infra/sovereign/runtime/set-runtime-version.mjs --print-only)" \
     && SOVEREIGN_RUNTIME_VERSION="$runtime_version" node infra/sovereign/runtime/write-control-plane-discovery.mjs \
-    && APP_VERSION="$runtime_version" pnpm --filter @t3tools/web build
+    && APP_VERSION="$runtime_version" pnpm --filter @t3tools/web build \
+    && node scripts/apply-web-brand-assets.ts production apps/web/dist
 
 FROM nginx:1.29.1-alpine
 

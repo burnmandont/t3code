@@ -1,17 +1,19 @@
-# Keeping T3 Code in Sync
+# Keeping Sovereign in Sync
 
-The T3 Code web or desktop app and the server it connects to work best when they use the same
-version. If they do not match, T3 Code shows a warning with the right update option for that server.
+The Sovereign web or desktop app and the server it connects to carry both an exact runtime version
+and an explicit protocol version. If the exact runtimes differ, Sovereign offers to sync the server
+to the client build. If their protocols are incompatible, that calm sync offer becomes a
+compatibility warning.
 
 ## Where to Find the Update
 
-You may see the warning in either of these places:
+You may see the sync offer or compatibility warning in either of these places:
 
 - above the message box in the current conversation
 - **Settings** → **Connections**, beside the affected connection
 
-Dismissing the conversation warning only hides that reminder for those two versions. It does not
-update the server, and the version difference remains visible in Connections.
+Dismissing the conversation notice only hides that reminder for those two exact versions. It does
+not update the server, and the server's build status remains visible in Connections.
 
 ## Before You Update
 
@@ -22,20 +24,20 @@ The update does not remove saved threads, settings, or project files.
 
 ## Choose the Action You See
 
-| Action                     | What to do                                                                                                                                                                  |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Update server**          | Available for the T3 Code Linux background service. Select the button and leave T3 Code open while it prepares, tests, restarts, and reconnects.                            |
-| **Update the desktop app** | Open the T3 Code desktop app on the machine that runs the server and install the app update there. Reopen it if needed.                                                     |
-| **Copy update command**    | Copy the command, open a terminal on the server machine, stop the current T3 Code server, and relaunch it with the copied command and any startup options you normally use. |
+| Action                     | What to do                                                                                                                                                                    |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Sync server**            | Available for the Sovereign Linux background service. Select the button and leave Sovereign open while it prepares, tests, restarts, and reconnects.                          |
+| **Update the desktop app** | Open the Sovereign desktop app on the machine that runs the server and install the app update there. Reopen it if needed.                                                     |
+| **Copy update command**    | Copy the command, open a terminal on the server machine, stop the current Sovereign server, and relaunch it with the copied command and any startup options you normally use. |
 
-The available action depends on how that server was started. T3 Code does not update connected
+The available action depends on how that server was started. Sovereign does not update connected
 servers silently in the background.
 
 An older background-service launcher may ask you to run the exact
 `npx t3@<version> service update` command on the server machine. That one local update installs the
 rollback support needed for later remote updates, including versions that change the database.
 
-After selecting **Update**, the notice becomes a live status line: **Downloading…** while the new
+After selecting **Sync**, the notice becomes a live status line: **Downloading…** while the new
 version is fetched and verified, then **Restarting…** while the server restarts into it. The same
 status appears in the conversation and in Connections, so navigating between them does not lose the
 update. A failure remains visible with its error and an option to retry.
@@ -43,7 +45,7 @@ update. A failure remains visible with its error and an option to retry.
 **Copy update command** gives you `npx t3@<client-version>`, which relaunches the server directly
 at the matching version. Add whatever startup options you normally use.
 
-If the server instead runs as the T3 Code background service, update the service on the host and
+If the server instead runs as the Sovereign background service, update the service on the host and
 pin the same version:
 
 ```sh
@@ -54,7 +56,7 @@ npx t3@<client-version> service update
 only resolves the skew when your client happens to be on the latest release. The exact version from
 the warning always works.
 
-See [Running T3 Code in the Background](./background-service.md) for install, status, and removal
+See [Running Sovereign in the Background](./background-service.md) for install, status, and removal
 commands.
 
 ## After the Update

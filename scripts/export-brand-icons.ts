@@ -54,11 +54,18 @@ interface VariantOutputs {
   readonly windowsIco: string;
 }
 
-interface IconVariant {
+interface IconVariantBase {
   readonly label: string;
   readonly source: string;
   readonly outputs: VariantOutputs;
 }
+
+type IconVariant =
+  | (IconVariantBase & { readonly sourceKind: "icon-composer" })
+  | (IconVariantBase & {
+      readonly sourceKind: "raster-directory";
+      readonly macosSource: string;
+    });
 
 interface IconComposerTool {
   readonly path: string;
@@ -155,7 +162,7 @@ export class IconExportSourceMissingError extends Schema.TaggedErrorClass<IconEx
   },
 ) {
   override get message(): string {
-    return `Missing Icon Composer source project: ${this.sourcePath}`;
+    return `Missing icon source: ${this.sourcePath}`;
   }
 }
 
@@ -205,6 +212,7 @@ export class IconExportAssetsStaleError extends Schema.TaggedErrorClass<IconExpo
 const ICON_VARIANTS = [
   {
     label: "development",
+    sourceKind: "icon-composer",
     source: BRAND_ASSET_PATHS.developmentIconComposerProject,
     outputs: {
       ios: BRAND_ASSET_PATHS.developmentIosIconPng,
@@ -219,6 +227,7 @@ const ICON_VARIANTS = [
   },
   {
     label: "preview",
+    sourceKind: "icon-composer",
     source: BRAND_ASSET_PATHS.nightlyIconComposerProject,
     outputs: {
       ios: BRAND_ASSET_PATHS.nightlyIosIconPng,
@@ -233,7 +242,9 @@ const ICON_VARIANTS = [
   },
   {
     label: "production",
-    source: BRAND_ASSET_PATHS.productionIconComposerProject,
+    sourceKind: "raster-directory",
+    source: BRAND_ASSET_PATHS.productionRasterIconDirectory,
+    macosSource: BRAND_ASSET_PATHS.productionMacRasterIconPng,
     outputs: {
       ios: BRAND_ASSET_PATHS.productionIosIconPng,
       macos: BRAND_ASSET_PATHS.productionMacIconPng,
@@ -247,10 +258,14 @@ const ICON_VARIANTS = [
   },
 ] as const satisfies ReadonlyArray<IconVariant>;
 
+const ICON_COMPOSER_VARIANTS = ICON_VARIANTS.filter(
+  (variant) => variant.sourceKind === "icon-composer",
+);
+
 const MACOS_EXPORT_CODEX_PROMPT = [
-  "Use [@Computer](plugin://computer-use@openai-bundled) and the Icon Composer app to export the three macOS app icons in this repository.",
+  "Use [@Computer](plugin://computer-use@openai-bundled) and the Icon Composer app to export the development and preview macOS app icons in this repository.",
   "For each project below, use Platform: macOS pre-Tahoe, Appearance: Default, Size: 1024pt, and Scale: 1×, then save the PNG to the exact destination:",
-  ...ICON_VARIANTS.map((variant) => `- ${variant.source} -> ${variant.outputs.macos}`),
+  ...ICON_COMPOSER_VARIANTS.map((variant) => `- ${variant.source} -> ${variant.outputs.macos}`),
   "Do not resize, composite, or otherwise post-process the exported PNGs.",
   "Verify every result is 1024×1024 and has the classic macOS safe area: an 824×824 opaque body inset 100px on every side, with only Icon Composer's native shadow extending beyond it.",
 ];
@@ -547,8 +562,50 @@ const renderIcon = Effect.fn("iconExport.renderIcon")(function* (
   return buffer;
 });
 
+const readRasterIcon = Effect.fn("iconExport.readRasterIcon")(function* (
+  sourceDirectory: string,
+  sourcePath: string,
+  size: number,
+  fileName = `${size}.png`,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const renditionPath = path.join(sourceDirectory, fileName);
+  const contents = yield* fs.readFile(renditionPath).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IconExportFileSystemError({
+          operation: "read-file",
+          path: renditionPath,
+          cause,
+        }),
+    ),
+  );
+  const buffer = Buffer.from(contents);
+  const dimensions = yield* Effect.try({
+    try: () => readPngDimensions(buffer),
+    catch: (cause) =>
+      new IconExportRenditionError({
+        sourcePath,
+        outputPath: renditionPath,
+        expectedSize: size,
+        cause,
+      }),
+  });
+  if (dimensions.width !== size || dimensions.height !== size) {
+    return yield* new IconExportRenditionError({
+      sourcePath,
+      outputPath: renditionPath,
+      expectedSize: size,
+      actualWidth: dimensions.width,
+      actualHeight: dimensions.height,
+    });
+  }
+  return buffer;
+});
+
 const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
-  toolPath: string,
+  toolPath: string | undefined,
   repositoryRoot: string,
   temporaryDirectory: string,
   variant: IconVariant,
@@ -579,8 +636,23 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
     const cached = renditionCache.get(cacheKey);
     if (cached) return cached;
 
-    const outputPath = path.join(temporaryDirectory, `${variant.label}-${platform}-${size}.png`);
-    const contents = yield* renderIcon(toolPath, sourcePath, outputPath, platform, size);
+    let contents: Buffer;
+    if (variant.sourceKind === "raster-directory") {
+      contents = yield* readRasterIcon(sourcePath, variant.source, size);
+    } else {
+      if (toolPath === undefined) {
+        return yield* Effect.die(
+          new Error(`Icon Composer is required to render the ${variant.label} icon.`),
+        );
+      }
+      contents = yield* renderIcon(
+        toolPath,
+        sourcePath,
+        path.join(temporaryDirectory, `${variant.label}-${platform}-${size}.png`),
+        platform,
+        size,
+      );
+    }
     renditionCache.set(cacheKey, contents);
     return contents;
   });
@@ -596,7 +668,7 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
     catch: (cause) => new IconExportEncodingError({ variant: variant.label, cause }),
   });
 
-  return new Map<string, Buffer>([
+  const generated = new Map<string, Buffer>([
     [variant.outputs.ios, ios],
     [variant.outputs.universal, ios],
     [variant.outputs.appleTouch, yield* render("iOS", 180)],
@@ -605,15 +677,24 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
     [variant.outputs.faviconIco, ico],
     [variant.outputs.windowsIco, ico],
   ]);
+  if (variant.sourceKind === "raster-directory") {
+    generated.set(
+      variant.outputs.macos,
+      yield* readRasterIcon(sourcePath, variant.source, 1024, path.basename(variant.macosSource)),
+    );
+  }
+  return generated;
 });
 
 const logManualMacOsExportInstructions = Effect.fn("iconExport.logManualMacOsExportInstructions")(
   function* () {
     yield* Console.warn(
       [
-        "macOS icons require Icon Composer's GUI-only pre-Tahoe preset and were not changed.",
+        "Development and preview macOS icons require Icon Composer's GUI-only pre-Tahoe preset and were not changed.",
         "Export each source with Platform: macOS pre-Tahoe, Appearance: Default, Size: 1024pt, Scale: 1×:",
-        ...ICON_VARIANTS.map((variant) => `- ${variant.source} -> ${variant.outputs.macos}`),
+        ...ICON_COMPOSER_VARIANTS.map(
+          (variant) => `- ${variant.source} -> ${variant.outputs.macos}`,
+        ),
         "See assets/README.md for the complete workflow.",
         "",
         "Copy/paste this prompt into Codex to perform the native exports:",
@@ -715,10 +796,17 @@ const isCurrent = Effect.fn("iconExport.isCurrent")(function* (
   return Buffer.from(actual).equals(expected);
 });
 
-export const exportBrandIcons = Effect.fn("exportBrandIcons")(function* (checkOnly: boolean) {
+export const exportBrandIcons = Effect.fn("exportBrandIcons")(function* (
+  checkOnly: boolean,
+  productionOnly: boolean,
+) {
   const fs = yield* FileSystem.FileSystem;
   const repositoryRoot = yield* RepositoryRoot;
-  const tool = yield* resolveIconComposerTool();
+  const variants = productionOnly
+    ? ICON_VARIANTS.filter((variant) => variant.label === "production")
+    : ICON_VARIANTS;
+  const needsIconComposer = variants.some((variant) => variant.sourceKind === "icon-composer");
+  const tool = needsIconComposer ? yield* resolveIconComposerTool() : undefined;
   const temporaryDirectory = yield* fs
     .makeTempDirectoryScoped({
       prefix: "t3-icon-export-",
@@ -733,15 +821,21 @@ export const exportBrandIcons = Effect.fn("exportBrandIcons")(function* (checkOn
           }),
       ),
     );
-  yield* Console.log(
-    `Exporting icons with Icon Composer ${tool.version}, design generation ${DESIGN_GENERATION}.`,
-  );
+  if (tool) {
+    yield* Console.log(
+      `Exporting icons with Icon Composer ${tool.version}, design generation ${DESIGN_GENERATION}.`,
+    );
+  } else {
+    yield* Console.log("Exporting production icons from committed raster sources.");
+  }
 
   const generated = new Map<string, Buffer>();
-  for (const variant of ICON_VARIANTS) {
-    yield* Console.log(`Rendering ${variant.label} from ${variant.source}...`);
+  for (const variant of variants) {
+    yield* Console.log(
+      `${variant.sourceKind === "raster-directory" ? "Reading" : "Rendering"} ${variant.label} from ${variant.source}...`,
+    );
     const variantAssets = yield* renderVariant(
-      tool.path,
+      tool?.path,
       repositoryRoot,
       temporaryDirectory,
       variant,
@@ -751,14 +845,16 @@ export const exportBrandIcons = Effect.fn("exportBrandIcons")(function* (checkOn
     }
   }
 
-  for (const override of DEVELOPMENT_PUBLIC_ICON_OVERRIDES) {
-    const sourceContents = generated.get(override.sourceRelativePath);
-    if (sourceContents === undefined) {
-      return yield* Effect.die(
-        new Error(`Generated development web icon is missing: ${override.sourceRelativePath}`),
-      );
+  if (!productionOnly) {
+    for (const override of DEVELOPMENT_PUBLIC_ICON_OVERRIDES) {
+      const sourceContents = generated.get(override.sourceRelativePath);
+      if (sourceContents === undefined) {
+        return yield* Effect.die(
+          new Error(`Generated development web icon is missing: ${override.sourceRelativePath}`),
+        );
+      }
+      generated.set(override.targetRelativePath, sourceContents);
     }
-    generated.set(override.targetRelativePath, sourceContents);
   }
 
   if (checkOnly) {
@@ -774,7 +870,7 @@ export const exportBrandIcons = Effect.fn("exportBrandIcons")(function* (checkOn
       });
     }
     yield* Console.log(`All ${generated.size} generated icon assets are current.`);
-    yield* logManualMacOsExportInstructions();
+    if (!productionOnly) yield* logManualMacOsExportInstructions();
     return;
   }
 
@@ -784,7 +880,7 @@ export const exportBrandIcons = Effect.fn("exportBrandIcons")(function* (checkOn
     { concurrency: 1, discard: true },
   );
   yield* Console.log(`Updated ${generated.size} generated icon assets.`);
-  yield* logManualMacOsExportInstructions();
+  if (!productionOnly) yield* logManualMacOsExportInstructions();
 });
 
 export const exportBrandIconsCommand = Command.make(
@@ -794,11 +890,15 @@ export const exportBrandIconsCommand = Command.make(
       Flag.withDescription("Verify generated icon assets without modifying files."),
       Flag.withDefault(false),
     ),
+    productionOnly: Flag.boolean("production-only").pipe(
+      Flag.withDescription("Export only production raster assets without requiring Icon Composer."),
+      Flag.withDefault(false),
+    ),
   },
-  ({ check }) => exportBrandIcons(check).pipe(Effect.scoped),
+  ({ check, productionOnly }) => exportBrandIcons(check, productionOnly).pipe(Effect.scoped),
 ).pipe(
   Command.withDescription(
-    "Export development, preview, and production assets from Icon Composer projects.",
+    "Export development and preview assets from Icon Composer projects and production assets from committed raster sources.",
   ),
 );
 

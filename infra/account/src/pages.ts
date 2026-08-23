@@ -43,10 +43,10 @@ function page(
 
 export const signInPage = (basePath: string, passwordLoginEnabled: boolean) =>
   page(
-    "Sign in to T3 Code",
+    "Sign in to Sovereign",
     `<main data-page="sign-in">
-    <h1>Sign in to T3 Code</h1>
-    <p>This account is served by your own T3 infrastructure.</p>
+    <h1>Sign in to Sovereign</h1>
+    <p>This account is served by your own Sovereign infrastructure.</p>
     <button type="button" data-action="passkey-sign-in" id="passkey-sign-in">Sign in with a passkey</button>
     <form id="account-form"${passwordLoginEnabled ? "" : " hidden"}>
       <p>Password sign-in and account creation are restricted to approved operator networks. Use a passkey on remote devices.</p>
@@ -81,9 +81,9 @@ export const signInPage = (basePath: string, passwordLoginEnabled: boolean) =>
 
 export const consentPage = (basePath: string) =>
   page(
-    "Authorize T3 Code",
+    "Authorize Sovereign",
     `<main data-page="consent">
-    <h1>Authorize this T3 client</h1>
+    <h1>Authorize this Sovereign client</h1>
     <p>The client is requesting: <code id="requested-scopes"></code></p>
     <div class="actions">
       <button type="button" data-action="consent-accept">Allow</button>

@@ -1,7 +1,7 @@
 # Codex
 
-This guide is for people who want to use more than one Codex account in T3 Code. For Claude, see
-[Claude](./providers-claude.md). For first-time setup, see [Install T3 Code](./install.md).
+This guide is for people who want to use more than one Codex account in Sovereign. For Claude, see
+[Claude](./providers-claude.md). For first-time setup, see [Install Sovereign](./install.md).
 
 Common reasons:
 
@@ -31,7 +31,7 @@ codex login
 ## Send feedback to OpenAI
 
 In an existing Codex thread, send `/feedback` or `/feedback` followed by a description of the
-issue. T3 Code uploads the thread and Codex logs to OpenAI and shows a thread ID that you can copy
+issue. Sovereign uploads the thread and Codex logs to OpenAI and shows a thread ID that you can copy
 and share with OpenAI employees.
 
 ## I Want Work And Personal Codex Accounts
@@ -61,7 +61,7 @@ codex login
 
 This is the account used by `~/.codex`.
 
-In T3 Code Settings, name it something obvious:
+In Sovereign Settings, name it something obvious:
 
 ```text
 Display name: Codex Work
@@ -78,7 +78,7 @@ mkdir -p ~/.codex_p
 CODEX_HOME=~/.codex_p codex login
 ```
 
-In T3 Code Settings, add another Codex provider:
+In Sovereign Settings, add another Codex provider:
 
 ```text
 Display name: Codex Personal
@@ -93,7 +93,7 @@ has a `Shadow home path`.
 
 Open Settings and look at the provider row.
 
-T3 Code shows the authenticated email for providers that report one. Emails are blurred by default;
+Sovereign shows the authenticated email for providers that report one. Emails are blurred by default;
 click the blurred email to reveal it.
 
 Use display names and accent colors to make accounts easy to tell apart in the model picker.
@@ -120,7 +120,7 @@ Codex Personal  CODEX_HOME path: ~/.codex, Shadow home path: ~/.codex_p
 Those two providers are considered compatible for continuation, so the locked model picker can show
 both.
 
-If you add a third Codex provider with a completely different `CODEX_HOME path`, T3 Code treats it
+If you add a third Codex provider with a completely different `CODEX_HOME path`, Sovereign treats it
 as a different workspace. It will not be offered for existing threads created under `~/.codex`.
 
 ## If Both Accounts Look The Same

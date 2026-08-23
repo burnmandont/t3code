@@ -1,4 +1,9 @@
-import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@t3tools/contracts";
+import {
+  CLIENT_SERVER_PROTOCOL_VERSION,
+  type EnvironmentId,
+  type ServerConfig,
+  type ServerSelfUpdateCapability,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import { APP_VERSION } from "./branding";
@@ -8,6 +13,11 @@ export interface VersionMismatch {
   readonly clientVersion: string;
   readonly serverVersion: string;
   readonly hint: string;
+}
+
+export interface ServerRuntimeDrift {
+  readonly clientVersion: string;
+  readonly serverVersion: string;
 }
 
 export const VERSION_MISMATCH_DISMISSALS_STORAGE_KEY = "t3code:version-mismatch-dismissals:v1";
@@ -23,9 +33,58 @@ function normalizeVersion(version: string | null | undefined): string | null {
   return trimmed && trimmed.length > 0 ? trimmed : null;
 }
 
+function releaseLine(version: string): string | null {
+  return /^(\d+\.\d+\.\d+)(?:[-+].*)?$/u.exec(version)?.[1] ?? null;
+}
+
+function legacyVersionsAreCompatible(clientVersion: string, serverVersion: string): boolean {
+  const clientReleaseLine = releaseLine(clientVersion);
+  return clientReleaseLine !== null && clientReleaseLine === releaseLine(serverVersion);
+}
+
 export function resolveVersionMismatch(
   serverVersion: string | null | undefined,
+  serverProtocolVersion?: number | null | undefined,
 ): VersionMismatch | null {
+  const normalizedClientVersion = normalizeVersion(APP_VERSION);
+  const normalizedServerVersion = normalizeVersion(serverVersion);
+  if (!normalizedClientVersion || !normalizedServerVersion) {
+    return null;
+  }
+
+  if (
+    serverProtocolVersion === CLIENT_SERVER_PROTOCOL_VERSION ||
+    // Protocol 1 shipped after commit-addressed sovereign versions. Those
+    // immediately preceding servers are compatible when their release line
+    // matches; once the protocol advances, absence must mean incompatible.
+    (serverProtocolVersion == null &&
+      CLIENT_SERVER_PROTOCOL_VERSION === 1 &&
+      legacyVersionsAreCompatible(normalizedClientVersion, normalizedServerVersion))
+  ) {
+    return null;
+  }
+
+  return {
+    clientVersion: normalizedClientVersion,
+    serverVersion: normalizedServerVersion,
+    hint: "Version mismatch. Try syncing the client and server to the same Sovereign version.",
+  };
+}
+
+export function resolveServerConfigVersionMismatch(
+  serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
+): VersionMismatch | null {
+  return resolveVersionMismatch(
+    serverConfig?.environment.serverVersion,
+    serverConfig?.environment.clientServerProtocolVersion,
+  );
+}
+
+/** Exact runtime identity is independent from wire compatibility. Compatible
+    servers can still be missing server-side fixes from the client's build. */
+export function resolveServerRuntimeDrift(
+  serverVersion: string | null | undefined,
+): ServerRuntimeDrift | null {
   const normalizedClientVersion = normalizeVersion(APP_VERSION);
   const normalizedServerVersion = normalizeVersion(serverVersion);
   if (
@@ -35,18 +94,16 @@ export function resolveVersionMismatch(
   ) {
     return null;
   }
-
   return {
     clientVersion: normalizedClientVersion,
     serverVersion: normalizedServerVersion,
-    hint: "Version mismatch. Try syncing the client and server to the same T3 Code version.",
   };
 }
 
-export function resolveServerConfigVersionMismatch(
+export function resolveServerConfigRuntimeDrift(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
-): VersionMismatch | null {
-  return resolveVersionMismatch(serverConfig?.environment.serverVersion);
+): ServerRuntimeDrift | null {
+  return resolveServerRuntimeDrift(serverConfig?.environment.serverVersion);
 }
 
 /** The update path the connected server offers, or null when it only

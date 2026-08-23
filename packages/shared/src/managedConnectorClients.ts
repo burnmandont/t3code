@@ -4,8 +4,8 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import type { RelayClientShape } from "./connectorClient.ts";
 import { FrpcClient } from "./frpcClient.ts";
-import { RelayClient, type RelayClientShape } from "./relayClient.ts";
 
 export type ManagedConnectorProviderKind = Exclude<RelayManagedEndpointProviderKind, "manual">;
 
@@ -40,26 +40,7 @@ export function make(
 export const layer = (clients: Partial<Record<ManagedConnectorProviderKind, RelayClientShape>>) =>
   Layer.succeed(ManagedConnectorClients, make(clients));
 
-/** Compatibility adapter while the existing CLI still installs cloudflared. */
-export const layerCloudflaredFromRelayClient = Layer.effect(
+export const layerFromFrpcClient = Layer.effect(
   ManagedConnectorClients,
-  RelayClient.pipe(
-    Effect.map((client) =>
-      make({
-        cloudflare_tunnel: client,
-      }),
-    ),
-  ),
-);
-
-export const layerFromConnectorClients = Layer.effect(
-  ManagedConnectorClients,
-  Effect.gen(function* () {
-    const cloudflared = yield* RelayClient;
-    const frpc = yield* FrpcClient;
-    return make({
-      cloudflare_tunnel: cloudflared,
-      t3_relay: frpc,
-    });
-  }),
+  FrpcClient.pipe(Effect.map((frpc) => make({ t3_relay: frpc }))),
 );

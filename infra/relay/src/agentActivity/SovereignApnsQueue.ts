@@ -80,17 +80,22 @@ export const repositoryLayer = Layer.effect(
     const enqueue: SovereignApnsQueueRepository["Service"]["enqueue"] = (body) =>
       Effect.gen(function* () {
         const now = body.payload.createdAt;
-        yield* db.insert(relayApnsDeliveryJobs).values({
-          jobId: body.payload.jobId,
-          bodyJson: body,
-          state: "pending",
-          attempts: 0,
-          availableAt: now,
-          claimedAt: null,
-          lastErrorCode: null,
-          createdAt: now,
-          updatedAt: now,
-        });
+        // Logical notification job ids are stable across server replays.
+        // Treat an already-pending identity as a successful enqueue.
+        yield* db
+          .insert(relayApnsDeliveryJobs)
+          .values({
+            jobId: body.payload.jobId,
+            bodyJson: body,
+            state: "pending",
+            attempts: 0,
+            availableAt: now,
+            claimedAt: null,
+            lastErrorCode: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing({ target: relayApnsDeliveryJobs.jobId });
       }).pipe(
         Effect.mapError(
           (cause) =>
@@ -198,7 +203,14 @@ export const senderLayer = Layer.effect(
   Effect.gen(function* () {
     const repository = yield* SovereignApnsQueueRepository;
     return ApnsDeliveryQueue.ApnsDeliveryQueueSender.of({
-      send: (body) => repository.enqueue(body),
+      send: (body) =>
+        repository
+          .enqueue(body)
+          .pipe(
+            Effect.mapError(
+              (cause) => new ApnsDeliveryQueue.ApnsDeliveryQueueSenderError({ cause }),
+            ),
+          ),
     });
   }),
 );

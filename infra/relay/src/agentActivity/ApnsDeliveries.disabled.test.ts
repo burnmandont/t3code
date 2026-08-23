@@ -10,16 +10,11 @@ describe("ApnsDeliveries.layerDisabled", () => {
 
       assert.strictEqual(
         yield* deliveries.sendForTarget({
+          triggeringState: null,
+          pushNotificationsEnabled: true,
           target: {} as Parameters<typeof deliveries.sendForTarget>[0]["target"],
           aggregate: null,
           nowMs: 0,
-        }),
-        null,
-      );
-      assert.strictEqual(
-        yield* deliveries.sendPushNotificationForTarget({
-          target: {} as Parameters<typeof deliveries.sendPushNotificationForTarget>[0]["target"],
-          aggregate: null,
         }),
         null,
       );

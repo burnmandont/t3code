@@ -13,7 +13,7 @@ describe("public OAuth client provisioning", () => {
       }),
     ).toEqual({
       clientId: "sovereign-t3",
-      name: "T3 Code",
+      name: "Sovereign",
       redirectUris: [
         "https://app.example.test/connect/account/callback",
         "t3code://app/connect/account/callback",

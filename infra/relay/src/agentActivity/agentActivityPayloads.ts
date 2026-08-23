@@ -12,6 +12,25 @@ export function isTerminalPhase(state: RelayAgentActivityState): boolean {
   return state.phase === "completed" || state.phase === "failed";
 }
 
+export function statusForAgentActivityPhase(phase: RelayAgentActivityState["phase"]): string {
+  switch (phase) {
+    case "waiting_for_approval":
+      return "Approval";
+    case "waiting_for_input":
+      return "Input";
+    case "completed":
+      return "Done";
+    case "failed":
+      return "Failed";
+    case "starting":
+      return "Connecting";
+    case "running":
+      return "Working";
+    case "stale":
+      return "Waiting";
+  }
+}
+
 // Rows are only removed when their environment publishes a terminal state. An
 // environment that dies mid-run (machine off, process killed) never does, so
 // without an age cutoff its threads inflate activeCount forever. Actively

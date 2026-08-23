@@ -562,7 +562,7 @@ function reconcileInstalledBackgroundService(entryPath, baseDir, runtimeEnv) {
     env: { ...process.env, ...runtimeEnv, T3CODE_HOME: baseDir },
   });
   if (!isBackgroundServiceActive()) {
-    throw new Error("The updated T3 Code background service did not become active.");
+    throw new Error("The updated Sovereign background service did not become active.");
   }
 }
 

@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
+import { CLIENT_SERVER_PROTOCOL_VERSION } from "@t3tools/contracts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
   PUBLISH_AGENT_ACTIVITY_SECRET,
@@ -94,6 +95,7 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.threadTitleRegeneration).toBe(true);
       expect(second.capabilities.agentActivityPublishing).toBe(false);
       expect(second.capabilities.projectDirectoryListing).toBe(true);
+      expect(second.clientServerProtocolVersion).toBe(CLIENT_SERVER_PROTOCOL_VERSION);
     }),
   );
 

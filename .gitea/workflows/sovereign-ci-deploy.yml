@@ -7,6 +7,7 @@ on:
     paths:
       - .gitea/workflows/sovereign-ci-deploy.yml
       - apps/desktop/**
+      - apps/mobile/**
       - apps/server/**
       - apps/web/**
       - infra/account/**
@@ -73,7 +74,26 @@ jobs:
             --filter @t3tools/mobile... \
             --filter @t3tools/scripts... \
             --filter @t3tools/web...
+          # Install only the native/tool binaries explicitly required by the
+          # validated applications; the general dependency install remains
+          # --ignore-scripts so imported packages cannot execute arbitrary
+          # lifecycle hooks in the production-capable runner.
           pnpm rebuild esbuild node-pty
+          # pnpm rebuild still honors the ignore-scripts installation policy
+          # for Electron in this runner. Invoke the pinned package's installer
+          # explicitly, then prove its platform executable exists before any
+          # desktop test imports `electron`.
+          for attempt in 1 2 3; do
+            if node apps/desktop/node_modules/electron/install.js; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "Electron download failed; retrying (attempt $((attempt + 1))/3)"
+            sleep "$((attempt * 5))"
+          done
+          node -e 'const fs = require("node:fs"); const executable = require("./apps/desktop/node_modules/electron"); if (!fs.existsSync(executable)) throw new Error(`Electron executable missing at ${executable}`); console.log(`Electron executable: ${executable}`)'
 
       - name: Typecheck sovereign services
         run: |
@@ -81,6 +101,7 @@ jobs:
           pnpm --filter t3code-account typecheck
           pnpm --filter t3code-relay typecheck
           pnpm --filter @t3tools/desktop typecheck
+          pnpm --filter @t3tools/mobile typecheck
           pnpm --filter @t3tools/web typecheck
 
       - name: Test sovereign services
@@ -88,12 +109,17 @@ jobs:
           pnpm --filter t3 test
           pnpm --filter t3code-account test
           pnpm --filter t3code-relay test
+          pnpm --filter @t3tools/desktop test
+          pnpm --filter @t3tools/mobile test
           pnpm --filter @t3tools/web test
 
       - name: Test deployment gate
         run: |
           node --test infra/sovereign/backup/backup.test.mjs
           node --test infra/sovereign/ci/deploy-and-verify.test.mjs
+          node --test infra/sovereign/ci/derive-client-release.test.mjs
+          node --test infra/sovereign/ci/dispatch-apple-release.test.mjs
+          node --test infra/sovereign/ci/publish-desktop-release.test.mjs
           node --test infra/sovereign/monitor/monitor.test.mjs
           node --test infra/sovereign/runtime/artifact-format.test.mjs
           node --test infra/sovereign/runtime/publish-runtime-artifact.test.mjs
@@ -151,6 +177,13 @@ jobs:
             echo 'Sovereign client artifacts contain an external-service credential pattern.' >&2
             exit 1
           fi
+          if grep -R -F \
+            --include='*.cjs' --include='*.js' --include='*.mjs' \
+            -e '@clerk/electron' -e '@clerk/react' -e 'cloudflared/releases/download' \
+            apps/desktop/dist-electron apps/server/dist; then
+            echo 'Sovereign artifacts contain an inactive external provider implementation.' >&2
+            exit 1
+          fi
 
       - name: Build signed complete sovereign runtime
         # Rebuild the anonymously distributed server after the configured
@@ -188,6 +221,13 @@ jobs:
             echo 'Public server runtime contains a private control-plane endpoint.' >&2
             exit 1
           fi
+          if grep -R -F \
+            --include='*.cjs' --include='*.js' --include='*.mjs' \
+            -e '@clerk/electron' -e '@clerk/react' -e 'cloudflared/releases/download' \
+            apps/server/dist; then
+            echo 'Public sovereign runtime contains an inactive external provider implementation.' >&2
+            exit 1
+          fi
           test -n "$SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64"
           test -n "$SOVEREIGN_FRPC_ASSET_URL"
           node infra/sovereign/runtime/build-runtime-artifact.mjs
@@ -219,3 +259,19 @@ jobs:
 
       - name: Deploy observability, t3-control, and t3-web
         run: node infra/sovereign/ci/deploy-and-verify.mjs
+
+      - name: Derive immutable Apple client release
+        if: github.ref == 'refs/heads/sovereign-direct' && vars.SOVEREIGN_GITHUB_REPOSITORY != ''
+        run: |
+          export SOVEREIGN_CLIENT_BASE_VERSION="$(node -p "require('./apps/desktop/package.json').version")"
+          node infra/sovereign/ci/derive-client-release.mjs --github-env
+
+      - name: Dispatch Apple release to ephemeral GitHub runners
+        if: github.ref == 'refs/heads/sovereign-direct' && vars.SOVEREIGN_GITHUB_REPOSITORY != ''
+        env:
+          SOVEREIGN_GITHUB_REPOSITORY: ${{ vars.SOVEREIGN_GITHUB_REPOSITORY }}
+          SOVEREIGN_GITHUB_BUILDER_TOKEN: ${{ secrets.SOVEREIGN_GITHUB_TOKEN }}
+        run: |
+          test -n "$SOVEREIGN_GITHUB_REPOSITORY"
+          test -n "$SOVEREIGN_GITHUB_BUILDER_TOKEN"
+          node infra/sovereign/ci/dispatch-apple-release.mjs

@@ -69,10 +69,17 @@ const runtimeDependencies = (
     Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
     relayClientLayer,
     frpcLayer,
-    ManagedConnectorClients.layerFromConnectorClients.pipe(
-      Layer.provideMerge(relayClientLayer),
-      Layer.provideMerge(frpcLayer),
-    ),
+    Layer.effect(
+      ManagedConnectorClients.ManagedConnectorClients,
+      Effect.all({
+        cloudflared: RelayClient.RelayClient,
+        frpc: FrpcClient.FrpcClient,
+      }).pipe(
+        Effect.map(({ cloudflared, frpc }) =>
+          ManagedConnectorClients.make({ cloudflare_tunnel: cloudflared, t3_relay: frpc }),
+        ),
+      ),
+    ).pipe(Layer.provideMerge(relayClientLayer), Layer.provideMerge(frpcLayer)),
     Layer.mock(ServerSecretStore.ServerSecretStore)({
       get: () => Effect.succeed(Option.none()),
     }),

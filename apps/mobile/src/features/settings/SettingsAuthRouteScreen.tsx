@@ -65,7 +65,7 @@ function SovereignSettingsAuthRouteScreen() {
 
   const confirmSignOut = useCallback(() => {
     Alert.alert(
-      "Sign out of T3 Connect?",
+      "Sign out of Sovereign Relay?",
       "This revokes this device's session. Remote environments keep running and remain linked to the account.",
       [
         { text: "Cancel", style: "cancel" },
@@ -86,8 +86,8 @@ function SovereignSettingsAuthRouteScreen() {
           <View className="gap-2">
             <Text className="text-2xl font-t3-bold text-foreground">
               {isSignedIn
-                ? (accountName ?? accountEmail ?? "Sovereign T3 account")
-                : "Sign in to T3 Code"}
+                ? (accountName ?? accountEmail ?? "Sovereign Sovereign account")
+                : "Sign in to Sovereign"}
             </Text>
             <Text className="text-base leading-normal text-foreground-muted">
               {isSignedIn

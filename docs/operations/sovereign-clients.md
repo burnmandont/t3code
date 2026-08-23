@@ -1,5 +1,8 @@
 # Sovereign client development
 
+Production push-to-release automation is documented separately in
+[Sovereign client continuous delivery](./sovereign-client-cd.md).
+
 This runbook launches first-party clients against the self-hosted account,
 relay, hosted web, and Connect infrastructure. Client configuration is public
 build-time data; account secrets, database credentials, relay signing keys, and
@@ -42,12 +45,21 @@ already-running generic bundle cannot discover a relay added afterward.
 ## Run the iOS development client
 
 The sovereign iOS build uses the same `.env.local` file. Set an Apple team and
-a development-only bundle identifier there:
+variant-specific bundle identifiers there. Keeping development and production
+separate prevents a release archive from silently inheriting the development
+App ID:
 
 ```ini
 T3CODE_APPLE_TEAM_ID=U2TDSUCYT4
-T3CODE_IOS_BUNDLE_ID=com.moondiner.t3code.development
+T3CODE_IOS_BUNDLE_ID_DEVELOPMENT=com.moondiner.t3code.development
+T3CODE_IOS_BUNDLE_ID_PRODUCTION=com.moondiner.t3code
+T3CODE_IOS_BUILD_NUMBER=1
 ```
+
+Increment `T3CODE_IOS_BUILD_NUMBER` before every App Store Connect upload.
+The legacy unscoped `T3CODE_IOS_BUNDLE_ID` remains accepted only for local
+development builds; preview and production builds fail closed without their
+variant-specific identifiers.
 
 Install Xcode and CocoaPods, boot an iOS simulator, and then run from
 `apps/mobile`:
@@ -78,7 +90,7 @@ EXPO_NO_GIT_STATUS=1 \
 Use `--lan`, not `--localhost`; the iOS simulator cannot reliably reach Metro
 through the Mac loopback address.
 
-Open **T3 Code Dev** in the simulator and accept iOS's one-time development
+Open **Sovereign Dev** in the simulator and accept iOS's one-time development
 client prompt. In the app, open **Settings → Account**, continue to the
 self-hosted account service, and sign in. The callback returns to
 `t3code-dev://app/connect/account/callback`; the account service must allow that
@@ -137,7 +149,7 @@ xcrun simctl launch \
 terminal module currently does not compile for the legacy Intel simulator
 slice, so a universal ARM64 + x86_64 simulator build is not a supported gate.
 
-The built app must contain `main.jsbundle`, must open directly into T3 Code with
+The built app must contain `main.jsbundle`, must open directly into Sovereign with
 no development launcher or floating Expo controls, and must retain the
 self-hosted session across terminate-and-relaunch. `Expo.plist` may still be
 present because the Expo Updates library is linked, but `EXUpdatesEnabled` must

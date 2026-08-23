@@ -1,16 +1,13 @@
-import { UserButton } from "@clerk/react";
 import {
   CircleUserRoundIcon,
   Link2Icon,
   LogInIcon,
   LogOutIcon,
   RefreshCwIcon,
-  ServerIcon,
   SettingsIcon,
-  SmartphoneIcon,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { useCloudAuth } from "../../cloud/auth";
@@ -24,10 +21,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/menu";
-import { MobileClientsUserProfilePage } from "./MobileClientsUserProfilePage";
-import { T3ConnectUserProfilePage } from "./T3ConnectUserProfilePage";
 import { SovereignSignOutDialog } from "./SovereignSignOutDialog";
 import { useT3ConnectAuthPrompt } from "./useT3ConnectAuthPrompt";
+
+declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
+
+const sovereignBuild =
+  typeof __T3CODE_BUILD_SOVEREIGN__ !== "undefined" && __T3CODE_BUILD_SOVEREIGN__;
+
+const ClerkSidebarAvatar = sovereignBuild ? null : lazy(() => import("./ClerkSidebarAvatar"));
 
 export function T3ConnectSidebarSignIn() {
   if (!hasCloudPublicConfig()) return null;
@@ -60,12 +62,12 @@ function ConfiguredT3ConnectSidebarAvatar() {
                   <SidebarMenuButton
                     size="icon"
                     className="size-9! shrink-0"
-                    title={accountLabel ? `Account: ${accountLabel}` : "T3 Connect account"}
+                    title={accountLabel ? `Account: ${accountLabel}` : "Sovereign Relay account"}
                   />
                 }
               >
                 <CircleUserRoundIcon />
-                <span className="sr-only">Open T3 Connect account menu</span>
+                <span className="sr-only">Open Sovereign Relay account menu</span>
               </DropdownMenuTrigger>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -73,7 +75,7 @@ function ConfiguredT3ConnectSidebarAvatar() {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="space-y-0.5">
                 <div className="truncate text-foreground">
-                  {accountName ?? "T3 Connect account"}
+                  {accountName ?? "Sovereign Relay account"}
                 </div>
                 {accountLabel ? <div className="truncate font-normal">{accountLabel}</div> : null}
               </DropdownMenuLabel>
@@ -103,30 +105,11 @@ function ConfiguredT3ConnectSidebarAvatar() {
     );
   }
 
+  if (!ClerkSidebarAvatar) return null;
   return (
-    <UserButton
-      appearance={{
-        elements: {
-          avatarBox: "size-7",
-          userButtonTrigger: "rounded-lg p-1 hover:bg-sidebar-row-hover",
-        },
-      }}
-    >
-      <UserButton.UserProfilePage
-        label="Mobile clients"
-        labelIcon={<SmartphoneIcon className="size-4" />}
-        url="mobile-clients"
-      >
-        <MobileClientsUserProfilePage />
-      </UserButton.UserProfilePage>
-      <UserButton.UserProfilePage
-        label="T3 Connect"
-        labelIcon={<ServerIcon className="size-4" />}
-        url="t3-connect"
-      >
-        <T3ConnectUserProfilePage />
-      </UserButton.UserProfilePage>
-    </UserButton>
+    <Suspense fallback={null}>
+      <ClerkSidebarAvatar />
+    </Suspense>
   );
 }
 
@@ -143,12 +126,12 @@ function ConfiguredT3ConnectSidebarSignIn() {
           {authorizationUrl ? (
             <SidebarMenuButton render={<a href={authorizationUrl} />}>
               <LogInIcon />
-              <span>Continue T3 Connect sign-in</span>
+              <span>Continue Sovereign Relay sign-in</span>
             </SidebarMenuButton>
           ) : (
             <SidebarMenuButton onClick={openAuthPrompt}>
               <LogInIcon />
-              <span>Sign in to T3 Connect</span>
+              <span>Sign in to Sovereign Relay</span>
             </SidebarMenuButton>
           )}
         </SidebarMenuItem>

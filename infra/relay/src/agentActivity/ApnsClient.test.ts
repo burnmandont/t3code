@@ -32,7 +32,7 @@ const TestLayer = ApnsClient.layer.pipe(
 describe("ApnsClient", () => {
   const now = DateTime.makeUnsafe(0);
   const state: RelayAgentActivityAggregateState = {
-    title: "T3 Code",
+    title: "Sovereign",
     subtitle: "Agent work in progress",
     activeCount: 1,
     updatedAt: DateTime.formatIso(now),
@@ -145,7 +145,7 @@ describe("ApnsClient", () => {
       });
 
       // Without final content the card would freeze on its previous state;
-      // contentless ends dismiss quickly instead.
+      // a date in the past tells iOS to dismiss it immediately instead.
       const contentless = apns.makeLiveActivityRequest({
         event: "end",
         token: "token",
@@ -156,7 +156,7 @@ describe("ApnsClient", () => {
       expect(contentless.payload).toMatchObject({
         aps: {
           event: "end",
-          "dismissal-date": 15,
+          "dismissal-date": -1,
         },
       });
     }).pipe(Effect.provide(TestLayer)),

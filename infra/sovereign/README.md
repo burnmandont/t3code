@@ -149,7 +149,7 @@ also retries deprovisioning allocations that have no active managed link.
 Orphan reconciliation waits 15 minutes and then uses the allocation generation
 as a compare-and-swap guard against concurrent relinking.
 
-Account-side **Remove from T3 Connect** is a durable identity retirement, not
+Account-side **Remove from Sovereign Relay** is a durable identity retirement, not
 the reversible local `t3 connect unlink` operation. Retirement commits before
 FRP allocation teardown, revokes the environment credential, and prevents the
 same user/environment ID row from being reactivated. If immediate teardown
