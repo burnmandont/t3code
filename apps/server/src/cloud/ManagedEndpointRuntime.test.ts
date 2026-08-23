@@ -10,6 +10,7 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import * as ManagedConnectorClients from "@t3tools/shared/managedConnectorClients";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
@@ -35,6 +36,7 @@ const runtimeDependencies = (
   Layer.mergeAll(
     Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
     relayClientLayer,
+    ManagedConnectorClients.layerCloudflaredFromRelayClient.pipe(Layer.provide(relayClientLayer)),
     Layer.mock(ServerSecretStore.ServerSecretStore)({
       get: () => Effect.succeed(Option.none()),
     }),
@@ -170,7 +172,7 @@ describe("CloudManagedEndpointRuntime", () => {
     }),
   );
 
-  it.effect("stops an active connector when a non-Cloudflare runtime config is applied", () =>
+  it.effect("stops an active connector when a T3 relay runtime config is applied", () =>
     Effect.gen(function* () {
       const killed: Array<number> = [];
       const spawner = ChildProcessSpawner.make(() =>
@@ -192,12 +194,17 @@ describe("CloudManagedEndpointRuntime", () => {
         connectorToken: "token",
       });
       const unsupported = yield* runtime.applyConfig({
-        providerKind: "manual",
-        connectorToken: "manual-token",
+        providerKind: "t3_relay",
+        connectorId: "environment-id",
+        connectorToken: "connector-token",
+        serverAddr: "connect.example.test",
+        serverPort: 7000,
+        proxyName: "environment-proxy",
+        hostname: "environment.example.test",
       });
 
       expect(started.status).toBe("running");
-      expect(unsupported).toEqual({ status: "unsupported", providerKind: "manual" });
+      expect(unsupported).toEqual({ status: "unsupported", providerKind: "t3_relay" });
       expect(killed).toEqual([200]);
     }),
   );

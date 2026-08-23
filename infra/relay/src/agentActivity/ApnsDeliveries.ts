@@ -1277,3 +1277,37 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(ApnsDeliveries, make);
+
+/**
+ * Deployments without Apple push delivery can retain the mobile registration
+ * and agent activity APIs. Target-oriented sends return `null`, which is the
+ * existing "no delivery selected" result; direct sends return an explicit
+ * disabled result, while queue-worker entry points fail explicitly.
+ */
+export const layerDisabled = Layer.succeed(
+  ApnsDeliveries,
+  ApnsDeliveries.of({
+    sendForTarget: () => Effect.succeed(null),
+    sendPushNotificationForTarget: () => Effect.succeed(null),
+    sendLiveActivity: (input) =>
+      Effect.succeed({
+        deviceId: input.target.device_id,
+        kind: input.kind,
+        ok: false,
+        apnsStatus: null,
+        apnsReason: "APNs delivery is disabled.",
+        apnsId: null,
+      }),
+    sendPushNotification: (input) =>
+      Effect.succeed({
+        deviceId: input.target.device_id,
+        kind: "push_notification",
+        ok: false,
+        apnsStatus: null,
+        apnsReason: "APNs delivery is disabled.",
+        apnsId: null,
+      }),
+    processSignedJob: () =>
+      Effect.die(new Error("APNs queue processing is unavailable when delivery is disabled.")),
+  }),
+);

@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema";
 import { and, eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 
-import * as RelayDb from "../db.ts";
+import * as RelayDb from "../RelayDbService.ts";
 import { relayLiveActivities, relayMobileDevices } from "../persistence/schema.ts";
 
 export class DeviceRegistrationPersistenceError extends Schema.TaggedErrorClass<DeviceRegistrationPersistenceError>()(

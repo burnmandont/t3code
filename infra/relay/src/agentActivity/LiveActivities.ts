@@ -15,7 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { and, eq, sql } from "drizzle-orm";
 
-import * as RelayDb from "../db.ts";
+import * as RelayDb from "../RelayDbService.ts";
 import { relayLiveActivities, relayMobileDevices } from "../persistence/schema.ts";
 
 export class LiveActivityRegistrationPersistenceError extends Schema.TaggedErrorClass<LiveActivityRegistrationPersistenceError>()(

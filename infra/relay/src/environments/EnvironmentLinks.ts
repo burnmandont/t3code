@@ -11,7 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { and, eq, isNull, or } from "drizzle-orm";
 
-import * as RelayDb from "../db.ts";
+import * as RelayDb from "../RelayDbService.ts";
 import { relayEnvironmentLinks } from "../persistence/schema.ts";
 
 export interface RelayLinkedEnvironmentRecord extends RelayClientEnvironmentRecord {

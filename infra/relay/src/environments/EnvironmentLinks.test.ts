@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { PgDialect } from "drizzle-orm/pg-core";
 
-import * as RelayDb from "../db.ts";
+import * as RelayDb from "../RelayDbService.ts";
 import { relayEnvironmentLinks } from "../persistence/schema.ts";
 import * as EnvironmentLinks from "./EnvironmentLinks.ts";
 

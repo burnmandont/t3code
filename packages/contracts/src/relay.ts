@@ -151,12 +151,38 @@ export const RelayManagedEndpointOrigin = Schema.Struct({
 });
 export type RelayManagedEndpointOrigin = typeof RelayManagedEndpointOrigin.Type;
 
-export const RelayManagedEndpointRuntimeConfig = Schema.Struct({
-  providerKind: RelayManagedEndpointProviderKind,
+export const RelayManualEndpointRuntimeConfig = Schema.Struct({
+  providerKind: Schema.Literal("manual"),
+});
+export type RelayManualEndpointRuntimeConfig = typeof RelayManualEndpointRuntimeConfig.Type;
+
+export const RelayCloudflareEndpointRuntimeConfig = Schema.Struct({
+  providerKind: Schema.Literal("cloudflare_tunnel"),
   connectorToken: TrimmedNonEmptyString,
   tunnelId: Schema.optional(TrimmedNonEmptyString),
   tunnelName: Schema.optional(TrimmedNonEmptyString),
 });
+export type RelayCloudflareEndpointRuntimeConfig = typeof RelayCloudflareEndpointRuntimeConfig.Type;
+
+export const RelayT3EndpointRuntimeConfig = Schema.Struct({
+  providerKind: Schema.Literal("t3_relay"),
+  connectorId: TrimmedNonEmptyString,
+  connectorToken: TrimmedNonEmptyString,
+  serverAddr: TrimmedNonEmptyString,
+  serverPort: Schema.Int.check(
+    Schema.isGreaterThanOrEqualTo(1),
+    Schema.isLessThanOrEqualTo(65_535),
+  ),
+  proxyName: TrimmedNonEmptyString,
+  hostname: TrimmedNonEmptyString,
+});
+export type RelayT3EndpointRuntimeConfig = typeof RelayT3EndpointRuntimeConfig.Type;
+
+export const RelayManagedEndpointRuntimeConfig = Schema.Union([
+  RelayManualEndpointRuntimeConfig,
+  RelayCloudflareEndpointRuntimeConfig,
+  RelayT3EndpointRuntimeConfig,
+]);
 export type RelayManagedEndpointRuntimeConfig = typeof RelayManagedEndpointRuntimeConfig.Type;
 
 export const RelayLinkProofRequest = Schema.Struct({

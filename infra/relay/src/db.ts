@@ -1,39 +1,15 @@
-import type { PgClient } from "@effect/sql-pg/PgClient";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle";
 import * as Planetscale from "alchemy/Planetscale";
 import * as Alchemy from "alchemy";
 import * as RemovalPolicy from "alchemy/RemovalPolicy";
-import type { EffectPgDatabase } from "drizzle-orm/effect-postgres";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 
 import { relayDatabaseMode } from "./dbConfig.ts";
 
-export class RelayDb extends Context.Service<
-  RelayDb,
-  EffectPgDatabase & {
-    readonly $client: PgClient;
-  }
->()("t3code-relay/db/RelayDb") {}
-
-export class RelayTransactions extends Context.Service<
-  RelayTransactions,
-  {
-    readonly withTransaction: RelayDb["Service"]["$client"]["withTransaction"];
-  }
->()("t3code-relay/db/RelayTransactions") {
-  static readonly layer = Layer.effect(
-    RelayTransactions,
-    Effect.gen(function* () {
-      const db = yield* RelayDb;
-      return RelayTransactions.of({
-        withTransaction: db.$client.withTransaction,
-      });
-    }),
-  );
-}
+// Preserve upstream imports while runtime code depends on the
+// deployment-neutral service module directly.
+export * from "./RelayDbService.ts";
 
 export const PlanetscaleDatabase = Effect.gen(function* () {
   const { stage } = yield* Alchemy.Stack;

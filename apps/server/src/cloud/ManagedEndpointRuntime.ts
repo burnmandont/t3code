@@ -1,6 +1,8 @@
-import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
-import * as RelayClient from "@t3tools/shared/relayClient";
-import * as Context from "effect/Context";
+import type {
+  RelayCloudflareEndpointRuntimeConfig,
+  RelayManagedEndpointRuntimeConfig,
+} from "@t3tools/contracts/relay";
+import * as ManagedConnectorClients from "@t3tools/shared/managedConnectorClients";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -15,6 +17,17 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { CLOUD_ENDPOINT_RUNTIME_CONFIG, decodeRuntimeConfig } from "./config.ts";
+import {
+  ManagedEndpointRuntime,
+  type ManagedEndpointRuntimeStatus,
+} from "./ManagedEndpointRuntimeService.ts";
+
+// Preserve the upstream service names while production consumers depend on the
+// provider-neutral service contract directly.
+export {
+  ManagedEndpointRuntime as CloudManagedEndpointRuntime,
+  type ManagedEndpointRuntimeStatus as CloudManagedEndpointRuntimeStatus,
+} from "./ManagedEndpointRuntimeService.ts";
 
 function bytesToString(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
@@ -29,43 +42,11 @@ const readRuntimeConfig = Effect.gen(function* () {
   return Option.getOrNull(decodeRuntimeConfig(bytesToString(bytes.value)));
 });
 
-export type CloudManagedEndpointRuntimeStatus =
-  | {
-      readonly status: "disabled";
-    }
-  | {
-      readonly status: "failed";
-      readonly providerKind: RelayManagedEndpointRuntimeConfig["providerKind"];
-      readonly reason: string;
-      readonly tunnelId?: string;
-      readonly tunnelName?: string;
-    }
-  | {
-      readonly status: "running";
-      readonly providerKind: "cloudflare_tunnel";
-      readonly pid: number;
-      readonly tunnelId?: string;
-      readonly tunnelName?: string;
-    }
-  | {
-      readonly status: "unsupported";
-      readonly providerKind: RelayManagedEndpointRuntimeConfig["providerKind"];
-    };
-
-export class CloudManagedEndpointRuntime extends Context.Service<
-  CloudManagedEndpointRuntime,
-  {
-    readonly applyConfig: (
-      config: RelayManagedEndpointRuntimeConfig | null,
-    ) => Effect.Effect<CloudManagedEndpointRuntimeStatus>;
-  }
->()("t3/cloud/ManagedEndpointRuntime/CloudManagedEndpointRuntime") {}
-
 interface ActiveConnector {
   readonly child: ChildProcessSpawner.ChildProcessHandle;
   readonly scope: Scope.Closeable;
   readonly configKey: string;
-  readonly config: RelayManagedEndpointRuntimeConfig;
+  readonly config: RelayCloudflareEndpointRuntimeConfig;
 }
 
 export function classifyRelayClientOutput(line: string): "connected" | "warning" | "debug" {
@@ -78,7 +59,7 @@ export function classifyRelayClientOutput(line: string): "connected" | "warning"
   return /\b(?:ERR|WRN|FTL|PNC)\b/u.test(line) ? "warning" : "debug";
 }
 
-function runtimeConfigKey(config: RelayManagedEndpointRuntimeConfig): string {
+function runtimeConfigKey(config: RelayCloudflareEndpointRuntimeConfig): string {
   return JSON.stringify({
     providerKind: config.providerKind,
     connectorToken: config.connectorToken,
@@ -101,11 +82,12 @@ const stopConnector = (connector: ActiveConnector | null) =>
 
 export const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const relayClient = yield* RelayClient.RelayClient;
+  const connectorClients = yield* ManagedConnectorClients.ManagedConnectorClients;
+  const relayClient = yield* connectorClients.get("cloudflare_tunnel");
   const activeRef = yield* Ref.make<ActiveConnector | null>(null);
   const desiredConfigRef = yield* Ref.make<RelayManagedEndpointRuntimeConfig | null>(null);
   const reconcileSemaphore = yield* Semaphore.make(1);
-  let reconcileConfig: CloudManagedEndpointRuntime["Service"]["applyConfig"];
+  let reconcileConfig: ManagedEndpointRuntime["Service"]["applyConfig"];
 
   const stopActive = Effect.gen(function* () {
     const active = yield* Ref.getAndSet(activeRef, null);
@@ -203,7 +185,7 @@ export const make = Effect.gen(function* () {
           pid: Number(active.child.pid),
           ...(active.config.tunnelId ? { tunnelId: active.config.tunnelId } : {}),
           ...(active.config.tunnelName ? { tunnelName: active.config.tunnelName } : {}),
-        } satisfies CloudManagedEndpointRuntimeStatus;
+        } satisfies ManagedEndpointRuntimeStatus;
       }
     }
 
@@ -220,7 +202,7 @@ export const make = Effect.gen(function* () {
             : "The relay client is not installed.",
         ...(config.tunnelId ? { tunnelId: config.tunnelId } : {}),
         ...(config.tunnelName ? { tunnelName: config.tunnelName } : {}),
-      } satisfies CloudManagedEndpointRuntimeStatus;
+      } satisfies ManagedEndpointRuntimeStatus;
     }
 
     const connectorScope = yield* Scope.make("sequential");
@@ -259,7 +241,7 @@ export const make = Effect.gen(function* () {
               reason: String(cause),
               ...(config.tunnelId ? { tunnelId: config.tunnelId } : {}),
               ...(config.tunnelName ? { tunnelName: config.tunnelName } : {}),
-            } satisfies CloudManagedEndpointRuntimeStatus),
+            } satisfies ManagedEndpointRuntimeStatus),
           ),
         ),
       );
@@ -284,7 +266,7 @@ export const make = Effect.gen(function* () {
         pid: Number(child.pid),
         ...(config.tunnelId ? { tunnelId: config.tunnelId } : {}),
         ...(config.tunnelName ? { tunnelName: config.tunnelName } : {}),
-      } satisfies CloudManagedEndpointRuntimeStatus;
+      } satisfies ManagedEndpointRuntimeStatus;
     }
 
     return {
@@ -293,7 +275,7 @@ export const make = Effect.gen(function* () {
       reason: "Relay client did not start.",
       ...(config.tunnelId ? { tunnelId: config.tunnelId } : {}),
       ...(config.tunnelName ? { tunnelName: config.tunnelName } : {}),
-    } satisfies CloudManagedEndpointRuntimeStatus;
+    } satisfies ManagedEndpointRuntimeStatus;
   });
 
   const applyConfig = Effect.fn("CloudManagedEndpointRuntime.applyConfig")(
@@ -303,7 +285,7 @@ export const make = Effect.gen(function* () {
       ),
   );
 
-  const runtime = CloudManagedEndpointRuntime.of({
+  const runtime = ManagedEndpointRuntime.of({
     applyConfig,
   });
 
@@ -319,4 +301,4 @@ export const make = Effect.gen(function* () {
   return runtime;
 });
 
-export const layer = Layer.effect(CloudManagedEndpointRuntime, make);
+export const layer = Layer.effect(ManagedEndpointRuntime, make);

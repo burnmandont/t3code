@@ -2517,6 +2517,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               if (!config) {
                 return Effect.succeed({ status: "disabled" });
               }
+              if (config.providerKind !== "cloudflare_tunnel") {
+                return Effect.succeed({
+                  status: "unsupported",
+                  providerKind: config.providerKind,
+                });
+              }
               return Effect.succeed({
                 status: "running",
                 providerKind: "cloudflare_tunnel",

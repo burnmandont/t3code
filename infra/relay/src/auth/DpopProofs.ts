@@ -7,7 +7,7 @@ import * as HttpApiError from "effect/unstable/httpapi/HttpApiError";
 import { lt } from "drizzle-orm";
 
 import { verifyDpopProof } from "@t3tools/shared/dpop";
-import * as RelayDb from "../db.ts";
+import * as RelayDb from "../RelayDbService.ts";
 import { relayDpopProofs } from "../persistence/schema.ts";
 
 export class DpopProofReplayPersistenceError extends Schema.TaggedErrorClass<DpopProofReplayPersistenceError>()(

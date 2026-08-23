@@ -119,6 +119,7 @@ import {
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import * as ManagedConnectorClients from "@t3tools/shared/managedConnectorClients";
 import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
 import { forkParked, ServerActivation } from "./serverActivation.ts";
 
@@ -180,6 +181,10 @@ const RelayClientLive = Layer.unwrap(
     const config = yield* ServerConfig.ServerConfig;
     return RelayClient.layerCloudflared({ baseDir: config.baseDir });
   }),
+);
+
+const ManagedConnectorClientsLive = ManagedConnectorClients.layerCloudflaredFromRelayClient.pipe(
+  Layer.provide(RelayClientLive),
 );
 
 const HttpServerLive = Layer.unwrap(
@@ -359,9 +364,10 @@ const AuthLayerLive = EnvironmentAuth.layer.pipe(
 
 const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
   RelayClientLive,
+  ManagedConnectorClientsLive,
   CloudManagedEndpointRuntime.layer.pipe(
     Layer.provide(ServerSecretStore.layer),
-    Layer.provide(RelayClientLive),
+    Layer.provide(ManagedConnectorClientsLive),
   ),
 );
 

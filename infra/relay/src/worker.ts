@@ -3,93 +3,26 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle";
 import * as Config from "effect/Config";
 import * as DateTime from "effect/DateTime";
-import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
-import * as Etag from "effect/unstable/http/Etag";
-import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
-import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
-import * as HttpApiScalar from "effect/unstable/httpapi/HttpApiScalar";
-
-import { RelayApi } from "@t3tools/contracts/relay";
-
-import {
-  clientApi,
-  dpopClientApi,
-  healthApi,
-  metadataApi,
-  mobileApi,
-  relayClientAuthLayer,
-  relayDpopClientAuthLayer,
-  relayCors,
-  relayDocsRedirectRoute,
-  relayEnvironmentAuthLayer,
-  relayNotFoundRoute,
-  serverApi,
-  traceRelayHttpRequestWith,
-  tokenApi,
-  withoutCapturedParentSpan,
-} from "./http/Api.ts";
+import { traceRelayHttpRequestWith } from "./http/Api.ts";
 import { ManagedEndpointZone, RelayApiZone, RelayDeploymentConfig } from "./zone.ts";
 import { makeRelayTraceLayer, RelayObservability } from "./observability.ts";
-import * as DeliveryAttempts from "./agentActivity/DeliveryAttempts.ts";
 import * as AgentActivityRows from "./agentActivity/AgentActivityRows.ts";
-import * as Devices from "./agentActivity/Devices.ts";
 import * as DpopProofs from "./auth/DpopProofs.ts";
-import * as RelayTokens from "./auth/RelayTokens.ts";
-import * as EnvironmentCredentials from "./environments/EnvironmentCredentials.ts";
-import * as EnvironmentLinks from "./environments/EnvironmentLinks.ts";
-import * as ManagedEndpointAllocations from "./environments/ManagedEndpointAllocations.ts";
-import * as LiveActivities from "./agentActivity/LiveActivities.ts";
-import * as RelayDb from "./db.ts";
+import * as RelayIdentityVerifier from "./auth/RelayIdentityVerifier.ts";
+import * as RelayDb from "./RelayDbService.ts";
+import * as RelayDbProvisioning from "./db.ts";
 import { RelayApnsDeliveryDeadLetterQueue, RelayApnsDeliveryQueue } from "./queues.ts";
 import * as RelayConfiguration from "./Config.ts";
-import * as AgentActivityPublisher from "./agentActivity/AgentActivityPublisher.ts";
 import * as ApnsClient from "./agentActivity/ApnsClient.ts";
 import * as ApnsProviderTokens from "./agentActivity/ApnsProviderTokens.ts";
 import * as ApnsDeliveryQueue from "./agentActivity/ApnsDeliveryQueue.ts";
 import * as ApnsDeliveries from "./agentActivity/ApnsDeliveries.ts";
-import * as EnvironmentConnector from "./environments/EnvironmentConnector.ts";
-import * as EnvironmentLinker from "./environments/EnvironmentLinker.ts";
-import * as EnvironmentPublishSignatures from "./environments/EnvironmentPublishSignatures.ts";
 import * as ManagedEndpointProvider from "./environments/ManagedEndpointProvider.ts";
-import * as ManagedTunnelLimits from "./environments/ManagedTunnelLimits.ts";
-import * as MobileRegistrations from "./agentActivity/MobileRegistrations.ts";
-
-const webcryptoLayer = Layer.succeed(
-  Crypto.Crypto,
-  Crypto.make({
-    randomBytes: (size) => globalThis.crypto.getRandomValues(new Uint8Array(size)),
-    digest: (algorithm, data) =>
-      Effect.promise(async () => {
-        const input = new Uint8Array(data.length);
-        input.set(data);
-        return new Uint8Array(await globalThis.crypto.subtle.digest(algorithm, input.buffer));
-      }),
-  }),
-);
-
-const httpPlatformNotSupportedLayer = Layer.succeed(HttpPlatform.HttpPlatform, {
-  platform: "web",
-  compression: {
-    algorithms: new Set<HttpPlatform.CompressionAlgorithm>(),
-    compressResponse: (response) => Effect.succeed(response),
-  },
-  fileResponse: () => Effect.die("Relay API does not serve filesystem responses"),
-  fileWebResponse: () => Effect.die("Relay API does not serve file responses"),
-});
-
-const relayApiLayer = Layer.mergeAll(
-  healthApi,
-  metadataApi,
-  mobileApi,
-  clientApi,
-  tokenApi,
-  dpopClientApi,
-  serverApi,
-);
+import * as RelayHttpApp from "./RelayHttpApp.ts";
+import * as RelayRuntime from "./RelayRuntime.ts";
 
 const CloudMintKeyPair = Alchemy.KeyPair("CloudMintKeyPair");
 const ApnsDeliveryJobSigningSecret = Alchemy.makeRandom("ApnsDeliveryJobSigningSecret", {
@@ -147,7 +80,9 @@ export const ApiLive = Api.make(
 
     const cloudMintPrivateKey = yield* cloudMintKeyPair.privateKey;
     const cloudMintPublicKey = yield* cloudMintKeyPair.publicKey;
-    const hyperdrive = yield* Cloudflare.Hyperdrive.Connect(yield* RelayDb.RelayHyperdrive);
+    const hyperdrive = yield* Cloudflare.Hyperdrive.Connect(
+      yield* RelayDbProvisioning.RelayHyperdrive,
+    );
     const db = yield* Drizzle.Postgres(hyperdrive.connectionString);
 
     const managedEndpointTunnelBinding = yield* Cloudflare.Tunnel.ReadWriteTunnel();
@@ -190,53 +125,24 @@ export const ApiLive = Api.make(
       }).pipe(Effect.map(makeRelayTraceLayer)),
     );
 
-    const runtimeLayer = Layer.empty.pipe(
-      Layer.provideMerge(MobileRegistrations.layer),
-      Layer.provideMerge(AgentActivityPublisher.layer),
-      Layer.provideMerge(EnvironmentConnector.layer),
-      Layer.provideMerge(EnvironmentLinker.layer),
-      Layer.provideMerge(EnvironmentPublishSignatures.layer),
-      Layer.provideMerge(
-        ManagedEndpointProvider.layerCloudflareBindings(
-          managedEndpointTunnelBinding,
-          managedEndpointDnsBinding,
-          alchemyRuntimeContext,
+    const runtimeLayer = RelayRuntime.make({
+      managedEndpoint: ManagedEndpointProvider.layerCloudflareBindings(
+        managedEndpointTunnelBinding,
+        managedEndpointDnsBinding,
+        alchemyRuntimeContext,
+      ),
+      apnsDeliveries: ApnsDeliveries.layer.pipe(
+        Layer.provideMerge(ApnsClient.layer.pipe(Layer.provideMerge(ApnsProviderTokens.layer))),
+        Layer.provideMerge(
+          ApnsDeliveryQueue.layerCloudflareQueues(apnsDeliveryQueueSender, alchemyRuntimeContext),
         ),
       ),
-      Layer.provideMerge(DpopProofs.layer),
-      Layer.provideMerge(ApnsDeliveries.layer),
-      Layer.provideMerge(ApnsClient.layer.pipe(Layer.provideMerge(ApnsProviderTokens.layer))),
-      Layer.provideMerge(
-        ApnsDeliveryQueue.layerCloudflareQueues(apnsDeliveryQueueSender, alchemyRuntimeContext),
+      identity: RelayIdentityVerifier.layerClerk,
+      persistence: RelayDb.RelayTransactions.layer.pipe(
+        Layer.provideMerge(RelayDb.layerFromDatabase(db)),
       ),
-      Layer.provideMerge(AgentActivityRows.layer),
-      Layer.provideMerge(Devices.layer),
-      Layer.provideMerge(EnvironmentCredentials.layer),
-      Layer.provideMerge(
-        Layer.mergeAll(
-          EnvironmentLinks.layer,
-          ManagedEndpointAllocations.layer,
-          ManagedTunnelLimits.layer,
-        ),
-      ),
-      Layer.provideMerge(LiveActivities.layer),
-      Layer.provideMerge(DeliveryAttempts.layer),
-      Layer.provideMerge(RelayTokens.layer),
-      Layer.provideMerge(
-        RelayDb.RelayTransactions.layer.pipe(
-          Layer.provideMerge(Layer.succeed(RelayDb.RelayDb, db)),
-        ),
-      ),
-      Layer.provideMerge(Layer.effect(RelayConfiguration.RelayConfiguration, loadSettings)),
-      Layer.provideMerge(webcryptoLayer),
-    );
-
-    const appLayer = relayApiLayer.pipe(
-      Layer.provideMerge(relayClientAuthLayer),
-      Layer.provideMerge(relayDpopClientAuthLayer),
-      Layer.provideMerge(relayEnvironmentAuthLayer),
-      Layer.provide(runtimeLayer),
-    );
+      configuration: Layer.effect(RelayConfiguration.RelayConfiguration, loadSettings),
+    });
 
     yield* Cloudflare.Queues.consumeQueueMessages<unknown>(
       apnsDeliveryQueue,
@@ -279,19 +185,9 @@ export const ApiLive = Api.make(
       ),
     );
 
-    const fetch = Layer.merge(
-      Layer.mergeAll(
-        HttpApiBuilder.layer(RelayApi, { openapiPath: "/openapi.json" }).pipe(
-          Layer.provide(appLayer),
-        ),
-        HttpApiScalar.layer(RelayApi, { path: "/docs" }),
-        relayDocsRedirectRoute,
-      ).pipe(Layer.provide([Etag.layerWeak, httpPlatformNotSupportedLayer, relayCors])),
-      relayNotFoundRoute,
-    ).pipe(
-      HttpRouter.toHttpEffect,
-      withoutCapturedParentSpan,
+    const fetch = RelayHttpApp.relayHttpEffect.pipe(
       Effect.flatMap((httpEffect) => traceRelayHttpRequestWith(httpEffect, relayTraceLayer)),
+      Effect.provide(runtimeLayer),
     );
 
     return { fetch };

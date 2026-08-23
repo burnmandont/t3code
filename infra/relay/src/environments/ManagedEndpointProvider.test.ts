@@ -341,6 +341,10 @@ describe("ManagedEndpointProvider", () => {
         origin: { localHttpHost: "127.0.0.1", localHttpPort: 3773 },
       });
 
+      expect(result.runtime.providerKind).toBe("cloudflare_tunnel");
+      if (result.runtime.providerKind !== "cloudflare_tunnel") {
+        throw new Error("Expected Cloudflare runtime configuration.");
+      }
       expect(result.runtime.connectorToken).toBe("connector-token");
     }).pipe(Effect.provide(layer));
   });

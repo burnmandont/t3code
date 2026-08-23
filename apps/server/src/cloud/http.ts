@@ -60,7 +60,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { requireEnvironmentScope } from "../auth/http.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
+import * as ManagedEndpointRuntime from "./ManagedEndpointRuntimeService.ts";
 import {
   SERVICE_STATE_FILE,
   SERVICE_STOP_MARKER_FILE,
@@ -356,7 +356,7 @@ const decodeCloudMintProof = Schema.decodeUnknownEffect(RelayCloudMintCredential
 interface CloudHttpDependencies {
   readonly secrets: ServerSecretStore.ServerSecretStore["Service"];
   readonly environment: ServerEnvironment.ServerEnvironment["Service"];
-  readonly endpointRuntime: ManagedEndpointRuntime.CloudManagedEndpointRuntime["Service"];
+  readonly endpointRuntime: ManagedEndpointRuntime.ManagedEndpointRuntime["Service"];
   readonly environmentAuth: EnvironmentAuth.EnvironmentAuth["Service"];
   readonly cliTokenManager: CliTokenManager.CloudCliTokenManager["Service"];
   readonly httpClient: HttpClient.HttpClient;
@@ -366,7 +366,7 @@ const cloudHttpDependencies = Effect.gen(function* () {
   return {
     secrets: yield* ServerSecretStore.ServerSecretStore,
     environment: yield* ServerEnvironment.ServerEnvironment,
-    endpointRuntime: yield* ManagedEndpointRuntime.CloudManagedEndpointRuntime,
+    endpointRuntime: yield* ManagedEndpointRuntime.ManagedEndpointRuntime,
     environmentAuth: yield* EnvironmentAuth.EnvironmentAuth,
     cliTokenManager: yield* CliTokenManager.CloudCliTokenManager,
     httpClient: yield* HttpClient.HttpClient,
