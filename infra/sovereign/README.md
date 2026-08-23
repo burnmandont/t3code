@@ -9,10 +9,11 @@ for a Coolify Docker Compose application. The two
 validating or running this file with an unmodified Docker Compose CLI.
 
 The all-in-one `compose.yaml` remains the bootstrap and rollback manifest. A
-long-lived deployment should use three independently managed Coolify resources:
+long-lived deployment should use four independently managed Coolify resources:
 
 - `t3-web` from `compose.web.yaml`;
 - `t3-control` from `compose.control.yaml`;
+- `t3-observability` from `compose.observability.yaml`;
 - `t3-postgres` as a private Coolify PostgreSQL database resource.
 
 The split control manifest expects complete `T3_ACCOUNT_DATABASE_URL` and
@@ -40,6 +41,7 @@ must not overlap production.
 | `code`            | `https://code.moondiner.com`      |           8080 |
 | `account`         | `https://auth.moondiner.com`      |           4200 |
 | `relay`           | `https://relay.moondiner.com`     |           4100 |
+| `observability`   | `https://observe.moondiner.com`   |           8080 |
 | `frps` HTTP vhost | `https://*.connect.moondiner.com` |           8080 |
 | `frps` control    | `wss://connect.moondiner.com`     |           7000 |
 
@@ -88,6 +90,10 @@ openssl rand -hex 32 # T3_POSTGRES_ADMIN_PASSWORD
 openssl rand -hex 32 # T3_ACCOUNT_DB_PASSWORD
 openssl rand -hex 32 # T3_RELAY_DB_PASSWORD
 openssl rand -hex 48 # T3_ACCOUNT_SECRET
+openssl rand -hex 48 # T3_OTLP_INGEST_TOKEN
+openssl rand -hex 48 # T3_LOKI_INGEST_TOKEN
+openssl rand -hex 32 # T3_GRAFANA_ADMIN_PASSWORD
+openssl rand -hex 48 # T3_GRAFANA_SECRET_KEY
 
 openssl genpkey -algorithm Ed25519 -out relay-signing-private.pem
 openssl pkey -in relay-signing-private.pem -pubout -out relay-signing-public.pem
@@ -222,6 +228,7 @@ second Nginx to Coolify; the Coolify host does not need to be directly exposed:
 code.moondiner.com
 auth.moondiner.com
 relay.moondiner.com
+observe.moondiner.com
 connect.moondiner.com
 *.connect.moondiner.com
 ```
@@ -331,8 +338,9 @@ terminal `failed` deployment receives one delayed retry for only the affected
 resource; operator cancellations, polling ambiguity, and timeouts are never
 retried because doing so could overlap an active deployment.
 
-The repository requires `COOLIFY_URL`, `COOLIFY_CONTROL_UUID`, and
-`COOLIFY_WEB_UUID` Actions variables. `COOLIFY_TOKEN` must be an Actions secret
+The repository requires `COOLIFY_URL`, `COOLIFY_OBSERVABILITY_UUID`,
+`COOLIFY_CONTROL_UUID`, and `COOLIFY_WEB_UUID` Actions variables.
+`COOLIFY_TOKEN` must be an Actions secret
 whose Coolify API token has only the `deploy` and `read` abilities needed to
 queue deployments and read their completion status. It does not need `write`.
 

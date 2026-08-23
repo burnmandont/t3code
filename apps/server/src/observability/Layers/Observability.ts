@@ -3,6 +3,7 @@ import { makeLocalFileTracer, makeTraceSink } from "@t3tools/shared/observabilit
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as References from "effect/References";
+import * as Redacted from "effect/Redacted";
 import * as Tracer from "effect/Tracer";
 import * as OtlpExporter from "effect/unstable/observability/OtlpExporter";
 import * as OtlpMetrics from "effect/unstable/observability/OtlpMetrics";
@@ -20,6 +21,10 @@ export const ObservabilityLive = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
     const attribution = yield* ResourceAttribution.ResourceAttribution;
+    const otlpHeaders =
+      config.otlpAuthorization === undefined
+        ? undefined
+        : { Authorization: Redacted.value(config.otlpAuthorization) };
 
     const traceReferencesLayer = Layer.mergeAll(
       Layer.succeed(Tracer.MinimumTraceLevel, config.traceMinLevel),
@@ -48,12 +53,16 @@ export const ObservabilityLive = Layer.unwrap(
             ? undefined
             : yield* OtlpTracer.make({
                 url: config.otlpTracesUrl,
+                headers: otlpHeaders,
                 exportInterval: `${config.otlpExportIntervalMs} millis`,
                 resource: {
                   serviceName: config.otlpServiceName,
                   attributes: {
                     "service.runtime": "t3-server",
                     "service.mode": config.mode,
+                    ...(config.otlpServiceInstanceId === undefined
+                      ? {}
+                      : { "service.instance.id": config.otlpServiceInstanceId }),
                   },
                 },
               });
@@ -79,12 +88,16 @@ export const ObservabilityLive = Layer.unwrap(
         ? Layer.empty
         : OtlpMetrics.layer({
             url: config.otlpMetricsUrl,
+            headers: otlpHeaders,
             exportInterval: `${config.otlpExportIntervalMs} millis`,
             resource: {
               serviceName: config.otlpServiceName,
               attributes: {
                 "service.runtime": "t3-server",
                 "service.mode": config.mode,
+                ...(config.otlpServiceInstanceId === undefined
+                  ? {}
+                  : { "service.instance.id": config.otlpServiceInstanceId }),
               },
             },
           }).pipe(Layer.provideMerge(otlpSerializationLayer));

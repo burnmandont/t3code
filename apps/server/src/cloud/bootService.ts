@@ -36,6 +36,7 @@ export const BOOT_SERVICE_UNIT_FILE = `${BOOT_SERVICE_NAME}.service`;
 export const BOOT_SERVICE_LAUNCHD_LABEL = "com.t3tools.t3code.service";
 export const BOOT_SERVICE_PLIST_FILE = `${BOOT_SERVICE_LAUNCHD_LABEL}.plist`;
 export const BOOT_SERVICE_UNIT_ENV = "T3_BOOT_SERVICE_UNIT";
+export const BOOT_SERVICE_OBSERVABILITY_ENV = "%h/.config/t3code/observability.env";
 
 /** systemd expands `%` specifiers, including in unquoted append-log paths. */
 export function escapeSystemdSpecifiers(value: string): string {
@@ -71,6 +72,7 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
     "WorkingDirectory=%h",
     `Environment=T3CODE_HOME=${quoteSystemdValue(plan.baseDir)}`,
     `Environment=${BOOT_SERVICE_UNIT_ENV}=${BOOT_SERVICE_UNIT_FILE}`,
+    `EnvironmentFile=-${BOOT_SERVICE_OBSERVABILITY_ENV}`,
     `ExecStart=${quoteSystemdValue(plan.nodePath)} ${quoteSystemdValue(plan.launcherPath)}`,
     // Let the launcher mark an explicit stop before it signals the server.
     // systemd still SIGKILLs the whole cgroup if graceful shutdown times out.

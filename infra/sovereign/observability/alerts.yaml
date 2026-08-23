@@ -1,0 +1,64 @@
+groups:
+  - name: t3-sovereign
+    rules:
+      - alert: T3SovereignProbeFailed
+        expr: t3_sovereign_probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Sovereign probe {{ $labels.check }} is failing"
+          description: "The active end-to-end probe has failed for at least two minutes."
+      - alert: T3RelayConnectorFlapping
+        expr: sum(increase(t3_relay_connector_events_total{event="transient_disconnect"}[15m])) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "Relay connectors are flapping"
+          description: "More than two transient relay disconnects occurred in fifteen minutes."
+      - alert: T3RelayConnectorDown
+        expr: t3_relay_connector_connected{providerKind="t3_relay"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A remote T3 relay connector is down"
+          description: "A reporting remote environment has not restored its relay tunnel."
+      - alert: T3RelayAuthorizationRejected
+        expr: sum(increase(t3_relay_connector_events_total{event="authorization_rejected"}[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Relay rejected an environment connector credential"
+          description: "Inspect relay and t3-server logs for retirement or stale allocation details."
+      - alert: T3RelayServerAuthorizationRejected
+        expr: sum(increase(t3_relay_frp_authorization_total{outcome="rejected"}[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "FRPS rejected an environment connector credential or route"
+          description: "The server-side authorization plugin rejected at least one connector operation."
+      - alert: T3HostDiskFilling
+        expr: 100 * (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) > 85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Observability host disk is over 85% full"
+          description: "Free space on {{ $labels.mountpoint }} is running low."
+      - alert: T3HostMemoryPressure
+        expr: 100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Observability host memory pressure is high"
+          description: "Available host memory has remained below 10% for fifteen minutes."
+      - alert: T3TelemetryExporterDroppingData
+        expr: sum(rate(otelcol_exporter_send_failed_spans_total[5m])) + sum(rate(otelcol_exporter_send_failed_metric_points_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The telemetry pipeline is dropping data"
+          description: "The central collector has failed exports for five minutes."

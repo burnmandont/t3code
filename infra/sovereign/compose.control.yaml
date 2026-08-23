@@ -48,6 +48,8 @@ x-relay-environment: &relay-environment
   T3_APNS_BUNDLE_ID: "${T3_APNS_BUNDLE_ID:-}"
   T3_APNS_PRIVATE_KEY_B64: "${T3_APNS_PRIVATE_KEY_B64:-}"
   T3_APNS_DELIVERY_JOB_SIGNING_SECRET: "${T3_APNS_DELIVERY_JOB_SIGNING_SECRET:-}"
+  T3_OTLP_TRACES_URL: http://telemetry-agent:4318/v1/traces
+  T3_OTLP_METRICS_URL: http://telemetry-agent:4318/v1/metrics
 
 services:
   account-migrate:
@@ -138,6 +140,7 @@ services:
     expose:
       - "7000"
       - "8080"
+      - "7500"
     healthcheck:
       test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 7000 && nc -z -w 2 127.0.0.1 8080"]
       interval: 10s
@@ -168,7 +171,11 @@ services:
       T3_MONITOR_MANAGED_HOSTS: "${T3_MONITOR_MANAGED_HOSTS:-}"
       T3_MONITOR_ALERT_WEBHOOK_URL: "${T3_MONITOR_ALERT_WEBHOOK_URL:-}"
       T3_MONITOR_FAILURE_THRESHOLD: "2"
+      T3_MONITOR_METRICS_HOST: 0.0.0.0
+      T3_MONITOR_METRICS_PORT: "4300"
     command: ["node", "/app/sovereign-monitor.mjs"]
+    expose:
+      - "4300"
     healthcheck:
       test:
         [
@@ -188,3 +195,26 @@ services:
         condition: service_healthy
       frps:
         condition: service_healthy
+
+  telemetry-agent:
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.control-collector
+    image: t3-sovereign-control-collector:${T3_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      T3_OBSERVABILITY_OTLP_ENDPOINT: ${T3_OBSERVABILITY_OTLP_ENDPOINT:-https://observe.moondiner.com/otlp}
+      T3_OBSERVABILITY_INGEST_TOKEN: ${T3_OTLP_INGEST_TOKEN:?required}
+    expose:
+      - "4318"
+      - "13133"
+    depends_on:
+      frps:
+        condition: service_healthy
+      monitor:
+        condition: service_started

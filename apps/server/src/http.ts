@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
 import * as Path from "effect/Path";
 import { cast } from "effect/Function";
 import {
@@ -175,6 +176,9 @@ export const otlpTracesProxyRouteLayer = HttpRouter.add(
     return yield* httpClient
       .post(otlpTracesUrl, {
         body: HttpBody.jsonUnsafe(bodyJson),
+        ...(config.otlpAuthorization === undefined
+          ? {}
+          : { headers: { Authorization: Redacted.value(config.otlpAuthorization) } }),
       })
       .pipe(
         Effect.flatMap(HttpClientResponse.filterStatusOk),

@@ -1,0 +1,3 @@
+FROM prom/prometheus:v3.12.0
+COPY infra/sovereign/observability/prometheus.yaml /etc/prometheus/prometheus.yml
+COPY infra/sovereign/observability/alerts.yaml /etc/prometheus/alerts.yaml

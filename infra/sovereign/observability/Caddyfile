@@ -1,0 +1,36 @@
+{
+  admin off
+  auto_https off
+}
+
+:8080 {
+  encode zstd gzip
+
+  handle /health {
+    respond 200
+  }
+
+  handle_path /otlp/* {
+    @unauthorized not header Authorization "Bearer {$T3_OTLP_INGEST_TOKEN}"
+    respond @unauthorized 401
+
+    request_body {
+      max_size 16MB
+    }
+    reverse_proxy collector:4318
+  }
+
+  handle /loki/api/v1/push {
+    @unauthorized not header_regexp Authorization "^(Bearer {$T3_LOKI_INGEST_TOKEN}|{$T3_LOKI_INGEST_BASIC_AUTH})$"
+    respond @unauthorized 401
+
+    request_body {
+      max_size 16MB
+    }
+    reverse_proxy loki:3100
+  }
+
+  handle {
+    reverse_proxy grafana:3000
+  }
+}

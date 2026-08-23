@@ -3,6 +3,8 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as Layer from "effect/Layer";
+import * as Metric from "effect/Metric";
+import * as Ref from "effect/Ref";
 
 import * as ManagedEndpointAllocations from "../environments/ManagedEndpointAllocations.ts";
 
@@ -45,6 +47,34 @@ const rejected = (reason = "connector not authorized"): FrpPluginResponse => ({
 });
 
 const allowed: FrpPluginResponse = { reject: false, unchange: true };
+
+const frpAuthorizationTotal = Metric.counter("t3_relay_frp_authorization_total", {
+  description: "FRPS plugin authorization decisions by bounded operation and outcome.",
+});
+
+const frpConnectorEventsTotal = Metric.counter("t3_relay_frp_connector_events_total", {
+  description: "Server-observed FRP connector login, reconnect, and close events.",
+});
+
+const frpConnectedConnectors = Metric.gauge("t3_relay_frp_connected_connectors", {
+  description: "Approximate number of FRP connectors with an authorized active proxy.",
+});
+
+const boundedOperation = (
+  request: unknown,
+): "Login" | "NewProxy" | "Ping" | "CloseProxy" | "unknown" => {
+  if (!isRecord(request)) return "unknown";
+  const operation = stringRecordValue(request, "op");
+  return operation === "Login" ||
+    operation === "NewProxy" ||
+    operation === "Ping" ||
+    operation === "CloseProxy"
+    ? operation
+    : "unknown";
+};
+
+const metricWith = (metric: Metric.Metric<number, unknown>, attributes: Record<string, string>) =>
+  Metric.withAttributes(metric, Object.entries(attributes));
 
 function connectorIdentity(input: Record<string, unknown>): {
   readonly connectorId: string;
@@ -113,13 +143,52 @@ export class FrpAuthorization extends Context.Service<
 export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const allocations = yield* ManagedEndpointAllocations.ManagedEndpointAllocations;
+  const connectorRuns = yield* Ref.make(new Map<string, string>());
 
   return FrpAuthorization.of({
     authorize: Effect.fn("relay.frp.authorize")(function* (request: unknown) {
-      if (!isRecord(request)) return rejected();
+      const operation = boundedOperation(request);
+      const finish = (response: FrpPluginResponse, identity?: { connectorId: string }) =>
+        Effect.gen(function* () {
+          yield* Metric.update(
+            metricWith(frpAuthorizationTotal, {
+              operation,
+              outcome: response.reject ? "rejected" : "allowed",
+            }),
+            1,
+          );
+          if (response.reject || identity === undefined || !isRecord(request)) return response;
+
+          const content = isRecord(request.content) ? request.content : null;
+          if (operation === "Login" && content !== null) {
+            const runId = stringRecordValue(content, "run_id") ?? "unknown";
+            const reconnect = yield* Ref.modify(connectorRuns, (runs) => {
+              const previous = runs.get(identity.connectorId);
+              const next = new Map(runs).set(identity.connectorId, runId);
+              return [previous !== undefined && previous !== runId, next];
+            });
+            yield* Metric.update(metricWith(frpConnectorEventsTotal, { event: "login" }), 1);
+            if (reconnect) {
+              yield* Metric.update(metricWith(frpConnectorEventsTotal, { event: "reconnect" }), 1);
+            }
+          } else if (operation === "CloseProxy") {
+            yield* Ref.update(connectorRuns, (runs) => {
+              const next = new Map(runs);
+              next.delete(identity.connectorId);
+              return next;
+            });
+            yield* Metric.update(metricWith(frpConnectorEventsTotal, { event: "close" }), 1);
+          }
+          yield* Ref.get(connectorRuns).pipe(
+            Effect.flatMap((runs) => Metric.update(frpConnectedConnectors, runs.size)),
+          );
+          return response;
+        });
+
+      if (!isRecord(request)) return yield* finish(rejected());
       const identity = connectorIdentity(request);
       if (identity === null || !identity.connectorToken.startsWith(`${identity.connectorId}.`)) {
-        return rejected();
+        return yield* finish(rejected());
       }
       const allocation = yield* allocations.getByConnectorId(identity.connectorId);
       if (
@@ -129,17 +198,20 @@ export const make = Effect.gen(function* () {
         allocation.connectorTokenHash === null ||
         allocation.readyAt === null
       ) {
-        return rejected();
+        return yield* finish(rejected());
       }
       const presentedHash = yield* crypto
         .digest("SHA-256", new TextEncoder().encode(identity.connectorToken))
         .pipe(Effect.map(Encoding.encodeHex), Effect.orDie);
       if (!constantTimeEqual(presentedHash, allocation.connectorTokenHash)) {
-        return rejected();
+        return yield* finish(rejected());
       }
-      return routeIsAuthorized({ request, connectorId: identity.connectorId, allocation })
-        ? allowed
-        : rejected("connector route not authorized");
+      return yield* finish(
+        routeIsAuthorized({ request, connectorId: identity.connectorId, allocation })
+          ? allowed
+          : rejected("connector route not authorized"),
+        identity,
+      );
     }),
   });
 });

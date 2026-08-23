@@ -526,6 +526,31 @@ const checkConnectRejectsUnexpectedOrigin = () =>
     request.end();
   });
 
+const checkObservabilityBoundary = async () => {
+  const health = await fetchJson("https://observe.moondiner.com/api/health", {
+    headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+  });
+  if (health.response.status !== 200 || health.body?.database !== "ok") {
+    throw new Error("Grafana observability health is unavailable");
+  }
+  validateEdgeSecurityHeaders(health.response.headers, "Observability health");
+
+  for (const path of ["/otlp/v1/traces", "/otlp/v1/metrics", "/loki/api/v1/push"]) {
+    const response = await fetch(`https://observe.moondiner.com${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+      redirect: "error",
+      signal: AbortSignal.timeout(COOLIFY_REQUEST_TIMEOUT_MS),
+    });
+    await response.body?.cancel();
+    if (response.status !== 401) {
+      throw new Error(`Unauthenticated observability ingest ${path} returned ${response.status}`);
+    }
+    validateEdgeSecurityHeaders(response.headers, `Observability ingest ${path}`);
+  }
+};
+
 export const verifyProduction = async () => {
   let lastError;
   for (let attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt += 1) {
@@ -543,9 +568,10 @@ export const verifyProduction = async () => {
         checkUnexpectedHostRejected(),
         checkConnectWebSocket(),
         checkConnectRejectsUnexpectedOrigin(),
+        checkObservabilityBoundary(),
       ]);
       console.log(
-        "Production health, authentication, CORS, route boundaries, TLS headers, and Connect WSS passed",
+        "Production health, observability, authentication, route boundaries, TLS headers, and Connect WSS passed",
       );
       return;
     } catch (error) {
@@ -568,12 +594,15 @@ export const verifyProduction = async () => {
 const main = async () => {
   const baseUrl = requiredEnvironmentValue("COOLIFY_URL").replace(/\/$/u, "");
   const token = requiredEnvironmentValue("COOLIFY_TOKEN");
-  const resourceUuids = [
+  const observabilityUuid = requiredEnvironmentValue("COOLIFY_OBSERVABILITY_UUID");
+  const applicationUuids = [
+    observabilityUuid,
     requiredEnvironmentValue("COOLIFY_CONTROL_UUID"),
     requiredEnvironmentValue("COOLIFY_WEB_UUID"),
   ];
-  if (new Set(resourceUuids).size !== resourceUuids.length) {
-    throw new Error("Coolify control and web resource UUIDs must be different");
+  const resourceUuids = applicationUuids.slice(1);
+  if (new Set(applicationUuids).size !== applicationUuids.length) {
+    throw new Error("Coolify observability, control, and web resource UUIDs must be different");
   }
 
   const timeoutMs = Number(process.env.COOLIFY_DEPLOY_TIMEOUT_MS ?? DEFAULT_DEPLOY_TIMEOUT_MS);
@@ -593,33 +622,48 @@ const main = async () => {
     throw new Error("COOLIFY_DEPLOY_RETRY_DELAY_MS must be an integer between 0 and 60000");
   }
 
+  const queueDeployments = async (uuids) => {
+    const deployUrl = new URL(`${baseUrl}/api/v1/deploy`);
+    deployUrl.searchParams.set("uuid", uuids.join(","));
+    const body = await coolifyJson(deployUrl, token, { method: "POST" });
+    return body.deployments;
+  };
+  const waitForQueuedDeployment = async (deployment, attempt) => {
+    const deploymentUuid = deployment.deployment_uuid;
+    const resourceUuid = deployment.resource_uuid;
+    console.log(`Queued ${resourceUuid}: ${deploymentUuid} (attempt ${attempt}/${maxAttempts})`);
+    await waitForDeployment({
+      deploymentUuid,
+      resourceUuid,
+      timeoutMs,
+      getDeployment: (uuid) =>
+        coolifyJson(`${baseUrl}/api/v1/deployments/${encodeURIComponent(uuid)}`, token),
+      onStatus: (status) => console.log(`${resourceUuid} (${deploymentUuid}): ${status}`),
+    });
+  };
+  const onRetry = ({ attempt, maxAttempts: attempts, resourceUuids: retryUuids }) =>
+    console.log(
+      `Retrying failed Coolify resources after ${retryDelayMs}ms (attempt ${attempt}/${attempts}): ${retryUuids.join(", ")}`,
+    );
+
+  // The control-plane collector exports into this resource, so deploy and
+  // confirm the telemetry destination before restarting relay or FRPS.
+  await deployResourcesWithRetry({
+    resourceUuids: [observabilityUuid],
+    maxAttempts,
+    retryDelayMs,
+    queueDeployments,
+    waitForQueuedDeployment,
+    onRetry,
+  });
+
   await deployResourcesWithRetry({
     resourceUuids,
     maxAttempts,
     retryDelayMs,
-    queueDeployments: async (uuids) => {
-      const deployUrl = new URL(`${baseUrl}/api/v1/deploy`);
-      deployUrl.searchParams.set("uuid", uuids.join(","));
-      const body = await coolifyJson(deployUrl, token, { method: "POST" });
-      return body.deployments;
-    },
-    waitForQueuedDeployment: async (deployment, attempt) => {
-      const deploymentUuid = deployment.deployment_uuid;
-      const resourceUuid = deployment.resource_uuid;
-      console.log(`Queued ${resourceUuid}: ${deploymentUuid} (attempt ${attempt}/${maxAttempts})`);
-      await waitForDeployment({
-        deploymentUuid,
-        resourceUuid,
-        timeoutMs,
-        getDeployment: (uuid) =>
-          coolifyJson(`${baseUrl}/api/v1/deployments/${encodeURIComponent(uuid)}`, token),
-        onStatus: (status) => console.log(`${resourceUuid} (${deploymentUuid}): ${status}`),
-      });
-    },
-    onRetry: ({ attempt, maxAttempts: attempts, resourceUuids: retryUuids }) =>
-      console.log(
-        `Retrying failed Coolify resources after ${retryDelayMs}ms (attempt ${attempt}/${attempts}): ${retryUuids.join(", ")}`,
-      ),
+    queueDeployments,
+    waitForQueuedDeployment,
+    onRetry,
   });
 
   await verifyProduction();

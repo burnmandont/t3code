@@ -222,7 +222,97 @@ test("runs a private self-hosted monitor with the split control plane", () => {
   assert.match(monitorService, /T3_MONITOR_ALERT_WEBHOOK_URL/u);
   assert.match(monitorService, /condition: service_healthy/u);
   assert.doesNotMatch(monitorService, /^    ports:/mu);
-  assert.doesNotMatch(monitorService, /^    expose:/mu);
+  assert.match(monitorService, /^    expose:\n      - "4300"/mu);
+});
+
+test("keeps the observability stack authenticated, private, and persistent", () => {
+  const compose = readSovereignFile("../compose.observability.yaml");
+  const gateway = readSovereignFile("../observability/Caddyfile");
+  const controlCompose = readSovereignFile("../compose.control.yaml");
+
+  assert.doesNotMatch(compose, /^    ports:/mu);
+  assert.match(compose, /T3_OTLP_INGEST_TOKEN: \$\{T3_OTLP_INGEST_TOKEN:\?required\}/u);
+  assert.match(compose, /T3_LOKI_INGEST_TOKEN: \$\{T3_LOKI_INGEST_TOKEN:\?required\}/u);
+  assert.match(compose, /T3_LOKI_INGEST_BASIC_AUTH: \$\{T3_LOKI_INGEST_BASIC_AUTH:\?required\}/u);
+  assert.match(compose, /gateway:\n[\s\S]*?cap_add:\n      - NET_BIND_SERVICE/u);
+  assert.match(
+    compose,
+    /traefik[.]http[.]routers[.]t3-sovereign-observability[.]rule: Host\(`observe[.]moondiner[.]com`\) && PathPrefix\(`\/`\)/u,
+  );
+  assert.match(
+    compose,
+    /traefik[.]http[.]services[.]t3-sovereign-observability[.]loadbalancer[.]server[.]port: "8080"/u,
+  );
+  assert.doesNotMatch(compose, /t3-sovereign-observability[.]tls[.]certresolver/u);
+  assert.match(compose, /telemetry-storage-init:\n[\s\S]*?exclude_from_hc: true/u);
+  assert.match(
+    compose,
+    /telemetry-storage-init:\n[\s\S]*?cap_add:\n      - CHOWN\n      - DAC_OVERRIDE/u,
+  );
+  assert.match(
+    compose,
+    /command: \["chown", "-R", "10001:10001", "\/var\/loki", "\/var\/tempo"\]/u,
+  );
+  assert.match(compose, /loki:\n[\s\S]*?condition: service_completed_successfully/u);
+  assert.match(compose, /tempo:\n[\s\S]*?condition: service_completed_successfully/u);
+  assert.match(compose, /cadvisor:\n[\s\S]*?--docker_only=true/u);
+  assert.match(compose, /cadvisor:\n[\s\S]*?--housekeeping_interval=30s/u);
+  assert.match(
+    compose,
+    /cadvisor:\n[\s\S]*?--disable_metrics=disk,diskIO,percpu,perf_event,pressure/u,
+  );
+  for (const volume of [
+    "prometheus-data",
+    "alertmanager-data",
+    "loki-data",
+    "tempo-data",
+    "grafana-data",
+  ]) {
+    assert.match(compose, new RegExp(`^  ${volume}:$`, "mu"));
+  }
+  assert.match(gateway, /not header Authorization "Bearer \{\$T3_OTLP_INGEST_TOKEN\}"/u);
+  assert.match(
+    gateway,
+    /not header_regexp Authorization "\^\(Bearer \{\$T3_LOKI_INGEST_TOKEN\}\|\{\$T3_LOKI_INGEST_BASIC_AUTH\}\)\$"/u,
+  );
+  assert.match(gateway, /handle \/health \{\n    respond 200\n  \}/u);
+  assert.match(controlCompose, /^  telemetry-agent:/mu);
+  assert.match(
+    controlCompose,
+    /T3_OBSERVABILITY_INGEST_TOKEN: \$\{T3_OTLP_INGEST_TOKEN:\?required\}/u,
+  );
+  assert.match(controlCompose, /T3_OTLP_METRICS_URL: http:\/\/telemetry-agent:4318\/v1\/metrics/u);
+});
+
+test("redacts request headers before traces leave the collector", () => {
+  const collector = readSovereignFile("../observability/collector.yaml");
+
+  assert.match(collector, /^  transform\/redact_request_headers:/mu);
+  assert.match(
+    collector,
+    /delete_matching_keys\(resource\.attributes, "\^http\\\\\.request\\\\\.header\\\\\.\.\+\$"\)/u,
+  );
+  assert.match(
+    collector,
+    /delete_matching_keys\(span\.attributes, "\^http\\\\\.request\\\\\.header\\\\\.\.\+\$"\)/u,
+  );
+  assert.match(
+    collector,
+    /delete_matching_keys\(spanevent\.attributes, "\^http\\\\\.request\\\\\.header\\\\\.\.\+\$"\)/u,
+  );
+  assert.match(
+    collector,
+    /processors: \[memory_limiter, transform\/redact_request_headers, batch\]/u,
+  );
+});
+
+test("allows the slower container metrics scrape to complete", () => {
+  const prometheus = readSovereignFile("../observability/prometheus.yaml");
+
+  assert.match(
+    prometheus,
+    /- job_name: containers\n    scrape_interval: 45s\n    scrape_timeout: 30s\n    static_configs:/u,
+  );
 });
 
 test("keeps sovereign APNs opt-in and replaces the hosted queue with PostgreSQL", () => {
@@ -317,7 +407,7 @@ test("publishes a signed complete remote runtime before production deployment", 
   const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
   const buildIndex = workflow.indexOf("Build signed complete sovereign runtime");
   const publishIndex = workflow.indexOf("Publish immutable sovereign runtime to Gitea");
-  const deployIndex = workflow.indexOf("Deploy t3-control and t3-web");
+  const deployIndex = workflow.indexOf("Deploy observability, t3-control, and t3-web");
 
   assert.match(workflow, /pnpm --filter t3 typecheck/u);
   assert.match(workflow, /pnpm --filter t3 test/u);
@@ -339,7 +429,7 @@ test("publishes the credentialless installer and runtime before production deplo
   const externalPublishIndex = workflow.indexOf(
     "Publish credentialless sovereign runtime to GitHub",
   );
-  const deployIndex = workflow.indexOf("Deploy t3-control and t3-web");
+  const deployIndex = workflow.indexOf("Deploy observability, t3-control, and t3-web");
 
   assert.ok(externalPublishIndex > 0);
   assert.ok(deployIndex > externalPublishIndex);

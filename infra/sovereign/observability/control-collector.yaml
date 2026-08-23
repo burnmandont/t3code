@@ -1,0 +1,66 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: frps
+          scrape_interval: 15s
+          static_configs:
+            - targets: [frps:7500]
+        - job_name: sovereign-monitor
+          scrape_interval: 15s
+          static_configs:
+            - targets: [monitor:4300]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource:
+    attributes:
+      - key: service.namespace
+        value: t3-sovereign
+        action: upsert
+      - key: deployment.environment.name
+        value: production
+        action: upsert
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  otlphttp/central:
+    endpoint: ${env:T3_OBSERVABILITY_OTLP_ENDPOINT}
+    headers:
+      Authorization: "Bearer ${env:T3_OBSERVABILITY_INGEST_TOKEN}"
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 10m
+    sending_queue:
+      enabled: true
+      queue_size: 10000
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: detailed
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/central]
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/central]

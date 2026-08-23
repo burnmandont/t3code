@@ -33,6 +33,7 @@ it("keeps systemd pinned to the stable launcher rather than a versioned server",
   });
 
   expect(unit).toContain("ExecStart=/usr/bin/node /home/theo/.t3/runtime/service-launcher.mjs");
+  expect(unit).toContain("EnvironmentFile=-%h/.config/t3code/observability.env");
   expect(unit).toContain("KillMode=mixed");
   expect(unit).not.toContain("versions/1.2.3");
 });

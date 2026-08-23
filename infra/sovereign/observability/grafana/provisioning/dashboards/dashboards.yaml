@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: T3 Sovereign
+    orgId: 1
+    folder: T3 Sovereign
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /etc/grafana/dashboards

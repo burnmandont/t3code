@@ -1,0 +1,3 @@
+FROM grafana/grafana:13.1.0
+COPY infra/sovereign/observability/grafana/provisioning /etc/grafana/provisioning
+COPY infra/sovereign/observability/grafana/dashboards /etc/grafana/dashboards

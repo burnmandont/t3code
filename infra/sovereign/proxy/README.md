@@ -108,6 +108,7 @@ The same ECDSA certificate must cover all of these names:
 - `code.moondiner.com`
 - `auth.moondiner.com`
 - `relay.moondiner.com`
+- `observe.moondiner.com`
 - `connect.moondiner.com`
 - `*.connect.moondiner.com`
 

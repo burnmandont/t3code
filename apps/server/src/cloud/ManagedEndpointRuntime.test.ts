@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Sink from "effect/Sink";
@@ -18,6 +19,17 @@ import * as ManagedConnectorClients from "@t3tools/shared/managedConnectorClient
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
+
+const hasMetricSnapshot = (
+  snapshots: ReadonlyArray<Metric.Metric.Snapshot>,
+  id: string,
+  attributes: Readonly<Record<string, string>>,
+) =>
+  snapshots.some(
+    (snapshot) =>
+      snapshot.id === id &&
+      Object.entries(attributes).every(([key, value]) => snapshot.attributes?.[key] === value),
+  );
 
 const relayClientAvailableLayer = Layer.succeed(
   RelayClient.RelayClient,
@@ -147,7 +159,7 @@ describe("CloudManagedEndpointRuntime", () => {
         "[W] [service.go:179] login to server failed: authorization denied",
         "t3_relay",
       ),
-    ).toBe("warning");
+    ).toBe("disconnected");
     expect(
       ManagedEndpointRuntime.classifyRelayClientOutput(
         "[W] [client/service.go:322] connect to server error: connector not authorized",
@@ -424,6 +436,66 @@ describe("CloudManagedEndpointRuntime", () => {
       expect(spawned).toEqual([400, 401]);
       expect(killed).toEqual([400]);
     }),
+  );
+
+  it.effect("records a transient relay disconnect and its recovery", () =>
+    Effect.gen(function* () {
+      const outputProcessed = yield* Deferred.make<void>();
+      const connectorOutput = new TextEncoder().encode(
+        [
+          "[I] [proxy.go:204] [environment] start proxy success",
+          "[W] [client/control.go:444] connection closed",
+          "[I] [proxy.go:204] [environment] start proxy success",
+          "",
+        ].join("\n"),
+      );
+      const spawner = ChildProcessSpawner.make(() =>
+        Effect.gen(function* () {
+          const handle = makeHandle({
+            pid: 450,
+            all: Stream.make(connectorOutput).pipe(
+              Stream.ensuring(Deferred.succeed(outputProcessed, undefined)),
+            ),
+            onKill: () => undefined,
+          });
+          yield* Effect.addFinalizer(() => handle.kill().pipe(Effect.ignore));
+          return handle;
+        }),
+      );
+      const runtime = yield* buildCloudManagedEndpointRuntime(spawner);
+
+      yield* runtime.applyConfig({
+        providerKind: "t3_relay",
+        connectorId: "environment-id",
+        connectorToken: "connector-token",
+        serverAddr: "connect.example.test",
+        serverPort: 443,
+        proxyName: "environment-proxy",
+        hostname: "environment.example.test",
+        localHttpHost: "127.0.0.1",
+        localHttpPort: 3773,
+      });
+      yield* Deferred.await(outputProcessed);
+
+      const snapshots = yield* Metric.snapshot;
+      expect(
+        hasMetricSnapshot(snapshots, "t3_relay_connector_events_total", {
+          providerKind: "t3_relay",
+          event: "transient_disconnect",
+        }),
+      ).toBe(true);
+      expect(
+        hasMetricSnapshot(snapshots, "t3_relay_connector_events_total", {
+          providerKind: "t3_relay",
+          event: "recovered",
+        }),
+      ).toBe(true);
+      expect(
+        hasMetricSnapshot(snapshots, "t3_relay_connector_recovery_duration", {
+          providerKind: "t3_relay",
+        }),
+      ).toBe(true);
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 
   it.effect("serializes concurrent connector config changes", () =>

@@ -1,0 +1,5 @@
+FROM node:24.7.0-alpine
+WORKDIR /app
+COPY infra/sovereign/observability/alert-router.mjs /app/alert-router.mjs
+USER node
+CMD ["node", "/app/alert-router.mjs"]

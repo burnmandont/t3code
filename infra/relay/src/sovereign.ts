@@ -19,10 +19,12 @@ import * as ManagedEndpointProviderT3 from "./environments/ManagedEndpointProvid
 import * as SovereignConnectorConfiguration from "./environments/SovereignConnectorConfiguration.ts";
 import * as FrpAuthorization from "./frp/FrpAuthorization.ts";
 import * as FrpHttpApp from "./frp/FrpHttpApp.ts";
+import { traceRelayHttpRequest } from "./http/Api.ts";
 import * as RelayDb from "./RelayDbService.ts";
 import * as RelayHttpApp from "./RelayHttpApp.ts";
 import * as RelayMaintenance from "./RelayMaintenance.ts";
 import * as RelayRuntime from "./RelayRuntime.ts";
+import { makeSovereignObservabilityLayer } from "./sovereignObservability.ts";
 
 interface SovereignRuntimeConfiguration {
   readonly databaseUrl: Redacted.Redacted<string>;
@@ -53,6 +55,9 @@ interface SovereignRuntimeConfiguration {
   readonly apnsBundleId: string;
   readonly apnsPrivateKeyBase64: Redacted.Redacted<string>;
   readonly apnsDeliveryJobSigningSecret: Redacted.Redacted<string>;
+  readonly otlpTracesUrl: string | undefined;
+  readonly otlpMetricsUrl: string | undefined;
+  readonly otlpAuthorization: Redacted.Redacted<string> | undefined;
 }
 
 export const parseRelayAllowedOrigins = (value: string): ReadonlyArray<string> => [
@@ -125,6 +130,15 @@ const loadConfiguration: Effect.Effect<SovereignRuntimeConfiguration, Config.Con
     ),
     apnsDeliveryJobSigningSecret: Config.redacted("T3_APNS_DELIVERY_JOB_SIGNING_SECRET").pipe(
       Config.withDefault(Redacted.make("")),
+    ),
+    otlpTracesUrl: Config.option(Config.url("T3_OTLP_TRACES_URL")).pipe(
+      Config.map((value) => (value._tag === "Some" ? value.value.toString() : undefined)),
+    ),
+    otlpMetricsUrl: Config.option(Config.url("T3_OTLP_METRICS_URL")).pipe(
+      Config.map((value) => (value._tag === "Some" ? value.value.toString() : undefined)),
+    ),
+    otlpAuthorization: Config.option(Config.redacted("T3_OTLP_AUTHORIZATION")).pipe(
+      Config.map((value) => (value._tag === "Some" ? value.value : undefined)),
     ),
   });
 
@@ -246,6 +260,7 @@ export const makeSovereignRelayLayer = (config: SovereignRuntimeConfiguration) =
       allowedOrigins: config.relayAllowedOrigins,
       docs: false,
     }),
+    { middleware: traceRelayHttpRequest },
   ).pipe(
     Layer.provideMerge(
       NodeHttpServer.layer(NodeHttp.createServer, {
@@ -268,6 +283,11 @@ export const makeSovereignRelayLayer = (config: SovereignRuntimeConfiguration) =
     sovereignApns === null
       ? Layer.empty
       : SovereignApnsQueue.workerLayer.pipe(Layer.provideMerge(sovereignApnsRepository));
+  const observability = makeSovereignObservabilityLayer({
+    tracesUrl: config.otlpTracesUrl,
+    metricsUrl: config.otlpMetricsUrl,
+    authorization: config.otlpAuthorization,
+  });
 
   return Layer.mergeAll(
     relayServer,
@@ -276,6 +296,7 @@ export const makeSovereignRelayLayer = (config: SovereignRuntimeConfiguration) =
     apnsWorker,
   ).pipe(
     Layer.provideMerge(runtimeLayer),
+    Layer.provideMerge(observability),
     Layer.provideMerge(NodeHttpClient.layerNodeHttp),
     Layer.provideMerge(NodeServices.layer),
   );

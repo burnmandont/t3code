@@ -1,0 +1,52 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  transform/redact_request_headers:
+    error_mode: ignore
+    trace_statements:
+      - delete_matching_keys(resource.attributes, "^http\\.request\\.header\\..+$")
+      - delete_matching_keys(span.attributes, "^http\\.request\\.header\\..+$")
+      - delete_matching_keys(spanevent.attributes, "^http\\.request\\.header\\..+$")
+  batch:
+    timeout: 5s
+    send_batch_size: 2048
+
+exporters:
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/redact_request_headers, batch]
+      exporters: [otlphttp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheusremotewrite]

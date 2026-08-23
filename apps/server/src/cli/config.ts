@@ -8,6 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as LogLevel from "effect/LogLevel";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
@@ -94,10 +95,18 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  otlpAuthorization: Config.string("T3CODE_OTLP_AUTHORIZATION").pipe(
+    Config.withDefault(""),
+    Config.map((value) => value.trim() || undefined),
+  ),
   otlpExportIntervalMs: Config.int("T3CODE_OTLP_EXPORT_INTERVAL_MS").pipe(
     Config.withDefault(10_000),
   ),
   otlpServiceName: Config.string("T3CODE_OTLP_SERVICE_NAME").pipe(Config.withDefault("t3-server")),
+  otlpServiceInstanceId: Config.string("T3CODE_OTLP_SERVICE_INSTANCE_ID").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   mode: Config.schema(ServerConfig.RuntimeMode, "T3CODE_MODE").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -364,8 +373,14 @@ export const resolveServerConfig = (
         env.otlpMetricsUrl ??
         bootstrap?.otlpMetricsUrl ??
         persistedObservabilitySettings.otlpMetricsUrl,
+      ...(env.otlpAuthorization === undefined
+        ? {}
+        : { otlpAuthorization: Redacted.make(env.otlpAuthorization) }),
       otlpExportIntervalMs: env.otlpExportIntervalMs,
       otlpServiceName: env.otlpServiceName,
+      ...(env.otlpServiceInstanceId?.trim()
+        ? { otlpServiceInstanceId: env.otlpServiceInstanceId.trim() }
+        : {}),
       mode,
       port,
       cwd,

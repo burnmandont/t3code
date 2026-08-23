@@ -2,6 +2,12 @@ bindAddr = "0.0.0.0"
 bindPort = 7000
 vhostHTTPPort = 8080
 
+# The dashboard listener is Docker-private. Enabling it is required for FRPS's
+# native Prometheus endpoint; no dashboard port is published by Compose.
+webServer.addr = "0.0.0.0"
+webServer.port = 7500
+enablePrometheus = true
+
 # Public TLS terminates at sovereign HTTPS ingress before the WebSocket upgrade
 # is forwarded to this Docker-private listener. Connector authentication still
 # happens in the relay-backed FRPS authorization plugin below.

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   committedStateFor,
+  createMonitorMetrics,
   loadMonitorConfiguration,
   parseManagedHosts,
   runProbe,
@@ -72,4 +73,21 @@ test("requires consecutive failures before committing an unhealthy state", () =>
   assert.equal(committedStateFor(true, false, 1, 2), true);
   assert.equal(committedStateFor(true, false, 2, 2), false);
   assert.equal(committedStateFor(false, true, 0, 2), true);
+});
+
+test("renders bounded Prometheus metrics for probe outcomes and transitions", () => {
+  const metrics = createMonitorMetrics();
+  metrics.recordCheck({ name: "relay_health", ok: true }, 0.125);
+  metrics.recordCheck({ name: "connect_websocket", ok: false, reason: "request_failed" }, 1.5);
+  metrics.recordProbe({
+    consecutiveFailures: 2,
+    committedState: false,
+    transition: "failed",
+  });
+
+  const rendered = metrics.render();
+  assert.match(rendered, /t3_sovereign_probe_success\{check="relay_health"\} 1/u);
+  assert.match(rendered, /check="connect_websocket",reason="request_failed"\} 1/u);
+  assert.match(rendered, /t3_sovereign_monitor_consecutive_failures 2/u);
+  assert.match(rendered, /transition="failed"\} 1/u);
 });

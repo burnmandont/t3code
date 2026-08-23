@@ -1,0 +1,12 @@
+route:
+  receiver: t3-alert-router
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: t3-alert-router
+    webhook_configs:
+      - url: http://alert-router:8080/alerts
+        send_resolved: true

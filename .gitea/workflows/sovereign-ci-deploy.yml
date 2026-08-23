@@ -34,6 +34,7 @@ jobs:
     env:
       GITEA_SHA: ${{ github.sha }}
       COOLIFY_URL: ${{ vars.COOLIFY_URL }}
+      COOLIFY_OBSERVABILITY_UUID: ${{ vars.COOLIFY_OBSERVABILITY_UUID }}
       COOLIFY_CONTROL_UUID: ${{ vars.COOLIFY_CONTROL_UUID }}
       COOLIFY_WEB_UUID: ${{ vars.COOLIFY_WEB_UUID }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
@@ -211,9 +212,10 @@ jobs:
       - name: Validate deployment configuration
         run: |
           test -n "$COOLIFY_URL"
+          test -n "$COOLIFY_OBSERVABILITY_UUID"
           test -n "$COOLIFY_CONTROL_UUID"
           test -n "$COOLIFY_WEB_UUID"
           test -n "$COOLIFY_TOKEN"
 
-      - name: Deploy t3-control and t3-web
+      - name: Deploy observability, t3-control, and t3-web
         run: node infra/sovereign/ci/deploy-and-verify.mjs

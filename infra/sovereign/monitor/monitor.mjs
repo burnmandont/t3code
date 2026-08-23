@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -106,6 +107,12 @@ export const loadMonitorConfiguration = (environment = process.env) => {
     ),
     healthStatePath:
       environment.T3_MONITOR_HEALTH_STATE_PATH?.trim() || "/tmp/t3-sovereign-monitor/healthy",
+    metricsHost: environment.T3_MONITOR_METRICS_HOST?.trim() || "127.0.0.1",
+    metricsPort: parsePositiveInteger(
+      environment.T3_MONITOR_METRICS_PORT,
+      4300,
+      "T3_MONITOR_METRICS_PORT",
+    ),
   };
 };
 
@@ -196,51 +203,69 @@ export const checkConnectWebSocket = (connectUrl, timeoutMs) =>
     request.end();
   });
 
-const resultFor = async (name, operation) => {
+const resultFor = async (name, operation, onResult) => {
+  const startedAt = performance.now();
   try {
     await operation();
-    return { name, ok: true };
+    const result = { name, ok: true };
+    onResult?.(result, Math.max(0, performance.now() - startedAt) / 1000);
+    return result;
   } catch (error) {
-    return {
+    const result = {
       name,
       ok: false,
       reason: error instanceof ProbeFailure ? error.code : "request_failed",
     };
+    onResult?.(result, Math.max(0, performance.now() - startedAt) / 1000);
+    return result;
   }
 };
 
 export const runProbe = async (
   configuration,
-  { fetchImplementation = fetch, websocketCheck = checkConnectWebSocket } = {},
+  { fetchImplementation = fetch, websocketCheck = checkConnectWebSocket, onCheckResult } = {},
 ) => {
   const checks = await Promise.all([
-    resultFor("code_health", () =>
-      checkJsonHealth(
-        healthUrl(configuration.codeUrl),
-        configuration.timeoutMs,
-        fetchImplementation,
-      ),
+    resultFor(
+      "code_health",
+      () =>
+        checkJsonHealth(
+          healthUrl(configuration.codeUrl),
+          configuration.timeoutMs,
+          fetchImplementation,
+        ),
+      onCheckResult,
     ),
-    resultFor("account_health", () =>
-      checkJsonHealth(
-        healthUrl(configuration.accountUrl),
-        configuration.timeoutMs,
-        fetchImplementation,
-      ),
+    resultFor(
+      "account_health",
+      () =>
+        checkJsonHealth(
+          healthUrl(configuration.accountUrl),
+          configuration.timeoutMs,
+          fetchImplementation,
+        ),
+      onCheckResult,
     ),
-    resultFor("relay_health", () =>
-      checkJsonHealth(
-        healthUrl(configuration.relayUrl),
-        configuration.timeoutMs,
-        fetchImplementation,
-      ),
+    resultFor(
+      "relay_health",
+      () =>
+        checkJsonHealth(
+          healthUrl(configuration.relayUrl),
+          configuration.timeoutMs,
+          fetchImplementation,
+        ),
+      onCheckResult,
     ),
-    resultFor("connect_websocket", () =>
-      websocketCheck(configuration.connectUrl, configuration.timeoutMs),
+    resultFor(
+      "connect_websocket",
+      () => websocketCheck(configuration.connectUrl, configuration.timeoutMs),
+      onCheckResult,
     ),
     ...configuration.managedHosts.map((hostname, index) =>
-      resultFor(`managed_environment_${index + 1}`, () =>
-        checkEnvironmentDescriptor(hostname, configuration.timeoutMs, fetchImplementation),
+      resultFor(
+        `managed_environment_${index + 1}`,
+        () => checkEnvironmentDescriptor(hostname, configuration.timeoutMs, fetchImplementation),
+        onCheckResult,
       ),
     ),
   ]);
@@ -288,13 +313,106 @@ const deliverAlert = async (url, payload, timeoutMs) => {
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-export const runMonitor = async (configuration) => {
+const prometheusLabel = (value) =>
+  String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n");
+
+export const createMonitorMetrics = () => {
+  const checks = new Map();
+  const failures = new Map();
+  const transitions = new Map();
+  let consecutiveFailures = 0;
+  let committedState;
+
+  return {
+    recordCheck(result, durationSeconds) {
+      checks.set(result.name, { ok: result.ok, durationSeconds });
+      if (!result.ok) {
+        const key = `${result.name}\u0000${result.reason}`;
+        failures.set(key, (failures.get(key) ?? 0) + 1);
+      }
+    },
+    recordProbe(input) {
+      consecutiveFailures = input.consecutiveFailures;
+      committedState = input.committedState;
+      if (input.transition) {
+        transitions.set(input.transition, (transitions.get(input.transition) ?? 0) + 1);
+      }
+    },
+    render() {
+      const lines = [
+        "# HELP t3_sovereign_probe_success Whether the latest active probe check succeeded.",
+        "# TYPE t3_sovereign_probe_success gauge",
+      ];
+      for (const [name, value] of checks) {
+        const check = prometheusLabel(name);
+        lines.push(`t3_sovereign_probe_success{check="${check}"} ${value.ok ? 1 : 0}`);
+      }
+      lines.push(
+        "# HELP t3_sovereign_probe_duration_seconds Duration of the latest active probe check.",
+        "# TYPE t3_sovereign_probe_duration_seconds gauge",
+      );
+      for (const [name, value] of checks) {
+        lines.push(
+          `t3_sovereign_probe_duration_seconds{check="${prometheusLabel(name)}"} ${value.durationSeconds}`,
+        );
+      }
+      lines.push(
+        "# HELP t3_sovereign_probe_failures_total Active probe failures by bounded reason.",
+        "# TYPE t3_sovereign_probe_failures_total counter",
+      );
+      for (const [key, count] of failures) {
+        const [name, reason] = key.split("\u0000");
+        lines.push(
+          `t3_sovereign_probe_failures_total{check="${prometheusLabel(name)}",reason="${prometheusLabel(reason)}"} ${count}`,
+        );
+      }
+      lines.push(
+        "# HELP t3_sovereign_monitor_consecutive_failures Consecutive failed probe runs.",
+        "# TYPE t3_sovereign_monitor_consecutive_failures gauge",
+        `t3_sovereign_monitor_consecutive_failures ${consecutiveFailures}`,
+        "# HELP t3_sovereign_monitor_healthy Committed monitor state; -1 means not yet committed.",
+        "# TYPE t3_sovereign_monitor_healthy gauge",
+        `t3_sovereign_monitor_healthy ${committedState === undefined ? -1 : committedState ? 1 : 0}`,
+        "# HELP t3_sovereign_monitor_transitions_total Committed failed and recovered transitions.",
+        "# TYPE t3_sovereign_monitor_transitions_total counter",
+      );
+      for (const transition of ["failed", "recovered"]) {
+        lines.push(
+          `t3_sovereign_monitor_transitions_total{transition="${transition}"} ${transitions.get(transition) ?? 0}`,
+        );
+      }
+      return `${lines.join("\n")}\n`;
+    },
+  };
+};
+
+export const startMetricsServer = (configuration, metrics) => {
+  const server = createServer((request, response) => {
+    if (request.method === "GET" && request.url === "/health") {
+      response.writeHead(200, { "content-type": "text/plain; charset=utf-8" }).end("ok\n");
+      return;
+    }
+    if (request.method === "GET" && request.url === "/metrics") {
+      response
+        .writeHead(200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" })
+        .end(metrics.render());
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  server.listen(configuration.metricsPort, configuration.metricsHost);
+  return server;
+};
+
+export const runMonitor = async (configuration, { metrics = createMonitorMetrics() } = {}) => {
   let previousOk;
   let consecutiveFailures = 0;
   let lastHeartbeatAt = 0;
   while (true) {
     const checkedAt = new Date().toISOString();
-    const result = await runProbe(configuration);
+    const result = await runProbe(configuration, {
+      onCheckResult: (check, durationSeconds) => metrics.recordCheck(check, durationSeconds),
+    });
     consecutiveFailures = result.ok ? 0 : consecutiveFailures + 1;
     const committedState = committedStateFor(
       previousOk,
@@ -307,6 +425,7 @@ export const runMonitor = async (configuration) => {
     }
     const transition =
       committedState === undefined ? undefined : transitionFor(previousOk, committedState);
+    metrics.recordProbe({ consecutiveFailures, committedState, transition });
     const now = Date.now();
     const pendingFailure = !result.ok && committedState !== false;
     if (transition || pendingFailure || now - lastHeartbeatAt >= configuration.heartbeatMs) {
@@ -353,7 +472,10 @@ export const runMonitor = async (configuration) => {
 
 const invokedPath = process.argv[1];
 if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
-  runMonitor(loadMonitorConfiguration()).catch((error) => {
+  const configuration = loadMonitorConfiguration();
+  const metrics = createMonitorMetrics();
+  startMetricsServer(configuration, metrics);
+  runMonitor(configuration, { metrics }).catch((error) => {
     console.error(
       JSON.stringify({
         event: "sovereign_monitor_crashed",

@@ -74,6 +74,18 @@ export const terminalRestartsTotal = Metric.counter("t3_terminal_restarts_total"
   description: "Total terminal restart requests handled.",
 });
 
+export const relayConnectorEventsTotal = Metric.counter("t3_relay_connector_events_total", {
+  description: "Relay connector lifecycle events observed by the environment runtime.",
+});
+
+export const relayConnectorRecoveryDuration = Metric.timer("t3_relay_connector_recovery_duration", {
+  description: "Time from a transient relay disconnect until the tunnel reconnects.",
+});
+
+export const relayConnectorConnected = Metric.gauge("t3_relay_connector_connected", {
+  description: "Whether the environment relay connector currently reports an active tunnel.",
+});
+
 export const metricAttributes = (
   attributes: Readonly<Record<string, unknown>>,
 ): ReadonlyArray<[string, string]> => Object.entries(compactMetricAttributes(attributes));

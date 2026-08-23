@@ -54,6 +54,7 @@ for hostname in \
   code.moondiner.com \
   auth.moondiner.com \
   relay.moondiner.com \
+  observe.moondiner.com \
   connect.moondiner.com \
   probe.connect.moondiner.com
 do

@@ -1,10 +1,12 @@
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as ManagedConnectorClients from "@t3tools/shared/managedConnectorClients";
+import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Random from "effect/Random";
@@ -17,6 +19,7 @@ import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as Metrics from "../observability/Metrics.ts";
 import { CLOUD_ENDPOINT_RUNTIME_CONFIG, decodeRuntimeConfig } from "./config.ts";
 import { renderFrpcConfig } from "./frpcConfig.ts";
 import {
@@ -60,10 +63,22 @@ interface ActiveConnector {
   readonly config: ManagedConnectorConfig;
 }
 
+interface ConnectorTelemetryState {
+  readonly configKey: string;
+  readonly connected: boolean;
+  readonly everConnected: boolean;
+  readonly disconnectedAt: number | undefined;
+}
+
+interface ConnectorConnectedTransition {
+  readonly event: "connected" | "recovered" | "duplicate";
+  readonly disconnectedAt: number | undefined;
+}
+
 export function classifyRelayClientOutput(
   line: string,
   providerKind: ManagedConnectorConfig["providerKind"] = "cloudflare_tunnel",
-): "connected" | "authorization_rejected" | "warning" | "debug" {
+): "connected" | "authorization_rejected" | "disconnected" | "warning" | "debug" {
   if (
     providerKind === "cloudflare_tunnel"
       ? /\bRegistered tunnel connection\b/iu.test(line)
@@ -73,6 +88,14 @@ export function classifyRelayClientOutput(
   }
   if (providerKind === "t3_relay" && /\bconnector not authorized\b/iu.test(line)) {
     return "authorization_rejected";
+  }
+  if (
+    providerKind === "t3_relay" &&
+    /\b(?:login to server failed|connect to server error|connection closed|control (?:reader|writer) is closing|reconnect to server)\b/iu.test(
+      line,
+    )
+  ) {
+    return "disconnected";
   }
   // cloudflared uses zerolog level tokens. FTL (fatal) and PNC (panic) are more
   // severe than ERR, so they must surface at least as loudly — without them a
@@ -122,9 +145,53 @@ export const make = Effect.gen(function* () {
   const activeRef = yield* Ref.make<ActiveConnector | null>(null);
   const desiredConfigRef = yield* Ref.make<RelayManagedEndpointRuntimeConfig | null>(null);
   const restartStateRef = yield* Ref.make({ configKey: "", attempts: 0 });
+  const telemetryStateRef = yield* Ref.make<ConnectorTelemetryState>({
+    configKey: "",
+    connected: false,
+    everConnected: false,
+    disconnectedAt: undefined,
+  });
   const authorizationRejections = yield* Queue.unbounded<ManagedEndpointAuthorizationRejection>();
   const reconcileSemaphore = yield* Semaphore.make(1);
   let reconcileConfig: ManagedEndpointRuntime["Service"]["applyConfig"];
+
+  const recordConnectorEvent = (
+    providerKind: ManagedConnectorConfig["providerKind"],
+    event: string,
+  ) => Metrics.increment(Metrics.relayConnectorEventsTotal, { providerKind, event });
+
+  const setConnectedGauge = (providerKind: ManagedConnectorConfig["providerKind"], value: 0 | 1) =>
+    Metric.update(
+      Metric.withAttributes(
+        Metrics.relayConnectorConnected,
+        Metrics.metricAttributes({ providerKind }),
+      ),
+      value,
+    );
+
+  const markDisconnected = (
+    connector: ActiveConnector,
+    source: "process_exit" | "transport_error",
+  ) =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      const transition = yield* Ref.modify(telemetryStateRef, (state) => {
+        if (state.configKey !== connector.configKey) {
+          return ["ignored" as const, state];
+        }
+        if (state.disconnectedAt !== undefined) {
+          return ["duplicate" as const, state];
+        }
+        return [
+          state.everConnected ? ("transient_disconnect" as const) : ("connect_failure" as const),
+          { ...state, connected: false, disconnectedAt: now },
+        ];
+      });
+      yield* recordConnectorEvent(connector.config.providerKind, source);
+      if (transition === "ignored" || transition === "duplicate") return;
+      yield* recordConnectorEvent(connector.config.providerKind, transition);
+      yield* setConnectedGauge(connector.config.providerKind, 0);
+    });
 
   const stopActive = Effect.gen(function* () {
     const active = yield* Ref.getAndSet(activeRef, null);
@@ -134,6 +201,7 @@ export const make = Effect.gen(function* () {
   const superviseConnector = (connector: ActiveConnector) =>
     Effect.gen(function* () {
       const result = yield* Effect.result(connector.child.exitCode);
+      yield* markDisconnected(connector, "process_exit");
       const restart = yield* reconcileSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const active = yield* Ref.get(activeRef);
@@ -217,14 +285,59 @@ export const make = Effect.gen(function* () {
         };
         switch (classifyRelayClientOutput(line, connector.config.providerKind)) {
           case "connected":
-            return Ref.set(restartStateRef, {
-              configKey: connector.configKey,
-              attempts: 0,
-            }).pipe(
-              Effect.andThen(
-                Effect.logInfo("Relay client tunnel connection registered", attributes),
-              ),
-            );
+            return Effect.gen(function* () {
+              const now = yield* Clock.currentTimeMillis;
+              const transition = yield* Ref.modify(
+                telemetryStateRef,
+                (state): readonly [ConnectorConnectedTransition, ConnectorTelemetryState] => {
+                  const previous =
+                    state.configKey === connector.configKey
+                      ? state
+                      : {
+                          configKey: connector.configKey,
+                          connected: false,
+                          everConnected: false,
+                          disconnectedAt: undefined,
+                        };
+                  if (previous.connected) {
+                    return [{ event: "duplicate", disconnectedAt: undefined }, previous];
+                  }
+                  return [
+                    {
+                      event:
+                        previous.disconnectedAt === undefined
+                          ? ("connected" as const)
+                          : ("recovered" as const),
+                      disconnectedAt: previous.disconnectedAt,
+                    },
+                    {
+                      ...previous,
+                      connected: true,
+                      everConnected: true,
+                      disconnectedAt: undefined,
+                    },
+                  ];
+                },
+              );
+              yield* Ref.set(restartStateRef, {
+                configKey: connector.configKey,
+                attempts: 0,
+              });
+              if (transition.event !== "duplicate") {
+                yield* recordConnectorEvent(connector.config.providerKind, transition.event);
+                yield* setConnectedGauge(connector.config.providerKind, 1);
+              }
+              if (transition.disconnectedAt !== undefined) {
+                yield* Metric.update(
+                  Metric.withAttributes(
+                    Metrics.relayConnectorRecoveryDuration,
+                    Metrics.metricAttributes({ providerKind: connector.config.providerKind }),
+                  ),
+                  Duration.millis(Math.max(0, now - transition.disconnectedAt)),
+                );
+              }
+              yield* Effect.logInfo("Relay client tunnel connection registered", attributes);
+            });
           case "authorization_rejected":
             return Effect.gen(function* () {
               if (connector.config.providerKind !== "t3_relay") {
@@ -254,6 +367,8 @@ export const make = Effect.gen(function* () {
                 proxyName: connector.config.proxyName,
                 hostname: connector.config.hostname,
               });
+              yield* recordConnectorEvent(connector.config.providerKind, "authorization_rejected");
+              yield* setConnectedGauge(connector.config.providerKind, 0);
               yield* Effect.logWarning(
                 "Relay client authorization rejected; stopping connector pending reconciliation",
                 attributes,
@@ -263,6 +378,10 @@ export const make = Effect.gen(function* () {
               // generic stopActive here could tear down the fresh allocation.
               yield* Effect.forkIn(stopConnector(connector), runtimeScope);
             });
+          case "disconnected":
+            return markDisconnected(connector, "transport_error").pipe(
+              Effect.andThen(Effect.logWarning("Relay client transport disconnected", attributes)),
+            );
           case "warning":
             return Effect.logWarning("Relay client reported a transport warning", attributes);
           case "debug":
@@ -480,6 +599,15 @@ export const make = Effect.gen(function* () {
             config && config.providerKind !== "manual" ? runtimeConfigKey(config) : null;
           if (previousKey !== nextKey) {
             yield* Ref.set(restartStateRef, { configKey: nextKey ?? "", attempts: 0 });
+            if (previous && previous.providerKind !== "manual") {
+              yield* setConnectedGauge(previous.providerKind, 0);
+            }
+            yield* Ref.set(telemetryStateRef, {
+              configKey: nextKey ?? "",
+              connected: false,
+              everConnected: false,
+              disconnectedAt: undefined,
+            });
           }
           yield* Ref.set(desiredConfigRef, config);
           return yield* reconcileConfig(config);

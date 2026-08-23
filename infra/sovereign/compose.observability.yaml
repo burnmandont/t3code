@@ -1,0 +1,222 @@
+name: t3-sovereign-observability
+
+x-hardened-service: &hardened-service
+  restart: unless-stopped
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  telemetry-storage-init:
+    image: alpine:3.22.1
+    restart: "no"
+    exclude_from_hc: true
+    user: "0:0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    command: ["chown", "-R", "10001:10001", "/var/loki", "/var/tempo"]
+    volumes:
+      - loki-data:/var/loki
+      - tempo-data:/var/tempo
+
+  gateway:
+    <<: *hardened-service
+    # The official Caddy binary carries cap_net_bind_service. Keeping that
+    # single capability in the bounding set is required for Linux to exec it
+    # when the shared hardening drops every other capability.
+    cap_add:
+      - NET_BIND_SERVICE
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.gateway
+    image: t3-sovereign-observability-gateway:${T3_IMAGE_TAG:-latest}
+    environment:
+      T3_OTLP_INGEST_TOKEN: ${T3_OTLP_INGEST_TOKEN:?required}
+      T3_LOKI_INGEST_TOKEN: ${T3_LOKI_INGEST_TOKEN:?required}
+      T3_LOKI_INGEST_BASIC_AUTH: ${T3_LOKI_INGEST_BASIC_AUTH:?required}
+    expose:
+      - "8080"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.t3-sovereign-observability.entrypoints: https
+      traefik.http.routers.t3-sovereign-observability.rule: Host(`observe.moondiner.com`) && PathPrefix(`/`)
+      traefik.http.routers.t3-sovereign-observability.service: t3-sovereign-observability
+      traefik.http.routers.t3-sovereign-observability.tls: "true"
+      traefik.http.services.t3-sovereign-observability.loadbalancer.server.port: "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      - collector
+      - grafana
+      - loki
+
+  collector:
+    <<: *hardened-service
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.collector
+    image: t3-sovereign-observability-collector:${T3_IMAGE_TAG:-latest}
+    expose:
+      - "4318"
+      - "8888"
+      - "13133"
+    depends_on:
+      - prometheus
+      - tempo
+
+  prometheus:
+    <<: *hardened-service
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.prometheus
+    image: t3-sovereign-prometheus:${T3_IMAGE_TAG:-latest}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${T3_PROMETHEUS_RETENTION:-30d}
+      - --storage.tsdb.retention.size=${T3_PROMETHEUS_RETENTION_SIZE:-20GB}
+      - --storage.tsdb.wal-compression
+      - --web.enable-remote-write-receiver
+    volumes:
+      - prometheus-data:/prometheus
+    expose:
+      - "9090"
+
+  alertmanager:
+    <<: *hardened-service
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.alertmanager
+    image: t3-sovereign-alertmanager:${T3_IMAGE_TAG:-latest}
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - alertmanager-data:/alertmanager
+    expose:
+      - "9093"
+    depends_on:
+      - alert-router
+
+  alert-router:
+    <<: *hardened-service
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.alert-router
+    image: t3-sovereign-alert-router:${T3_IMAGE_TAG:-latest}
+    environment:
+      T3_ALERT_WEBHOOK_URL: "${T3_ALERT_WEBHOOK_URL:-}"
+      T3_ALERT_WEBHOOK_TIMEOUT_MS: "${T3_ALERT_WEBHOOK_TIMEOUT_MS:-10000}"
+    expose:
+      - "8080"
+
+  loki:
+    <<: *hardened-service
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.loki
+    image: t3-sovereign-loki:${T3_IMAGE_TAG:-latest}
+    volumes:
+      - loki-data:/var/loki
+    expose:
+      - "3100"
+    depends_on:
+      telemetry-storage-init:
+        condition: service_completed_successfully
+
+  tempo:
+    <<: *hardened-service
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.tempo
+    image: t3-sovereign-tempo:${T3_IMAGE_TAG:-latest}
+    volumes:
+      - tempo-data:/var/tempo
+    expose:
+      - "3200"
+      - "4318"
+    depends_on:
+      telemetry-storage-init:
+        condition: service_completed_successfully
+
+  grafana:
+    <<: *hardened-service
+    build:
+      context: .
+      dockerfile: infra/sovereign/observability/Dockerfile.grafana
+    image: t3-sovereign-grafana:${T3_IMAGE_TAG:-latest}
+    environment:
+      GF_SERVER_ROOT_URL: ${T3_OBSERVABILITY_URL:-https://observe.moondiner.com}
+      GF_SECURITY_ADMIN_USER: ${T3_GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${T3_GRAFANA_ADMIN_PASSWORD:?required}
+      GF_SECURITY_SECRET_KEY: ${T3_GRAFANA_SECRET_KEY:?required}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_UNIFIED_ALERTING_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    expose:
+      - "3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/containers/storage/.+)($$|/)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    expose:
+      - "9100"
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.2
+    restart: unless-stopped
+    privileged: true
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --disable_metrics=disk,diskIO,percpu,perf_event,pressure
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    expose:
+      - "8080"
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+  loki-data:
+  tempo-data:
+  grafana-data:

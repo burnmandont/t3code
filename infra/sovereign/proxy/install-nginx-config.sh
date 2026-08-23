@@ -75,7 +75,7 @@ case "$target_kind" in
     fi
 
     # The historical file placed source.moondiner.com first and appended the
-    # five T3 virtual hosts. Extract exactly its first server block once; later
+    # T3 virtual hosts. Extract exactly its first server block once; later
     # installs leave that unrelated virtual host untouched.
     if grep -Fq 'server_name code.moondiner.com;' "$combined_config"; then
       source_only=$backup_dir/source.moondiner.conf
