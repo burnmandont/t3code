@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { faviconUrlForOrigin } from "./favicon";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("faviconUrlForOrigin", () => {
   it("never sends private origin hostnames to the public provider", () => {
@@ -38,5 +42,22 @@ describe("faviconUrlForOrigin", () => {
     expect(faviconUrlForOrigin("https://example.com/path", 32)).toBe(
       "https://www.google.com/s2/favicons?domain=example.com&sz=32",
     );
+  });
+  it("uses the upstream favicon provider by default", () => {
+    expect(faviconUrlForOrigin("https://example.com/docs", 48)).toBe(
+      "https://www.google.com/s2/favicons?domain=example.com&sz=48",
+    );
+  });
+
+  it("does not contact the third-party provider in sovereign builds", () => {
+    vi.stubEnv("VITE_REMOTE_FAVICONS", "0");
+
+    expect(faviconUrlForOrigin("https://example.com/docs")).toBeNull();
+  });
+
+  it("rejects invalid and non-HTTP origins", () => {
+    expect(faviconUrlForOrigin("file:///tmp/example.html")).toBeNull();
+    expect(faviconUrlForOrigin("not a URL")).toBeNull();
+    expect(faviconUrlForOrigin(null)).toBeNull();
   });
 });

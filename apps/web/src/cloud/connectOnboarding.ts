@@ -16,3 +16,27 @@ export type ConnectOnboardingOptOutState = typeof ConnectOnboardingOptOutSchema.
 export const EMPTY_CONNECT_ONBOARDING_OPT_OUT_STATE: ConnectOnboardingOptOutState = {
   optOutAccounts: [],
 };
+
+export interface ConnectOnboardingPublishSelection {
+  readonly exposeEnvironment: boolean;
+  readonly publishAgentActivity: boolean;
+}
+
+export const DEFAULT_CONNECT_ONBOARDING_PUBLISH_SELECTION = {
+  exposeEnvironment: false,
+  publishAgentActivity: false,
+} as const satisfies ConnectOnboardingPublishSelection;
+
+export function shouldPublishConnectOnboardingSelection(
+  selection: ConnectOnboardingPublishSelection,
+): boolean {
+  return selection.exposeEnvironment || selection.publishAgentActivity;
+}
+
+export function connectOnboardingPublishActionLabel(
+  selection: ConnectOnboardingPublishSelection,
+): string {
+  return shouldPublishConnectOnboardingSelection(selection)
+    ? "Publish and continue"
+    : "Continue without publishing";
+}

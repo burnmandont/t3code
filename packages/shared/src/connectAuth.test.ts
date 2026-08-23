@@ -8,9 +8,17 @@ import {
   encodeConnectAuthCode,
   parseConnectAuthCode,
   readConnectAuthorizeRequest,
+  SOVEREIGN_APP_CALLBACK_PATH,
 } from "./connectAuth.ts";
+import { isDevProxiedPath } from "./devProxy.ts";
 
 describe("connectAuth", () => {
+  it("keeps the interactive app callback outside backend-proxied namespaces", () => {
+    expect(SOVEREIGN_APP_CALLBACK_PATH).toBe("/connect/account/callback");
+    expect(isDevProxiedPath(SOVEREIGN_APP_CALLBACK_PATH)).toBe(false);
+    expect(isDevProxiedPath("/oauth/callback")).toBe(true);
+  });
+
   it("round-trips state and challenge through the authorize URL fragment", () => {
     const url = buildConnectAuthorizeRequestUrl({
       hostedAppUrl: "https://app.t3.codes",

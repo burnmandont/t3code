@@ -2,15 +2,12 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle";
 import * as Config from "effect/Config";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { traceRelayHttpRequestWith } from "./http/Api.ts";
 import { ManagedEndpointZone, RelayApiZone, RelayDeploymentConfig } from "./zone.ts";
 import { makeRelayTraceLayer, RelayObservability } from "./observability.ts";
-import * as AgentActivityRows from "./agentActivity/AgentActivityRows.ts";
-import * as DpopProofs from "./auth/DpopProofs.ts";
 import * as RelayIdentityVerifier from "./auth/RelayIdentityVerifier.ts";
 import * as RelayDb from "./RelayDbService.ts";
 import * as RelayDbProvisioning from "./db.ts";
@@ -23,6 +20,7 @@ import * as ApnsDeliveries from "./agentActivity/ApnsDeliveries.ts";
 import * as ManagedEndpointProvider from "./environments/ManagedEndpointProvider.ts";
 import * as RelayHttpApp from "./RelayHttpApp.ts";
 import * as RelayRuntime from "./RelayRuntime.ts";
+import * as RelayMaintenance from "./RelayMaintenance.ts";
 
 const CloudMintKeyPair = Alchemy.KeyPair("CloudMintKeyPair");
 const ApnsDeliveryJobSigningSecret = Alchemy.makeRandom("ApnsDeliveryJobSigningSecret", {
@@ -167,20 +165,9 @@ export const ApiLive = Api.make(
     );
 
     yield* Cloudflare.Workers.cron("*/5 * * * *", () =>
-      DpopProofs.DpopProofReplay.pipe(
-        Effect.flatMap((dpopProofs) => dpopProofs.pruneExpired),
-        // Terminal thread rows are kept briefly so finished agents show as
-        // Done/Failed in the Live Activity; sweep them once they age out.
-        Effect.andThen(
-          Effect.all([AgentActivityRows.AgentActivityRows, DateTime.now]).pipe(
-            Effect.flatMap(([activityRows, now]) =>
-              activityRows.pruneTerminal({
-                updatedBefore: DateTime.formatIso(DateTime.subtract(now, { minutes: 30 })),
-              }),
-            ),
-          ),
-        ),
-        Effect.withSpan("relay.cron.prune_expired_state"),
+      RelayMaintenance.RelayMaintenance.pipe(
+        Effect.flatMap((maintenance) => maintenance.runOnce),
+        Effect.withSpan("relay.cron.maintenance"),
         Effect.provide(runtimeLayer),
       ),
     );

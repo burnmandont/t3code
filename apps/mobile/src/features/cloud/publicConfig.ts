@@ -15,6 +15,12 @@ export class CloudPublicConfigMissingError extends Schema.TaggedErrorClass<Cloud
 }
 
 export interface CloudPublicConfig {
+  readonly oauth: {
+    readonly issuer: string | null;
+    readonly clientId: string | null;
+    readonly resource: string | null;
+    readonly redirectScheme: string | null;
+  };
   readonly clerk: {
     readonly publishableKey: string | null;
     readonly jwtTemplate: string | null;
@@ -58,6 +64,12 @@ function normalizeSecureUrl(value: unknown): string | null {
 
 export function resolveCloudPublicConfig(extra: ExpoExtra = Constants.expoConfig?.extra) {
   return {
+    oauth: {
+      issuer: normalizeSecureUrl(extra?.oauth?.issuer),
+      clientId: trimNonEmpty(extra?.oauth?.clientId),
+      resource: trimNonEmpty(extra?.oauth?.resource),
+      redirectScheme: trimNonEmpty(extra?.oauth?.redirectScheme),
+    },
     clerk: {
       publishableKey: trimNonEmpty(extra?.clerk?.publishableKey),
       jwtTemplate: trimNonEmpty(extra?.clerk?.jwtTemplate),
@@ -75,7 +87,58 @@ export function resolveCloudPublicConfig(extra: ExpoExtra = Constants.expoConfig
 
 export function hasCloudPublicConfig(): boolean {
   const config = resolveCloudPublicConfig();
-  return Boolean(config.clerk.publishableKey && config.clerk.jwtTemplate && config.relay.url);
+  const hasSovereignIdentity = Boolean(
+    config.oauth.issuer &&
+    config.oauth.clientId &&
+    config.oauth.resource &&
+    config.oauth.redirectScheme,
+  );
+  return Boolean(config.relay.url && hasSovereignIdentity);
+}
+
+export type CloudIdentityConfig =
+  | {
+      readonly provider: "sovereign";
+      readonly issuer: string;
+      readonly clientId: string;
+      readonly resource: string;
+      readonly redirectScheme: string;
+    }
+  | {
+      readonly provider: "clerk";
+      readonly publishableKey: string;
+      readonly jwtTemplate: string;
+    }
+  | { readonly provider: "disabled" };
+
+export function resolveCloudIdentityConfig(
+  config: CloudPublicConfig = resolveCloudPublicConfig(),
+): CloudIdentityConfig {
+  const oauthValues = [
+    config.oauth.issuer,
+    config.oauth.clientId,
+    config.oauth.resource,
+    config.oauth.redirectScheme,
+  ];
+  if (oauthValues.some(Boolean)) {
+    return oauthValues.every(Boolean)
+      ? {
+          provider: "sovereign",
+          issuer: config.oauth.issuer!,
+          clientId: config.oauth.clientId!,
+          resource: config.oauth.resource!,
+          redirectScheme: config.oauth.redirectScheme!,
+        }
+      : { provider: "disabled" };
+  }
+  if (config.clerk.publishableKey && config.clerk.jwtTemplate) {
+    return {
+      provider: "clerk",
+      publishableKey: config.clerk.publishableKey,
+      jwtTemplate: config.clerk.jwtTemplate,
+    };
+  }
+  return { provider: "disabled" };
 }
 
 type Configured<T> = {

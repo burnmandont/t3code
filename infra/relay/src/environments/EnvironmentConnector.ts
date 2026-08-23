@@ -39,6 +39,7 @@ import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 
 import * as EnvironmentLinks from "./EnvironmentLinks.ts";
 import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
@@ -188,6 +189,29 @@ const currentTraceId = Effect.currentSpan.pipe(
 const withoutRedirects = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }));
 
+function managedEndpointHttpTarget(
+  client: HttpClient.HttpClient,
+  httpBaseUrl: string,
+  dialOrigin: string | undefined,
+  dialHost: string | undefined,
+): { readonly client: HttpClient.HttpClient; readonly httpBaseUrl: string } {
+  if (dialOrigin === undefined && dialHost === undefined) return { client, httpBaseUrl };
+  const publicUrl = new URL(httpBaseUrl);
+  const dialUrl = dialOrigin === undefined ? new URL(publicUrl) : new URL(dialOrigin);
+  dialUrl.pathname = publicUrl.pathname;
+  dialUrl.search = publicUrl.search;
+  dialUrl.hash = publicUrl.hash;
+  if (dialOrigin === undefined && dialHost !== undefined) {
+    const normalizedDialHost =
+      dialHost.includes(":") && !dialHost.startsWith("[") ? `[${dialHost}]` : dialHost;
+    dialUrl.host = `${normalizedDialHost}${publicUrl.port === "" ? "" : `:${publicUrl.port}`}`;
+  }
+  return {
+    client: client.pipe(HttpClient.mapRequest(HttpClientRequest.setHeader("host", publicUrl.host))),
+    httpBaseUrl: dialUrl.toString(),
+  };
+}
+
 const verifyWithEnvironmentKeys = Effect.fnUntraced(function* <A, E>(input: {
   readonly token: string;
   readonly typ: string;
@@ -295,17 +319,27 @@ const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const crypto = yield* Crypto.Crypto;
   const relayIssuer = normalizeRelayIssuer(settings.relayIssuer);
-  const makeEnvironmentClient = (httpBaseUrl: string) =>
-    makeEnvironmentHttpApiClient(httpBaseUrl).pipe(
-      Effect.provideService(HttpClient.HttpClient, httpClient),
+  const makeEnvironmentClient = (httpBaseUrl: string) => {
+    const target = managedEndpointHttpTarget(
+      httpClient,
+      httpBaseUrl,
+      settings.managedEndpointDialOrigin,
+      settings.managedEndpointDialHost,
     );
+    return makeEnvironmentHttpApiClient(target.httpBaseUrl).pipe(
+      Effect.provideService(HttpClient.HttpClient, target.client),
+    );
+  };
   const resolveManagedEndpoint = Effect.fn("relay.environment_connector.resolve_managed_endpoint")(
     function* (input: {
       readonly operation: "connect" | "status";
       readonly link: EnvironmentLinks.RelayLinkedEnvironmentRecord;
       readonly allocation: ManagedEndpointAllocations.ManagedEndpointAllocation | null;
     }) {
-      if (input.link.endpoint.providerKind !== "cloudflare_tunnel") {
+      if (
+        input.link.endpoint.providerKind !== "cloudflare_tunnel" &&
+        input.link.endpoint.providerKind !== "t3_relay"
+      ) {
         yield* Effect.annotateCurrentSpan({
           "relay.authorization.endpoint_provider_kind": input.link.endpoint.providerKind,
         });
@@ -320,6 +354,13 @@ const make = Effect.gen(function* () {
           environmentId: input.link.environmentId,
           operation: input.operation,
           reason: "managed_endpoint_allocation_not_found",
+        });
+      }
+      if (input.allocation.providerKind !== input.link.endpoint.providerKind) {
+        return yield* new EnvironmentConnectNotAuthorized({
+          environmentId: input.link.environmentId,
+          operation: input.operation,
+          reason: "managed_endpoint_mismatch",
         });
       }
       const allocationAttributes = {
@@ -339,7 +380,8 @@ const make = Effect.gen(function* () {
       if (
         input.allocation.readyAt === null ||
         input.allocation.tunnelId === null ||
-        input.allocation.dnsRecordId === null
+        (input.allocation.providerKind === "cloudflare_tunnel" &&
+          input.allocation.dnsRecordId === null)
       ) {
         yield* Effect.annotateCurrentSpan(allocationAttributes);
         return yield* new EnvironmentConnectNotAuthorized({
@@ -364,6 +406,12 @@ const make = Effect.gen(function* () {
       const endpoint = ManagedEndpointAllocations.resolveReadyManagedEndpoint({
         allocation: input.allocation,
         baseDomain: settings.managedEndpointBaseDomain,
+        ...(settings.managedEndpointHttpScheme === undefined
+          ? {}
+          : { httpScheme: settings.managedEndpointHttpScheme }),
+        ...(settings.managedEndpointHttpPort === undefined
+          ? {}
+          : { httpPort: settings.managedEndpointHttpPort }),
       });
       if (
         endpoint === null ||

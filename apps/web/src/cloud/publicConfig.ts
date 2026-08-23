@@ -1,5 +1,5 @@
 import { relayClerkTokenOptions } from "@t3tools/shared/relayAuth";
-import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
+import { isLoopbackHttpHostname, normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import * as Schema from "effect/Schema";
 
 export class CloudPublicConfigMissingError extends Schema.TaggedErrorClass<CloudPublicConfigMissingError>()(
@@ -53,9 +53,7 @@ function normalizeOAuthIssuer(value: string | null): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);
-    const isLoopbackHttp =
-      url.protocol === "http:" &&
-      (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+    const isLoopbackHttp = url.protocol === "http:" && isLoopbackHttpHostname(url.hostname);
     if ((url.protocol !== "https:" && !isLoopbackHttp) || url.search || url.hash) return null;
     return url.toString().replace(/\/$/u, "");
   } catch {

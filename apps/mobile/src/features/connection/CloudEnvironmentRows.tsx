@@ -1,4 +1,3 @@
-import { useAuth } from "@clerk/expo";
 import { SymbolView } from "../../components/AppSymbol";
 import {
   connectionStatusText,
@@ -21,6 +20,7 @@ import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { useThemeColor } from "../../lib/useThemeColor";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { availableCloudEnvironmentPresentation } from "../cloud/cloudEnvironmentPresentation";
+import { useMobileCloudAuth } from "../cloud/CloudAuthProvider";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { type RelayEnvironmentView, useConnectionController } from "./useConnectionController";
@@ -50,13 +50,13 @@ interface CloudEnvironmentRowsProps {
  * its errors) requires a signed-in session.
  */
 export function CloudEnvironmentRows(props: CloudEnvironmentRowsProps) {
-  // Showcase captures run without a Clerk publishable key, so `ClerkProvider`
-  // is never mounted and any `useAuth` call throws — the fixture states whether
-  // the rows are signed in instead of asking Clerk.
+  // Showcase captures may run without a configured identity provider, so the
+  // fixture states whether the rows are signed in instead of asking auth.
   if (props.showcaseSignedIn !== undefined) {
     return props.showcaseSignedIn ? <CloudEnvironmentRowsContent {...props} /> : null;
   }
-  // No cloud config means no `ClerkProvider` either, so `useAuth` would throw.
+  // Direct-only builds retain already-connected environments without enabling
+  // managed discovery.
   if (!hasCloudPublicConfig()) {
     return <ConnectedOnlyCloudEnvironmentRows {...props} />;
   }
@@ -64,7 +64,7 @@ export function CloudEnvironmentRows(props: CloudEnvironmentRowsProps) {
 }
 
 function SignedInCloudEnvironmentRows(props: CloudEnvironmentRowsProps) {
-  const { isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
+  const { isSignedIn } = useMobileCloudAuth();
   if (!isSignedIn) return <ConnectedOnlyCloudEnvironmentRows {...props} />;
   return <CloudEnvironmentRowsContent {...props} />;
 }

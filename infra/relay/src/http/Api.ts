@@ -80,17 +80,21 @@ const relayCorsAllowedHeaders = [
 ] as const;
 const relayCorsExposedHeaders = ["traceparent", "www-authenticate"] as const;
 
-const relayCorsHeaders = {
-  "access-control-allow-origin": "*",
-  "access-control-expose-headers": relayCorsExposedHeaders.join(","),
-} as const;
-
-const relayCorsPreflightHeaders = {
-  ...relayCorsHeaders,
-  "access-control-allow-methods": relayCorsAllowedMethods.join(","),
-  "access-control-allow-headers": relayCorsAllowedHeaders.join(","),
-  "access-control-max-age": "86400",
-} as const;
+function relayCorsResponseHeaders(
+  requestOrigin: string | undefined,
+  allowedOrigins: ReadonlySet<string>,
+) {
+  const allowedOrigin = allowedOrigins.has("*")
+    ? "*"
+    : requestOrigin !== undefined && allowedOrigins.has(requestOrigin)
+      ? requestOrigin
+      : undefined;
+  return {
+    ...(allowedOrigin === undefined ? {} : { "access-control-allow-origin": allowedOrigin }),
+    ...(allowedOrigin === "*" ? {} : { vary: "Origin" }),
+    "access-control-expose-headers": relayCorsExposedHeaders.join(","),
+  };
+}
 
 const appendRelayCredentialResponseHeaders = HttpEffect.appendPreResponseHandler(
   (_request, response) =>
@@ -124,26 +128,38 @@ const appendRelayTraceContextResponseHeader = Effect.gen(function* () {
   );
 }).pipe(Effect.ignore);
 
-export const relayCors = HttpRouter.middleware(
-  Effect.fnUntraced(function* <E, R>(
-    httpEffect: Effect.Effect<
-      HttpServerResponse.HttpServerResponse,
-      E,
-      HttpServerRequest.HttpServerRequest | R
-    >,
-  ) {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    if (request.method === "OPTIONS") {
-      return HttpServerResponse.empty({
-        status: 204,
-        headers: relayCorsPreflightHeaders,
-      });
-    }
-    const response = yield* httpEffect;
-    return HttpServerResponse.setHeaders(response, relayCorsHeaders);
-  }),
-  { global: true },
-);
+export const relayCorsForAllowedOrigins = (origins: ReadonlyArray<string>) => {
+  const allowedOrigins = new Set(origins);
+  return HttpRouter.middleware(
+    Effect.fnUntraced(function* <E, R>(
+      httpEffect: Effect.Effect<
+        HttpServerResponse.HttpServerResponse,
+        E,
+        HttpServerRequest.HttpServerRequest | R
+      >,
+    ) {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const responseHeaders = relayCorsResponseHeaders(request.headers.origin, allowedOrigins);
+      if (request.method === "OPTIONS") {
+        return HttpServerResponse.empty({
+          status: 204,
+          headers: {
+            ...responseHeaders,
+            "access-control-allow-methods": relayCorsAllowedMethods.join(","),
+            "access-control-allow-headers": relayCorsAllowedHeaders.join(","),
+            "access-control-max-age": "86400",
+          },
+        });
+      }
+      const response = yield* httpEffect;
+      return HttpServerResponse.setHeaders(response, responseHeaders);
+    }),
+    { global: true },
+  );
+};
+
+/** Upstream deployments retain their existing public CORS behavior. */
+export const relayCors = relayCorsForAllowedOrigins(["*"]);
 
 export const relayNotFoundRoute = HttpRouter.add(
   "*",
@@ -603,6 +619,12 @@ export const clientApi = HttpApiBuilder.group(
                 reason: "link_persistence_failed",
                 traceId,
               }),
+            EnvironmentLinkTransferPersistenceError: (_error, traceId) =>
+              new RelayEnvironmentLinkFailedError({
+                code: "environment_link_failed",
+                reason: "link_persistence_failed",
+                traceId,
+              }),
             EnvironmentCredentialCreatePersistenceError: (_error, traceId) =>
               new RelayEnvironmentLinkFailedError({
                 code: "environment_link_failed",
@@ -711,6 +733,18 @@ export const tokenApi = HttpApiBuilder.group(
         yield* Effect.annotateCurrentSpan({ "relay.auth.mode": verified.mode });
         const proofKeyThumbprint = yield* requireDpopProof().pipe(
           Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
+        );
+        // Token exchange is a low-frequency authenticated lifecycle event. Use
+        // it to repair expired replay state without adding a cleanup query to
+        // every DPoP-protected request; the sovereign runtime also runs the
+        // same cleanup periodically for idle installations.
+        yield* dpopProofs.pruneExpired.pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Event-driven DPoP replay cleanup failed", {
+              errorType: error._tag,
+              expiresBefore: error.expiresBefore,
+            }),
+          ),
         );
         const now = yield* DateTime.now;
         const expiresAt = DateTime.addDuration(now, RelayTokens.RELAY_DPOP_ACCESS_TOKEN_TTL);

@@ -227,4 +227,24 @@ describe("ElectronProtocol", () => {
     ]);
     assert.deepEqual(directives["font-src"], ["'self'", "t3code:", "data:"]);
   });
+
+  it("does not allow Clerk or Cloudflare content in sovereign mode", () => {
+    const policy = ElectronProtocol.makeDesktopContentSecurityPolicy({
+      scheme: "t3code",
+      targetOrigin: new URL("http://127.0.0.1:3773/"),
+      backendOrigin: new URL("http://127.0.0.1:3773/"),
+      clerkFrontendApiHostname: undefined,
+    });
+    const directives = Object.fromEntries(
+      policy.split("; ").map((directive) => {
+        const [name, ...sources] = directive.split(" ");
+        return [name, sources];
+      }),
+    );
+
+    assert.deepEqual(directives["script-src"], ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'"]);
+    assert.deepEqual(directives["frame-src"], ["'none'"]);
+    assert.notInclude(policy, "clerk");
+    assert.notInclude(policy, "cloudflare");
+  });
 });

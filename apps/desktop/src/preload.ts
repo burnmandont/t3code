@@ -4,12 +4,31 @@ import type {
   DesktopPreviewRecordingFrame,
   DesktopPreviewTabState,
 } from "@t3tools/contracts";
-import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
 
-exposeClerkBridge({ passkeys: true });
+declare const __T3CODE_BUILD_OAUTH_ISSUER__: string | undefined;
+declare const __T3CODE_BUILD_OAUTH_CLIENT_ID__: string | undefined;
+declare const __T3CODE_BUILD_OAUTH_RESOURCE__: string | undefined;
+
+const sovereignIdentitySelected = Boolean(
+  (typeof __T3CODE_BUILD_OAUTH_ISSUER__ === "undefined"
+    ? ""
+    : __T3CODE_BUILD_OAUTH_ISSUER__?.trim()) ||
+  (typeof __T3CODE_BUILD_OAUTH_CLIENT_ID__ === "undefined"
+    ? ""
+    : __T3CODE_BUILD_OAUTH_CLIENT_ID__?.trim()) ||
+  (typeof __T3CODE_BUILD_OAUTH_RESOURCE__ === "undefined"
+    ? ""
+    : __T3CODE_BUILD_OAUTH_RESOURCE__?.trim()),
+);
+
+if (!sovereignIdentitySelected) {
+  const { exposeClerkBridge } =
+    require("@clerk/electron/preload") as typeof import("@clerk/electron/preload");
+  exposeClerkBridge({ passkeys: true });
+}
 
 function unwrapEnsureSshEnvironmentResult(result: unknown) {
   if (
@@ -150,6 +169,22 @@ contextBridge.exposeInMainWorld("desktopBridge", {
           IpcChannels.PORT_FORWARD_AUTHORIZATION_REQUEST_CHANNEL,
           wrappedListener,
         );
+    },
+  },
+  sovereignAuth: {
+    beginSignIn: (returnUrl) =>
+      ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_BEGIN_CHANNEL, returnUrl),
+    getSnapshot: () => ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_GET_SNAPSHOT_CHANNEL),
+    getToken: () => ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_GET_TOKEN_CHANNEL),
+    signOut: () => ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_SIGN_OUT_CHANNEL),
+    onStateChange: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, snapshot: unknown) => {
+        if (typeof snapshot !== "object" || snapshot === null) return;
+        listener(snapshot as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IpcChannels.SOVEREIGN_AUTH_STATE_CHANNEL, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(IpcChannels.SOVEREIGN_AUTH_STATE_CHANNEL, wrappedListener);
     },
   },
   onMenuAction: (listener) => {

@@ -595,14 +595,18 @@ describe("link proof provider kinds", () => {
     origin: { localHttpHost: "127.0.0.1", localHttpPort: 7331 },
   });
 
-  it("accepts managed and manual endpoints but not t3_relay", () => {
+  it("accepts upstream, sovereign, and manual endpoint providers", () => {
     expect(isSupportedLinkProviderKind(proofRequest("cloudflare_tunnel"))).toBe(true);
     expect(isSupportedLinkProviderKind(proofRequest("manual"))).toBe(true);
-    expect(isSupportedLinkProviderKind(proofRequest("t3_relay"))).toBe(false);
+    expect(isSupportedLinkProviderKind(proofRequest("t3_relay"))).toBe(true);
   });
 
   it("only claims the managed-tunnel scope for tunnel links", () => {
     expect(linkProofScopes(proofRequest("cloudflare_tunnel"))).toEqual([
+      "agent_activity_notifications",
+      "managed_tunnels",
+    ]);
+    expect(linkProofScopes(proofRequest("t3_relay"))).toEqual([
       "agent_activity_notifications",
       "managed_tunnels",
     ]);

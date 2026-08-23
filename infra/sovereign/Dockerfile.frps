@@ -1,0 +1,29 @@
+FROM alpine:3.22 AS fetch
+
+ARG FRP_VERSION=0.70.1
+ARG TARGETARCH
+
+RUN apk add --no-cache ca-certificates curl tar
+RUN case "$TARGETARCH" in \
+      amd64) archive_arch=amd64; checksum=333da23d1b9009d7c01638e9ba38cf4600f7d37d393f854e96ee1396adefa9a6 ;; \
+      arm64) archive_arch=arm64; checksum=3990f396a9a490ee7f0e5f355287750ed41520064ed999eab443b5e9a78d773d ;; \
+      *) echo "Unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    archive="frp_${FRP_VERSION}_linux_${archive_arch}.tar.gz"; \
+    curl --fail --location --proto '=https' --tlsv1.2 \
+      "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/${archive}" \
+      --output /tmp/frp.tar.gz; \
+    echo "${checksum}  /tmp/frp.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/frp.tar.gz -C /tmp; \
+    cp "/tmp/frp_${FRP_VERSION}_linux_${archive_arch}/frps" /usr/local/bin/frps
+
+FROM alpine:3.22
+
+RUN addgroup -S frp && adduser -S -G frp -H frp
+COPY --from=fetch /usr/local/bin/frps /usr/local/bin/frps
+COPY infra/sovereign/frps.toml /etc/frp/frps.toml
+
+USER frp
+EXPOSE 7000 8080
+ENTRYPOINT ["/usr/local/bin/frps"]
+CMD ["-c", "/etc/frp/frps.toml"]

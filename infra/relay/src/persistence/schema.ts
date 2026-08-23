@@ -2,6 +2,7 @@ import type {
   RelayAgentActivityAggregateState,
   RelayAgentActivityState,
   RelayAgentAwarenessPreferences,
+  RelayManagedEndpointProviderKind,
 } from "@t3tools/contracts/relay";
 import {
   boolean,
@@ -88,10 +89,15 @@ export const relayManagedEndpointAllocations = pgTable(
   {
     userId: varchar("user_id", { length: 191 }).notNull(),
     environmentId: varchar("environment_id", { length: 191 }).notNull(),
+    providerKind: varchar("provider_kind", { length: 32 })
+      .notNull()
+      .default("cloudflare_tunnel")
+      .$type<RelayManagedEndpointProviderKind>(),
     hostname: text("hostname").notNull(),
     tunnelId: varchar("tunnel_id", { length: 191 }),
     tunnelName: text("tunnel_name").notNull(),
     dnsRecordId: varchar("dns_record_id", { length: 191 }),
+    connectorTokenHash: varchar("connector_token_hash", { length: 191 }),
     readyAt: varchar("ready_at", { length: 64 }),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     updatedAt: varchar("updated_at", { length: 64 }).notNull(),
@@ -100,6 +106,7 @@ export const relayManagedEndpointAllocations = pgTable(
     primaryKey({ columns: [table.userId, table.environmentId] }),
     uniqueIndex("idx_relay_managed_endpoint_allocations_hostname").on(table.hostname),
     uniqueIndex("idx_relay_managed_endpoint_allocations_tunnel_name").on(table.tunnelName),
+    uniqueIndex("idx_relay_managed_endpoint_allocations_tunnel_id").on(table.tunnelId),
   ],
 );
 

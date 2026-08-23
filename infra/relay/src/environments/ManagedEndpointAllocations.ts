@@ -1,5 +1,8 @@
-import type { RelayManagedEndpoint } from "@t3tools/contracts/relay";
-import { and, eq } from "drizzle-orm";
+import type {
+  RelayManagedEndpoint,
+  RelayManagedEndpointProviderKind,
+} from "@t3tools/contracts/relay";
+import { and, eq, isNull, lt } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -8,15 +11,17 @@ import * as Schema from "effect/Schema";
 
 import * as RelayDb from "../RelayDbService.ts";
 import { isManagedEndpointHostname, managedEndpointForHostname } from "../deploymentConfig.ts";
-import { relayManagedEndpointAllocations } from "../persistence/schema.ts";
+import { relayEnvironmentLinks, relayManagedEndpointAllocations } from "../persistence/schema.ts";
 
 export interface ManagedEndpointAllocation {
   readonly userId: string;
   readonly environmentId: string;
+  readonly providerKind: RelayManagedEndpointProviderKind;
   readonly hostname: string;
   readonly tunnelId: string | null;
   readonly tunnelName: string;
   readonly dnsRecordId: string | null;
+  readonly connectorTokenHash: string | null;
   readonly readyAt: string | null;
   /**
    * Doubles as the allocation's generation marker: every mutation rewrites it,
@@ -25,20 +30,29 @@ export interface ManagedEndpointAllocation {
   readonly updatedAt: string;
 }
 
+export const ORPHANED_ALLOCATION_GRACE = { minutes: 15 } as const;
+
 export function resolveReadyManagedEndpoint(input: {
   readonly allocation: ManagedEndpointAllocation;
   readonly baseDomain: string | undefined;
+  readonly httpScheme?: "http" | "https";
+  readonly httpPort?: number;
 }): RelayManagedEndpoint | null {
   if (
     !input.baseDomain ||
     input.allocation.readyAt === null ||
     input.allocation.tunnelId === null ||
-    input.allocation.dnsRecordId === null ||
+    (input.allocation.providerKind === "cloudflare_tunnel" &&
+      input.allocation.dnsRecordId === null) ||
     !isManagedEndpointHostname(input.allocation.hostname, input.baseDomain)
   ) {
     return null;
   }
-  return managedEndpointForHostname(input.allocation.hostname);
+  return managedEndpointForHostname(input.allocation.hostname, {
+    providerKind: input.allocation.providerKind,
+    ...(input.httpScheme === undefined ? {} : { httpScheme: input.httpScheme }),
+    ...(input.httpPort === undefined ? {} : { httpPort: input.httpPort }),
+  });
 }
 
 export class ManagedEndpointAllocationPersistenceError extends Schema.TaggedErrorClass<ManagedEndpointAllocationPersistenceError>()(
@@ -46,11 +60,15 @@ export class ManagedEndpointAllocationPersistenceError extends Schema.TaggedErro
   {
     operation: Schema.Literals([
       "get",
+      "get-by-connector-id",
+      "list-orphaned",
       "reserve",
       "record-tunnel",
       "record-dns",
+      "record-connector-credential",
       "mark-ready",
       "claim-release",
+      "claim-connector-revocation",
       "claim-deprovision",
       "remove",
       "remove-claimed",
@@ -76,6 +94,7 @@ interface ManagedEndpointAllocationKey {
 }
 
 interface ReserveManagedEndpointAllocationInput extends ManagedEndpointAllocationKey {
+  readonly providerKind?: RelayManagedEndpointProviderKind;
   readonly hostname: string;
   readonly tunnelName: string;
 }
@@ -88,8 +107,18 @@ interface RecordManagedEndpointDnsInput extends ManagedEndpointAllocationKey {
   readonly dnsRecordId: string;
 }
 
+interface RecordManagedEndpointConnectorCredentialInput extends ManagedEndpointAllocationKey {
+  readonly connectorId: string;
+  readonly connectorTokenHash: string;
+}
+
 interface ClaimManagedEndpointReleaseInput extends ManagedEndpointAllocationKey {
   readonly tunnelId: string;
+  readonly updatedAt: string;
+}
+
+interface ClaimManagedEndpointConnectorRevocationInput extends ManagedEndpointAllocationKey {
+  readonly connectorId: string;
   readonly updatedAt: string;
 }
 
@@ -107,6 +136,15 @@ export class ManagedEndpointAllocations extends Context.Service<
     readonly get: (
       input: ManagedEndpointAllocationKey,
     ) => Effect.Effect<ManagedEndpointAllocation | null, ManagedEndpointAllocationPersistenceError>;
+    readonly getByConnectorId: (
+      connectorId: string,
+    ) => Effect.Effect<ManagedEndpointAllocation | null, ManagedEndpointAllocationPersistenceError>;
+    readonly listOrphaned: (input: {
+      readonly updatedBefore: string;
+    }) => Effect.Effect<
+      ReadonlyArray<ManagedEndpointAllocation>,
+      ManagedEndpointAllocationPersistenceError
+    >;
     readonly reserve: (
       input: ReserveManagedEndpointAllocationInput,
     ) => Effect.Effect<ManagedEndpointAllocation, ManagedEndpointAllocationPersistenceError>;
@@ -115,6 +153,9 @@ export class ManagedEndpointAllocations extends Context.Service<
     ) => Effect.Effect<void, ManagedEndpointAllocationPersistenceError>;
     readonly recordDns: (
       input: RecordManagedEndpointDnsInput,
+    ) => Effect.Effect<void, ManagedEndpointAllocationPersistenceError>;
+    readonly recordConnectorCredential: (
+      input: RecordManagedEndpointConnectorCredentialInput,
     ) => Effect.Effect<void, ManagedEndpointAllocationPersistenceError>;
     readonly markReady: (
       input: ManagedEndpointAllocationKey,
@@ -128,6 +169,9 @@ export class ManagedEndpointAllocations extends Context.Service<
      */
     readonly claimRelease: (
       input: ClaimManagedEndpointReleaseInput,
+    ) => Effect.Effect<boolean, ManagedEndpointAllocationPersistenceError>;
+    readonly claimConnectorRevocation: (
+      input: ClaimManagedEndpointConnectorRevocationInput,
     ) => Effect.Effect<boolean, ManagedEndpointAllocationPersistenceError>;
     /**
      * Claims the complete allocation for teardown only if its generation still
@@ -151,10 +195,12 @@ export class ManagedEndpointAllocations extends Context.Service<
 const allocationSelection = {
   userId: relayManagedEndpointAllocations.userId,
   environmentId: relayManagedEndpointAllocations.environmentId,
+  providerKind: relayManagedEndpointAllocations.providerKind,
   hostname: relayManagedEndpointAllocations.hostname,
   tunnelId: relayManagedEndpointAllocations.tunnelId,
   tunnelName: relayManagedEndpointAllocations.tunnelName,
   dnsRecordId: relayManagedEndpointAllocations.dnsRecordId,
+  connectorTokenHash: relayManagedEndpointAllocations.connectorTokenHash,
   readyAt: relayManagedEndpointAllocations.readyAt,
   updatedAt: relayManagedEndpointAllocations.updatedAt,
 };
@@ -190,6 +236,66 @@ export const make = Effect.gen(function* () {
           ),
         );
     }),
+    getByConnectorId: Effect.fn("relay.managed_endpoint_allocations.get_by_connector_id")(
+      function* (connectorId: string) {
+        return yield* db
+          .select(allocationSelection)
+          .from(relayManagedEndpointAllocations)
+          .where(
+            and(
+              eq(relayManagedEndpointAllocations.providerKind, "t3_relay"),
+              eq(relayManagedEndpointAllocations.tunnelId, connectorId),
+            ),
+          )
+          .limit(1)
+          .pipe(
+            Effect.map((rows) => rows[0] ?? null),
+            Effect.mapError(
+              (cause) =>
+                new ManagedEndpointAllocationPersistenceError({
+                  operation: "get-by-connector-id",
+                  stage: "database-request",
+                  userId: "unknown",
+                  environmentId: "unknown",
+                  tunnelId: connectorId,
+                  cause,
+                }),
+            ),
+          );
+      },
+    ),
+    listOrphaned: Effect.fn("relay.managed_endpoint_allocations.list_orphaned")(function* (input) {
+      return yield* db
+        .select(allocationSelection)
+        .from(relayManagedEndpointAllocations)
+        .leftJoin(
+          relayEnvironmentLinks,
+          and(
+            eq(relayEnvironmentLinks.userId, relayManagedEndpointAllocations.userId),
+            eq(relayEnvironmentLinks.environmentId, relayManagedEndpointAllocations.environmentId),
+            isNull(relayEnvironmentLinks.revokedAt),
+            eq(relayEnvironmentLinks.managedTunnelsEnabled, true),
+          ),
+        )
+        .where(
+          and(
+            isNull(relayEnvironmentLinks.userId),
+            lt(relayManagedEndpointAllocations.updatedAt, input.updatedBefore),
+          ),
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ManagedEndpointAllocationPersistenceError({
+                operation: "list-orphaned",
+                stage: "database-request",
+                userId: "unknown",
+                environmentId: "unknown",
+                cause,
+              }),
+          ),
+        );
+    }),
     reserve: Effect.fn("relay.managed_endpoint_allocations.reserve")(function* (
       input: ReserveManagedEndpointAllocationInput,
     ) {
@@ -198,6 +304,7 @@ export const make = Effect.gen(function* () {
         .insert(relayManagedEndpointAllocations)
         .values({
           ...input,
+          providerKind: input.providerKind ?? "cloudflare_tunnel",
           createdAt: now,
           updatedAt: now,
         })
@@ -289,6 +396,35 @@ export const make = Effect.gen(function* () {
           ),
         );
     }),
+    recordConnectorCredential: Effect.fn(
+      "relay.managed_endpoint_allocations.record_connector_credential",
+    )(function* (input: RecordManagedEndpointConnectorCredentialInput) {
+      const now = DateTime.formatIso(yield* DateTime.now);
+      yield* db
+        .update(relayManagedEndpointAllocations)
+        .set({
+          providerKind: "t3_relay",
+          tunnelId: input.connectorId,
+          connectorTokenHash: input.connectorTokenHash,
+          dnsRecordId: null,
+          readyAt: now,
+          updatedAt: now,
+        })
+        .where(whereAllocation(input))
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ManagedEndpointAllocationPersistenceError({
+                operation: "record-connector-credential",
+                stage: "database-request",
+                userId: input.userId,
+                environmentId: input.environmentId,
+                tunnelId: input.connectorId,
+                cause,
+              }),
+          ),
+        );
+    }),
     markReady: Effect.fn("relay.managed_endpoint_allocations.mark_ready")(function* (
       input: ManagedEndpointAllocationKey,
     ) {
@@ -338,6 +474,40 @@ export const make = Effect.gen(function* () {
                 userId: input.userId,
                 environmentId: input.environmentId,
                 tunnelId: input.tunnelId,
+                cause,
+              }),
+          ),
+        );
+      return claimed;
+    }),
+    claimConnectorRevocation: Effect.fn(
+      "relay.managed_endpoint_allocations.claim_connector_revocation",
+    )(function* (input: ClaimManagedEndpointConnectorRevocationInput) {
+      const claimed = yield* db
+        .update(relayManagedEndpointAllocations)
+        .set({
+          connectorTokenHash: null,
+          updatedAt: DateTime.formatIso(yield* DateTime.now),
+        })
+        .where(
+          and(
+            whereAllocation(input),
+            eq(relayManagedEndpointAllocations.providerKind, "t3_relay"),
+            eq(relayManagedEndpointAllocations.tunnelId, input.connectorId),
+            eq(relayManagedEndpointAllocations.updatedAt, input.updatedAt),
+          ),
+        )
+        .returning({ userId: relayManagedEndpointAllocations.userId })
+        .pipe(
+          Effect.map((rows) => rows.length > 0),
+          Effect.mapError(
+            (cause) =>
+              new ManagedEndpointAllocationPersistenceError({
+                operation: "claim-connector-revocation",
+                stage: "database-request",
+                userId: input.userId,
+                environmentId: input.environmentId,
+                tunnelId: input.connectorId,
                 cause,
               }),
           ),

@@ -1,4 +1,5 @@
 import * as Updates from "expo-updates";
+import Constants from "expo-constants";
 
 import {
   type AtomCommandResult,
@@ -122,9 +123,21 @@ const UPDATE_CHECK_UNAVAILABLE_ERROR_CODES = new Set([
 ]);
 let appUpdateCheckInFlight: AppUpdateCheckInFlight | undefined;
 
+function configuredAppUpdatesEnabled(): boolean | undefined {
+  const extra = Constants.expoConfig?.extra as
+    | { readonly appUpdates?: { readonly enabled?: unknown } }
+    | undefined;
+  return typeof extra?.appUpdates?.enabled === "boolean" ? extra.appUpdates.enabled : undefined;
+}
+
 /** Expo's development launcher reports updates as enabled even though its OTA APIs reject. */
-export function isAppUpdateCheckAvailable(client: Pick<AppUpdateClient, "isEnabled"> = Updates) {
-  return client.isEnabled && !(typeof __DEV__ !== "undefined" && __DEV__);
+export function isAppUpdateCheckAvailable(
+  client: Pick<AppUpdateClient, "isEnabled"> = Updates,
+  configuredEnabled: boolean | undefined = configuredAppUpdatesEnabled(),
+): boolean {
+  return (
+    client.isEnabled && configuredEnabled !== false && !(typeof __DEV__ !== "undefined" && __DEV__)
+  );
 }
 
 /**
@@ -559,11 +572,12 @@ function isAppUpdateUnavailableError(error: unknown): boolean {
 
 export function createAppUpdateLaunchCheck(
   client: AppUpdateClient = Updates,
+  configuredEnabled: boolean | undefined = configuredAppUpdatesEnabled(),
 ): () => Promise<void> | undefined {
   let started = false;
 
   return () => {
-    if (started || !isAppUpdateCheckAvailable(client)) return undefined;
+    if (started || !isAppUpdateCheckAvailable(client, configuredEnabled)) return undefined;
     started = true;
     return runAppUpdateCheck({ client });
   };

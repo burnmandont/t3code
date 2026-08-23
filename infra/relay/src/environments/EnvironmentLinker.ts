@@ -9,6 +9,7 @@ import {
   RELAY_LINK_PROOF_TYP,
   verifyRelayJwt,
 } from "@t3tools/shared/relayJwt";
+import { isLoopbackHttpHostname } from "@t3tools/shared/relayUrl";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -67,6 +68,7 @@ export type EnvironmentLinkError =
   | EnvironmentLinkProofInvalid
   | DpopProofs.DpopProofReplayPersistenceError
   | EnvironmentLinks.EnvironmentLinkUpsertPersistenceError
+  | EnvironmentLinks.EnvironmentLinkTransferPersistenceError
   | EnvironmentCredentials.EnvironmentCredentialCreatePersistenceError
   | ManagedEndpointProvider.ManagedEndpointProviderError;
 
@@ -110,7 +112,13 @@ function isSecureManagedEndpoint(endpoint: RelayEnvironmentLinkProofPayload["end
   try {
     const httpUrl = new URL(endpoint.httpBaseUrl);
     const wsUrl = new URL(endpoint.wsBaseUrl);
-    return httpUrl.protocol === "https:" && wsUrl.protocol === "wss:";
+    const isTlsEndpoint = httpUrl.protocol === "https:" && wsUrl.protocol === "wss:";
+    const isLoopbackEndpoint =
+      httpUrl.protocol === "http:" &&
+      wsUrl.protocol === "ws:" &&
+      httpUrl.hostname === wsUrl.hostname &&
+      isLoopbackHttpHostname(httpUrl.hostname);
+    return isTlsEndpoint || isLoopbackEndpoint;
   } catch {
     return false;
   }
@@ -175,6 +183,7 @@ const make = Effect.gen(function* () {
         "relay.link.notifications_enabled": input.request.notificationsEnabled,
         "relay.link.live_activities_enabled": input.request.liveActivitiesEnabled,
         "relay.link.managed_tunnels_enabled": input.request.managedTunnelsEnabled,
+        "relay.link.transfer_existing_links": input.request.transferExistingLinks,
       });
       if (candidate.exp <= nowSeconds) {
         return yield* new EnvironmentLinkProofExpired({
@@ -231,6 +240,7 @@ const make = Effect.gen(function* () {
           notificationsEnabled: input.request.notificationsEnabled,
           liveActivitiesEnabled: input.request.liveActivitiesEnabled,
           managedTunnelsEnabled: input.request.managedTunnelsEnabled,
+          transferExistingLinks: input.request.transferExistingLinks,
         },
         nowEpochSeconds: nowSeconds,
       });
@@ -333,6 +343,32 @@ const make = Effect.gen(function* () {
         environmentId: verified.environmentId,
         environmentPublicKey: verified.environmentPublicKey,
       });
+      if (input.request.transferExistingLinks) {
+        const revokedUserIds = yield* links.revokeOtherUsersForEnvironmentKey({
+          userId: input.userId,
+          environmentId: verified.environmentId,
+          environmentPublicKey: verified.environmentPublicKey,
+        });
+        yield* Effect.forEach(
+          revokedUserIds,
+          (revokedUserId) =>
+            managedEndpointProvider
+              .deprovision({
+                userId: revokedUserId,
+                environmentId: verified.environmentId,
+              })
+              .pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("Transferred environment allocation cleanup failed", {
+                    environmentId: verified.environmentId,
+                    revokedUserId,
+                    errorTag: error._tag,
+                  }),
+                ),
+              ),
+          { concurrency: 4, discard: true },
+        );
+      }
       return {
         environmentId: verified.environmentId,
         endpoint,

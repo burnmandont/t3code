@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   CloudPublicConfigMissingError,
   hasTracingPublicConfig,
+  resolveCloudIdentityConfig,
   resolveCloudPublicConfig,
   resolveRelayClerkTokenOptions,
 } from "./publicConfig";
@@ -24,6 +25,12 @@ describe("resolveCloudPublicConfig", () => {
 
   it("returns no cloud configuration for an unconfigured build", () => {
     expect(resolveCloudPublicConfig({})).toEqual({
+      oauth: {
+        issuer: null,
+        clientId: null,
+        resource: null,
+        redirectScheme: null,
+      },
       clerk: {
         publishableKey: null,
         jwtTemplate: null,
@@ -51,6 +58,12 @@ describe("resolveCloudPublicConfig", () => {
         },
       }),
     ).toEqual({
+      oauth: {
+        issuer: null,
+        clientId: null,
+        resource: null,
+        redirectScheme: null,
+      },
       clerk: {
         publishableKey: "pk_test_example",
         jwtTemplate: "t3-relay",
@@ -73,6 +86,12 @@ describe("resolveCloudPublicConfig", () => {
         relay: { url: "http://relay.example.test" },
       }),
     ).toEqual({
+      oauth: {
+        issuer: null,
+        clientId: null,
+        resource: null,
+        redirectScheme: null,
+      },
       clerk: {
         publishableKey: "pk_test_example",
         jwtTemplate: "t3-relay",
@@ -86,6 +105,40 @@ describe("resolveCloudPublicConfig", () => {
         tracesToken: null,
       },
     });
+  });
+
+  it("selects a complete sovereign identity configuration before Clerk", () => {
+    const config = resolveCloudPublicConfig({
+      oauth: {
+        issuer: "https://auth.example.test/api/auth",
+        clientId: "t3-code",
+        resource: "urn:t3:relay",
+        redirectScheme: "t3code-dev",
+      },
+      clerk: { publishableKey: "pk_external", jwtTemplate: "external-template" },
+      relay: { url: "https://relay.example.test" },
+    });
+
+    expect(resolveCloudIdentityConfig(config)).toEqual({
+      provider: "sovereign",
+      issuer: "https://auth.example.test/api/auth",
+      clientId: "t3-code",
+      resource: "urn:t3:relay",
+      redirectScheme: "t3code-dev",
+    });
+  });
+
+  it("fails closed when sovereign identity configuration is partial", () => {
+    const config = resolveCloudPublicConfig({
+      oauth: {
+        issuer: "https://auth.example.test/api/auth",
+        clientId: "t3-code",
+      },
+      clerk: { publishableKey: "pk_external", jwtTemplate: "external-template" },
+      relay: { url: "https://relay.example.test" },
+    });
+
+    expect(resolveCloudIdentityConfig(config)).toEqual({ provider: "disabled" });
   });
 
   it("rejects an insecure traces URL", () => {

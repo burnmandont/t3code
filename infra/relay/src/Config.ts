@@ -27,6 +27,12 @@ export class RelayConfiguration extends Context.Service<
     readonly cloudMintPublicKey: string;
     readonly managedEndpointBaseDomain: string | undefined;
     readonly managedEndpointNamespace: string | undefined;
+    readonly managedEndpointHttpScheme?: "http" | "https";
+    readonly managedEndpointHttpPort?: number;
+    /** Private origin used for relay-to-environment calls while preserving the public Host. */
+    readonly managedEndpointDialOrigin?: string;
+    /** @deprecated Prefer managedEndpointDialOrigin when scheme or port also differs. */
+    readonly managedEndpointDialHost?: string;
   }
 >()("t3code-relay/Config/RelayConfiguration") {}
 

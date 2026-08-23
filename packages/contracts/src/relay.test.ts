@@ -31,6 +31,8 @@ describe("RelayManagedEndpointRuntimeConfig", () => {
         serverPort: 7000,
         proxyName: "environment-proxy",
         hostname: "environment.example.test",
+        localHttpHost: "127.0.0.1",
+        localHttpPort: 3773,
       }),
     ).toEqual({
       providerKind: "t3_relay",
@@ -40,6 +42,8 @@ describe("RelayManagedEndpointRuntimeConfig", () => {
       serverPort: 7000,
       proxyName: "environment-proxy",
       hostname: "environment.example.test",
+      localHttpHost: "127.0.0.1",
+      localHttpPort: 3773,
     });
   });
 

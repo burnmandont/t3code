@@ -35,6 +35,7 @@ import * as DesktopApp from "./app/DesktopApp.ts";
 import * as DesktopAppIdentity from "./app/DesktopAppIdentity.ts";
 import * as DesktopConnectionCatalogStore from "./app/DesktopConnectionCatalogStore.ts";
 import * as DesktopClerk from "./app/DesktopClerk.ts";
+import * as DesktopSovereignAuth from "./app/DesktopSovereignAuth.ts";
 import * as DesktopApplicationMenu from "./window/DesktopApplicationMenu.ts";
 import * as DesktopAssets from "./app/DesktopAssets.ts";
 import * as DesktopBackendConfiguration from "./backend/DesktopBackendConfiguration.ts";
@@ -196,11 +197,23 @@ const desktopApplicationLayer = Layer.mergeAll(
   Layer.provideMerge(desktopLocalEnvironmentAuthLayer),
 );
 
-const desktopClerkLayer = DesktopClerk.layer.pipe(
+const desktopClerkIdentityLayer = DesktopClerk.layer.pipe(
   Layer.provideMerge(desktopEnvironmentLayer),
   Layer.provideMerge(NodeServices.layer),
-  Layer.provideMerge(ElectronApp.layer),
+  Layer.provideMerge(electronLayer),
+  Layer.orDie,
 );
+
+const desktopSovereignIdentityLayer = DesktopSovereignAuth.layer.pipe(
+  Layer.provideMerge(desktopEnvironmentLayer),
+  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(electronLayer),
+  Layer.orDie,
+);
+
+const desktopIdentityLayer = DesktopSovereignAuth.desktopSovereignIdentitySelected
+  ? desktopSovereignIdentityLayer
+  : desktopClerkIdentityLayer;
 
 const desktopApplicationRuntimeLayer = desktopApplicationLayer.pipe(
   Layer.provideMerge(NodeServices.layer),
@@ -211,9 +224,9 @@ const desktopApplicationRuntimeLayer = desktopApplicationLayer.pipe(
 
 // Acquire strict pre-ready setup before Clerk, whose userData resolution can
 // yield and let Electron emit ready.
-const desktopRuntimeLayer = desktopClerkLayer.pipe(
-  Layer.flatMap((clerkContext) =>
-    desktopApplicationRuntimeLayer.pipe(Layer.provideMerge(Layer.succeedContext(clerkContext))),
+const desktopRuntimeLayer = desktopIdentityLayer.pipe(
+  Layer.flatMap((identityContext) =>
+    desktopApplicationRuntimeLayer.pipe(Layer.provideMerge(Layer.succeedContext(identityContext))),
   ),
   Layer.provideMerge(DesktopPreReadyPlatform.layer),
 );

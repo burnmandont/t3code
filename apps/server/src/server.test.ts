@@ -1594,6 +1594,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(bootstrapBody.sessionMethod, "browser-session-cookie");
       assert.isUndefined((bootstrapBody as { readonly sessionToken?: string }).sessionToken);
       assert.isDefined(setCookie);
+      assert.notInclude(setCookie ?? "", "Secure");
 
       const sessionUrl = yield* getHttpServerUrl("/api/auth/session");
       const sessionResponse = yield* fetchEffect(sessionUrl, {
@@ -1609,6 +1610,24 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(sessionResponse.status, 200);
       assert.equal(sessionBody.authenticated, true);
       assert.equal(sessionBody.sessionMethod, "browser-session-cookie");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("marks browser session cookies secure behind an HTTPS reverse proxy", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const { response, cookie } = yield* bootstrapBrowserSession(defaultDesktopBootstrapToken, {
+        headers: {
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      assert.equal(response.status, 200);
+      assert.isDefined(cookie);
+      assert.include(cookie ?? "", "HttpOnly");
+      assert.include(cookie ?? "", "SameSite=Lax");
+      assert.include(cookie ?? "", "Secure");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1957,7 +1976,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("rejects cloud link proofs for unsupported endpoint providers", () =>
+  it.effect("accepts cloud link proofs for sovereign managed endpoints", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest();
 
@@ -1978,7 +1997,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             wsBaseUrl: linkProofUrl
               .replace("http://", "ws://")
               .replace("/api/connect/link-proof", "/ws"),
-            // "manual" and "cloudflare_tunnel" are supported; "t3_relay" is not.
             providerKind: "t3_relay",
           },
           origin: {
@@ -1987,14 +2005,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           },
         }),
       });
-      const body = yield* responseJsonEffect<{
-        readonly _tag?: string;
-        readonly message?: string;
-      }>(linkProofResponse);
+      const body = yield* responseJsonEffect<string>(linkProofResponse);
 
-      assert.equal(linkProofResponse.status, 400);
-      assert.equal(body._tag, "EnvironmentHttpBadRequestError");
-      assert.equal(body.message, "Invalid managed endpoint origin.");
+      assert.equal(linkProofResponse.status, 200);
+      assert.equal(body.split(".").length, 3);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

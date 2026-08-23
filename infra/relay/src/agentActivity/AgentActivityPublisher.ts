@@ -155,11 +155,25 @@ export const make = Effect.gen(function* () {
         });
       }
 
+      const now = yield* DateTime.now;
+      if (input.state === null || isTerminalPhase(input.state)) {
+        const updatedBefore = DateTime.formatIso(
+          DateTime.subtract(now, AgentActivityRows.TERMINAL_AGENT_ACTIVITY_RETENTION),
+        );
+        yield* rows.pruneTerminal({ updatedBefore }).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Event-driven terminal activity cleanup failed", {
+              errorType: error._tag,
+              updatedBefore: error.updatedBefore,
+            }),
+          ),
+        );
+      }
+
       const deliveryUsers = yield* links.listDeliveryUsersForEnvironment({
         environmentId: input.environmentId,
         environmentPublicKey: input.environmentPublicKey,
       });
-      const now = yield* DateTime.now;
       const deliveriesByUser = yield* Effect.forEach(
         deliveryUsers,
         (deliveryUser) =>

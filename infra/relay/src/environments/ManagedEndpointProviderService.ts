@@ -37,6 +37,7 @@ const ManagedEndpointProvisioningStage = Schema.Literals([
   "ensure-dns-record",
   "record-dns",
   "get-tunnel-token",
+  "issue-connector-credential",
   "mark-allocation-ready",
 ]);
 

@@ -44,13 +44,37 @@ can continue signing in after the variable is narrowed or cleared.
 
 Passkeys are stored in the account PostgreSQL database and use WebAuthn with
 required user verification. Keep password login enabled only for initial
-bootstrap. Visit `/sign-in` directly, sign in with the bootstrap password, and
-enroll at least two independent passkeys. Then set
-`T3_ACCOUNT_PASSWORD_LOGIN_ENABLED=false`, clear
-`T3_ACCOUNT_ALLOWED_EMAILS`, redeploy, and verify passkey sign-in before
-changing the edge source allowlist. Re-enabling password login is an explicit
-operator recovery action and should only happen while the source allowlist is
-active.
+bootstrap. Visit `/sign-in` directly, sign in with the bootstrap password,
+enroll and test a passkey, then set `T3_ACCOUNT_PASSWORD_LOGIN_ENABLED=false`,
+clear `T3_ACCOUNT_ALLOWED_EMAILS`, redeploy, and verify passkey sign-in before
+changing the edge source allowlist.
+
+This deployment deliberately uses infrastructure access as the independent
+recovery root instead of requiring a second hardware authenticator. Before
+public exposure, test the complete break-glass cycle while the account hostname
+is still restricted at both Nginx tiers:
+
+1. Verify passkey sign-in with password login disabled and the signup allowlist
+   empty.
+2. Confirm an unlisted public address cannot reach the account service.
+3. Keep `T3_ACCOUNT_ALLOWED_EMAILS` empty, temporarily set
+   `T3_ACCOUNT_PASSWORD_LOGIN_ENABLED=true`, and redeploy the control service.
+   The allowlist governs account creation, not password sign-in for the existing
+   operator account.
+4. Verify the known password can sign in. If it cannot, reset only the
+   credential password through the private PostgreSQL administrative path.
+5. Return `T3_ACCOUNT_PASSWORD_LOGIN_ENABLED=false`, clear the allowlist,
+   redeploy, and verify passkey sign-in again.
+
+Restore an exact email to `T3_ACCOUNT_ALLOWED_EMAILS` only when deliberately
+creating a replacement account, and only while the account hostname remains
+source-restricted. Normal lost-passkey recovery for the existing account does
+not require reopening signup.
+
+After public exposure, recovery must first restore the account source allowlist
+at both trusted proxy tiers and verify the restriction from an untrusted
+network. Never expose a temporarily re-enabled password endpoint to the public.
+The sole passkey must not be deleted while password login is disabled.
 
 ## Database lifecycle
 
@@ -115,7 +139,9 @@ Provision these callback URLs on the public client:
 ```text
 http://127.0.0.1:34338/callback
 https://code.example.com/connect/callback
-https://code.example.com/oauth/callback
+https://code.example.com/connect/account/callback
+t3code-dev://app/connect/account/callback
+t3code://app/connect/account/callback
 ```
 
 The first supports a browser on the machine running `t3 connect link`. The
@@ -123,14 +149,17 @@ second supports SSH/headless machines: the operator opens the self-hosted web
 app's `/connect` URL on another device, signs in at the sovereign account
 service, and pastes the one-time code back into the terminal. The PKCE verifier
 never leaves the CLI process. The third is the interactive browser app's own
-PKCE callback. Add `https://code.example.com` to
+PKCE callback. The final two return development and packaged Electron sign-ins
+from the system browser to the desktop app. Add `https://code.example.com` to
 `T3_ACCOUNT_TRUSTED_ORIGINS` so its token exchange and refresh responses pass
 the account service's exact-origin CORS policy.
 
 ## Current boundary
 
-The CLI, hosted headless handoff, and browser account session can use the
-sovereign issuer. Desktop callback integration and mobile secure token storage
-still require an integrated client pass. Public TLS and ingress are also
-deliberately deferred; production cookies become secure automatically when
+The CLI, hosted headless handoff, browser account session, and Electron desktop
+can use the sovereign issuer. Electron keeps the refresh credential and PKCE
+transaction in an encrypted main-process state file and receives OAuth callbacks
+through its registered custom URL scheme. Mobile secure token storage still
+requires an integrated client pass. Public TLS and ingress are also deliberately
+deferred; production cookies become secure automatically when
 `T3_ACCOUNT_BASE_URL` uses HTTPS.

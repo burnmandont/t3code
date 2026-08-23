@@ -70,7 +70,7 @@ function ConfiguredT3ConnectSidebarAvatar() {
 }
 
 function ConfiguredT3ConnectSidebarSignIn() {
-  const { isLoaded, isSignedIn } = useCloudAuth();
+  const { authorizationUrl, isLoaded, isSignedIn } = useCloudAuth();
   const { authPrompt, openAuthPrompt } = useT3ConnectAuthPrompt();
 
   if (!isLoaded || isSignedIn) return null;
@@ -79,10 +79,17 @@ function ConfiguredT3ConnectSidebarSignIn() {
     <>
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton onClick={openAuthPrompt}>
-            <LogInIcon />
-            <span>Sign in to T3 Connect</span>
-          </SidebarMenuButton>
+          {authorizationUrl ? (
+            <SidebarMenuButton render={<a href={authorizationUrl} />}>
+              <LogInIcon />
+              <span>Continue T3 Connect sign-in</span>
+            </SidebarMenuButton>
+          ) : (
+            <SidebarMenuButton onClick={openAuthPrompt}>
+              <LogInIcon />
+              <span>Sign in to T3 Connect</span>
+            </SidebarMenuButton>
+          )}
         </SidebarMenuItem>
       </SidebarMenu>
       {authPrompt}

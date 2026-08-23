@@ -1,0 +1,217 @@
+name: t3-sovereign
+
+x-control-plane: &control-plane
+  build:
+    context: .
+    dockerfile: infra/sovereign/Dockerfile.control-plane
+  image: t3-sovereign-control-plane:${T3_IMAGE_TAG:-latest}
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-account-environment: &account-environment
+  BETTER_AUTH_TELEMETRY: "0"
+  T3_ACCOUNT_BASE_URL: ${T3_AUTH_URL:-https://auth.moondiner.com}
+  T3_ACCOUNT_BASE_PATH: /api/auth
+  T3_ACCOUNT_DATABASE_URL: postgresql://t3_account:${T3_ACCOUNT_DB_PASSWORD:?required}@postgres:5432/t3_account
+  T3_ACCOUNT_SECRET: ${T3_ACCOUNT_SECRET:?required}
+  T3_ACCOUNT_RELAY_AUDIENCE: ${T3_RELAY_URL:-https://relay.moondiner.com}
+  T3_ACCOUNT_TRUSTED_ORIGINS: ${T3_CODE_URL:-https://code.moondiner.com}
+  T3_ACCOUNT_ALLOWED_EMAILS: "${T3_ACCOUNT_ALLOWED_EMAILS:-}"
+  T3_ACCOUNT_PASSWORD_LOGIN_ENABLED: ${T3_ACCOUNT_PASSWORD_LOGIN_ENABLED:-true}
+  T3_ACCOUNT_CLIENT_ID: t3-code
+  T3_ACCOUNT_CLIENT_NAME: Sovereign T3 Code
+  T3_ACCOUNT_CLIENT_REDIRECT_URIS: http://127.0.0.1:34338/callback,${T3_CODE_URL:-https://code.moondiner.com}/connect/callback,${T3_CODE_URL:-https://code.moondiner.com}/connect/account/callback,t3code-dev://app/connect/account/callback,t3code://app/connect/account/callback
+  T3_ACCOUNT_CLIENT_POST_LOGOUT_REDIRECT_URIS: ${T3_CODE_URL:-https://code.moondiner.com}
+  T3_ACCOUNT_CLIENT_SKIP_CONSENT: "true"
+
+x-relay-environment: &relay-environment
+  T3_RELAY_DATABASE_URL: postgresql://t3_relay:${T3_RELAY_DB_PASSWORD:?required}@postgres:5432/t3_relay
+  T3_RELAY_ISSUER: ${T3_RELAY_URL:-https://relay.moondiner.com}
+  T3_RELAY_ALLOWED_ORIGINS: ${T3_CODE_URL:-https://code.moondiner.com},t3code://app,t3code-dev://app
+  T3_OIDC_ISSUER: ${T3_AUTH_URL:-https://auth.moondiner.com}/api/auth
+  T3_OIDC_AUDIENCE: ${T3_RELAY_URL:-https://relay.moondiner.com}
+  T3_OIDC_JWKS_URL: ${T3_AUTH_URL:-https://auth.moondiner.com}/api/auth/jwks
+  T3_OIDC_REQUIRED_SCOPE: t3:relay
+  T3_MANAGED_ENDPOINT_BASE_DOMAIN: ${T3_CONNECT_DOMAIN:-connect.moondiner.com}
+  T3_MANAGED_ENDPOINT_NAMESPACE: prod
+  T3_MANAGED_ENDPOINT_HTTP_SCHEME: https
+  T3_MANAGED_ENDPOINT_DIAL_ORIGIN: http://frps:8080
+  T3_FRPS_SERVER_ADDR: ${T3_CONNECT_DOMAIN:-connect.moondiner.com}
+  T3_FRPS_SERVER_PORT: "${T3_FRPS_PUBLIC_PORT:-443}"
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: infra/sovereign/Dockerfile.postgres
+    image: t3-sovereign-postgres:${T3_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: t3_admin
+      POSTGRES_PASSWORD: ${T3_POSTGRES_ADMIN_PASSWORD:?required}
+      POSTGRES_DB: postgres
+      T3_ACCOUNT_DB_PASSWORD: ${T3_ACCOUNT_DB_PASSWORD:?required}
+      T3_RELAY_DB_PASSWORD: ${T3_RELAY_DB_PASSWORD:?required}
+    volumes:
+      - t3-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # The official image starts a temporary postmaster while it runs init
+      # scripts. Require postgres itself to be PID 1 so dependencies cannot
+      # start during the brief bootstrap-server shutdown window.
+      test:
+        [
+          "CMD-SHELL",
+          "grep -qx postgres /proc/1/comm && pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    stop_grace_period: 60s
+
+  account-migrate:
+    <<: *control-plane
+    restart: "no"
+    exclude_from_hc: true
+    environment:
+      <<: *account-environment
+    command: ["/bin/sh", "-c", "node /app/account-migrate.mjs && node /app/account-provision.mjs"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  relay-migrate:
+    <<: *control-plane
+    restart: "no"
+    exclude_from_hc: true
+    environment:
+      <<: *relay-environment
+    command: ["node", "/app/relay-migrate.mjs"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  account:
+    <<: *control-plane
+    restart: unless-stopped
+    environment:
+      <<: *account-environment
+      T3_ACCOUNT_HOST: 0.0.0.0
+      T3_ACCOUNT_PORT: "4200"
+    command: ["node", "/app/account-server.mjs"]
+    expose:
+      - "4200"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4200/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      account-migrate:
+        condition: service_completed_successfully
+
+  relay:
+    <<: *control-plane
+    restart: unless-stopped
+    environment:
+      <<: *relay-environment
+      T3_RELAY_HOST: 0.0.0.0
+      T3_RELAY_PORT: "4100"
+      T3_FRP_PLUGIN_HOST: 0.0.0.0
+      T3_FRP_PLUGIN_PORT: "4101"
+      T3_RELAY_SIGNING_PRIVATE_KEY_B64: ${T3_RELAY_SIGNING_PRIVATE_KEY_B64:?required}
+      T3_RELAY_SIGNING_PUBLIC_KEY_B64: ${T3_RELAY_SIGNING_PUBLIC_KEY_B64:?required}
+    command: ["/bin/sh", "/app/start-relay.sh"]
+    expose:
+      - "4100"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4100/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      relay-migrate:
+        condition: service_completed_successfully
+      account:
+        condition: service_healthy
+
+  frps:
+    profiles: ["frps"]
+    build:
+      context: .
+      dockerfile: infra/sovereign/Dockerfile.frps
+    image: t3-sovereign-frps:${T3_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    expose:
+      - "7000"
+      - "8080"
+    labels:
+      # Coolify 4.1.2 currently renders a domain entered as
+      # `*.connect.moondiner.com` as Host(`*.connect.moondiner.com`). Older
+      # Traefik releases treat that value literally, so generated environment
+      # hostnames never reach FRPS. Keep Coolify's exact-host route to port
+      # 7000 and add an explicit v3 regexp router for HTTP vhost traffic.
+      - traefik.enable=true
+      - traefik.http.routers.t3-sovereign-frps-vhost.entryPoints=https
+      - "traefik.http.routers.t3-sovereign-frps-vhost.rule=HostRegexp(`^[^.]+[.]connect[.]moondiner[.]com$`) && PathPrefix(`/`)"
+      - traefik.http.routers.t3-sovereign-frps-vhost.priority=100
+      - traefik.http.routers.t3-sovereign-frps-vhost.service=t3-sovereign-frps-vhost
+      - traefik.http.routers.t3-sovereign-frps-vhost.tls=true
+      - traefik.http.services.t3-sovereign-frps-vhost.loadbalancer.server.port=8080
+      - traefik.http.services.t3-sovereign-frps-vhost.loadbalancer.server.scheme=http
+    depends_on:
+      relay:
+        condition: service_healthy
+
+  code:
+    build:
+      context: .
+      dockerfile: infra/sovereign/Dockerfile.web
+      args:
+        T3CODE_OAUTH_ISSUER: ${T3_AUTH_URL:-https://auth.moondiner.com}/api/auth
+        T3CODE_OAUTH_CLIENT_ID: t3-code
+        T3CODE_OAUTH_RESOURCE: ${T3_RELAY_URL:-https://relay.moondiner.com}
+        T3CODE_RELAY_URL: ${T3_RELAY_URL:-https://relay.moondiner.com}
+        VITE_HOSTED_APP_URL: ${T3_CODE_URL:-https://code.moondiner.com}
+    image: t3-sovereign-web:${T3_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      account:
+        condition: service_healthy
+      relay:
+        condition: service_healthy
+
+volumes:
+  t3-postgres-data:

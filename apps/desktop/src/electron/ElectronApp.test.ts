@@ -13,7 +13,9 @@ const {
   isDefaultProtocolClientMock,
   onMock,
   quitMock,
+  releaseSingleInstanceLockMock,
   relaunchMock,
+  requestSingleInstanceLockMock,
   removeListenerMock,
   removeSwitchMock,
   setAboutPanelOptionsMock,
@@ -35,7 +37,9 @@ const {
   isDefaultProtocolClientMock: vi.fn(() => false),
   onMock: vi.fn(),
   quitMock: vi.fn(),
+  releaseSingleInstanceLockMock: vi.fn(),
   relaunchMock: vi.fn(),
+  requestSingleInstanceLockMock: vi.fn(() => true),
   removeListenerMock: vi.fn(),
   removeSwitchMock: vi.fn(),
   setAboutPanelOptionsMock: vi.fn(),
@@ -69,7 +73,9 @@ vi.mock("electron", () => ({
     name: "T3 Code",
     on: onMock,
     quit: quitMock,
+    releaseSingleInstanceLock: releaseSingleInstanceLockMock,
     relaunch: relaunchMock,
+    requestSingleInstanceLock: requestSingleInstanceLockMock,
     removeListener: removeListenerMock,
     runningUnderARM64Translation: false,
     setAboutPanelOptions: setAboutPanelOptionsMock,
@@ -93,7 +99,9 @@ describe("ElectronApp", () => {
     exitMock.mockClear();
     onMock.mockClear();
     quitMock.mockClear();
+    releaseSingleInstanceLockMock.mockClear();
     relaunchMock.mockClear();
+    requestSingleInstanceLockMock.mockClear();
     removeListenerMock.mockClear();
     removeSwitchMock.mockClear();
     setPathMock.mockClear();
@@ -200,6 +208,17 @@ describe("ElectronApp", () => {
       assert.deepEqual(autoUpdaterRemoveListenerMock.mock.calls, [
         ["before-quit-for-update", listener],
       ]);
+    }).pipe(Effect.provide(ElectronApp.layer)),
+  );
+
+  it.effect("owns and releases Electron's single-instance lock", () =>
+    Effect.gen(function* () {
+      const electronApp = yield* ElectronApp.ElectronApp;
+      assert.isTrue(yield* electronApp.requestSingleInstanceLock);
+      yield* electronApp.releaseSingleInstanceLock;
+
+      assert.equal(requestSingleInstanceLockMock.mock.calls.length, 1);
+      assert.equal(releaseSingleInstanceLockMock.mock.calls.length, 1);
     }).pipe(Effect.provide(ElectronApp.layer)),
   );
 

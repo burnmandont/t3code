@@ -39,6 +39,8 @@ function makeElectronAppLayer(
       onMetricsRead();
       return metrics;
     }),
+    requestSingleInstanceLock: Effect.succeed(true),
+    releaseSingleInstanceLock: Effect.void,
     isDefaultProtocolClient: () => Effect.succeed(false),
     setAsDefaultProtocolClient: () => Effect.succeed(true),
     setDesktopName: () => Effect.void,

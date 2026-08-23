@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { SOVEREIGN_APP_CALLBACK_PATH } from "@t3tools/shared/connectAuth";
+
 import { makeSovereignAuthClient, SovereignAuthError } from "./sovereignAuth";
 
 function memoryStorage(): Storage {
@@ -31,7 +33,7 @@ const config = {
   authorizationEndpoint: "https://auth.example.test/api/auth/oauth2/authorize",
   tokenEndpoint: "https://auth.example.test/api/auth/oauth2/token",
   clientId: "t3-code",
-  redirectUri: "https://code.example.test/oauth/callback",
+  redirectUri: `https://code.example.test${SOVEREIGN_APP_CALLBACK_PATH}`,
   resource: "urn:t3:relay",
   scopes: ["openid", "profile", "email", "offline_access", "t3:relay"],
 } as const;
@@ -64,7 +66,7 @@ describe("sovereign browser OAuth", () => {
     expect(authorizeUrl.searchParams.get("code_challenge_method")).toBe("S256");
     expect(authorizeUrl.searchParams.get("scope")).toContain("t3:relay");
     const state = authorizeUrl.searchParams.get("state");
-    const callbackUrl = `https://code.example.test/oauth/callback?code=code-1&state=${state}`;
+    const callbackUrl = `https://code.example.test${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=${state}`;
     const [returnUrl, repeatedReturnUrl] = await Promise.all([
       client.completeSignIn(callbackUrl),
       client.completeSignIn(callbackUrl),
@@ -88,7 +90,9 @@ describe("sovereign browser OAuth", () => {
     await client.beginSignIn("https://code.example.test/");
 
     await expect(
-      client.completeSignIn("https://code.example.test/oauth/callback?code=code-1&state=wrong"),
+      client.completeSignIn(
+        `https://code.example.test${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=wrong`,
+      ),
     ).rejects.toBeInstanceOf(SovereignAuthError);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -115,7 +119,7 @@ describe("sovereign browser OAuth", () => {
     });
     const authorizeUrl = new URL(await client.beginSignIn("https://code.example.test/"));
     await client.completeSignIn(
-      `https://code.example.test/oauth/callback?code=code-1&state=${authorizeUrl.searchParams.get("state")}`,
+      `https://code.example.test${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=${authorizeUrl.searchParams.get("state")}`,
     );
     now = 60_000;
 

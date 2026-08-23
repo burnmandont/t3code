@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { RelayOkResponse } from "@t3tools/contracts/relay";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as FrpcClient from "@t3tools/shared/frpcClient";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Cause from "effect/Cause";
@@ -64,6 +65,13 @@ const isCloudCliTokenManagerError = Schema.is(CliTokenManager.CloudCliTokenManag
 
 const headlessFlag = Flag.boolean("headless").pipe(
   Flag.withDescription("Authorize without a local browser using out-of-band OAuth."),
+  Flag.withDefault(false),
+);
+
+const transferFlag = Flag.boolean("transfer").pipe(
+  Flag.withDescription(
+    "Transfer this environment to the signed-in account by revoking links held by other accounts for the same environment key.",
+  ),
   Flag.withDefault(false),
 );
 
@@ -248,7 +256,7 @@ const reportRelayClientInstallProgress = (event: RelayClientInstallProgressEvent
 
 export const acquireRelayClientForLink = Effect.fn("cloud.cli.acquire_relay_client_for_link")(
   function* <ConfirmError, ConfirmContext>(
-    relayClient: RelayClient.RelayClient["Service"],
+    relayClient: RelayClient.RelayClientShape,
     confirmInstall: (version: string) => Effect.Effect<boolean, ConfirmError, ConfirmContext>,
     reportProgress: (event: RelayClientInstallProgressEvent) => Effect.Effect<void>,
   ) {
@@ -424,7 +432,7 @@ const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function* <A, E
     E,
     | ServerSecretStore.ServerSecretStore
     | CliTokenManager.CloudCliTokenManager
-    | RelayClient.RelayClient
+    | FrpcClient.FrpcClient
     | EnvironmentAuth.EnvironmentAuth
     | BootService.BootService
     | Crypto.Crypto
@@ -447,7 +455,7 @@ const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function* <A, E
       Layer.provide(ServerSecretStore.layer),
       Layer.provide(ExternalLauncher.layer),
     ),
-    RelayClient.layerCloudflared({ baseDir: config.baseDir }),
+    FrpcClient.layerFrpc({ baseDir: config.baseDir }),
     EnvironmentAuth.runtimeLayer,
     ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer)),
     bootServiceLayer(config),
@@ -463,16 +471,17 @@ const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function* <A, E
 const connectedAs = (identity: string | null): string => (identity ? ` as ${identity}` : "");
 
 export function formatRelayClientReady(version: string): string {
-  return `✓ Relay client ready · cloudflared ${version}`;
+  return `✓ Relay client ready · frpc ${version}`;
 }
 
 const linkEnvironmentForConnect = Effect.fn("cloud.cli.link_environment")(function* (options: {
   readonly headless: boolean;
   readonly publishOnly?: boolean;
+  readonly transfer?: boolean;
 }) {
   const publishOnly = options.publishOnly ?? false;
   if (!publishOnly) {
-    const relayClient = yield* RelayClient.RelayClient;
+    const relayClient = yield* FrpcClient.FrpcClient;
     const installed = yield* acquireRelayClientForLink(
       relayClient,
       confirmRelayClientInstall,
@@ -486,7 +495,11 @@ const linkEnvironmentForConnect = Effect.fn("cloud.cli.link_environment")(functi
   }
 
   const identity = yield* authorizeCli(options);
-  yield* CliState.setCliDesiredCloudLink(true, publishOnly ? "publish_only" : "managed");
+  yield* CliState.setCliDesiredCloudLink(
+    true,
+    publishOnly ? "publish_only" : "managed",
+    options.transfer ?? false,
+  );
   if (publishOnly) {
     const secrets = yield* ServerSecretStore.ServerSecretStore;
     yield* secrets.set(PUBLISH_AGENT_ACTIVITY_SECRET, stringToBytes("true"));
@@ -514,6 +527,7 @@ const connectLoginCommand = Command.make("login", {
 const connectLinkCommand = Command.make("link", {
   ...projectLocationFlags,
   headless: headlessFlag,
+  transfer: transferFlag,
   publishOnly: Flag.boolean("publish-only").pipe(
     Flag.withDescription(
       "Link to publish agent activity only — no managed tunnel. Reach this environment out of band (e.g. Tailscale).",
@@ -551,7 +565,7 @@ const connectStatusCommand = Command.make("status", {
       flags,
       Effect.gen(function* () {
         const secrets = yield* ServerSecretStore.ServerSecretStore;
-        const relayClient = yield* RelayClient.RelayClient;
+        const relayClient = yield* FrpcClient.FrpcClient;
         const tokens = yield* CliTokenManager.CloudCliTokenManager;
         const [desired, authenticated, cloudUserId, relayUrl, publishAgentActivity, executable] =
           yield* Effect.all(
@@ -676,6 +690,7 @@ const connectLogoutCommand = Command.make("logout", {
 export const connectCommand = Command.make("connect", {
   ...projectLocationFlags,
   headless: headlessFlag,
+  transfer: transferFlag,
 }).pipe(
   Command.withDescription("Set up T3 Connect for this machine."),
   Command.withHandler((flags) =>

@@ -16,7 +16,7 @@ import {
   metadataApi,
   mobileApi,
   relayClientAuthLayer,
-  relayCors,
+  relayCorsForAllowedOrigins,
   relayDocsRedirectRoute,
   relayDpopClientAuthLayer,
   relayEnvironmentAuthLayer,
@@ -63,13 +63,32 @@ const relayApiLayer = Layer.mergeAll(
   Layer.provideMerge(relayEnvironmentAuthLayer),
 );
 
-export const relayHttpEffect = Layer.merge(
-  Layer.mergeAll(
-    HttpApiBuilder.layer(RelayApi, { openapiPath: "/openapi.json" }).pipe(
-      Layer.provide(relayApiLayer),
+export const makeRelayRoutes = (options?: {
+  readonly allowedOrigins?: ReadonlyArray<string>;
+  readonly docs?: boolean;
+}) => {
+  const allowedOrigins = options?.allowedOrigins ?? ["*"];
+  const docs = options?.docs ?? true;
+  const api = HttpApiBuilder.layer(
+    RelayApi,
+    docs ? { openapiPath: "/openapi.json" } : undefined,
+  ).pipe(Layer.provide(relayApiLayer));
+  const publicApi = docs
+    ? Layer.mergeAll(api, HttpApiScalar.layer(RelayApi, { path: "/docs" }), relayDocsRedirectRoute)
+    : api;
+
+  return Layer.merge(
+    publicApi.pipe(
+      Layer.provide([
+        Etag.layerWeak,
+        httpPlatformNotSupportedLayer,
+        relayCorsForAllowedOrigins(allowedOrigins),
+      ]),
     ),
-    HttpApiScalar.layer(RelayApi, { path: "/docs" }),
-    relayDocsRedirectRoute,
-  ).pipe(Layer.provide([Etag.layerWeak, httpPlatformNotSupportedLayer, relayCors])),
-  relayNotFoundRoute,
-).pipe(HttpRouter.toHttpEffect, withoutCapturedParentSpan);
+    relayNotFoundRoute,
+  );
+};
+
+export const relayRoutes = makeRelayRoutes();
+
+export const relayHttpEffect = relayRoutes.pipe(HttpRouter.toHttpEffect, withoutCapturedParentSpan);

@@ -36,6 +36,14 @@ describe("hasCloudPublicConfig", () => {
     expect(hasCloudPublicConfig()).toBe(false);
   });
 
+  it("allows an HTTP relay only on a loopback host", () => {
+    vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", "pk_test_example");
+    vi.stubEnv("VITE_CLERK_JWT_TEMPLATE", "t3-relay");
+    vi.stubEnv("VITE_T3CODE_RELAY_URL", "http://127.0.0.1:4100");
+
+    expect(hasCloudPublicConfig()).toBe(true);
+  });
+
   it("prefers complete sovereign identity configuration and fails closed when partial", () => {
     vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", "pk_test_example");
     vi.stubEnv("VITE_CLERK_JWT_TEMPLATE", "t3-relay");

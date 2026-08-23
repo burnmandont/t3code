@@ -13,6 +13,7 @@ import {
 } from "./config.ts";
 
 export const CLOUD_CLI_DESIRED_LINK_SECRET = "cloud-cli-desired-link";
+export const CLOUD_CLI_TRANSFER_LINK_SECRET = "cloud-cli-transfer-link";
 
 // "managed" provisions a Cloudflare tunnel (default, legacy value "true").
 // "publish_only" links the environment to the relay purely to publish agent
@@ -41,18 +42,38 @@ export const readCliDesiredLinkMode = Effect.gen(function* () {
     : ("managed" as CliDesiredLinkMode);
 });
 
+export const readCliDesiredLinkTransfer = Effect.gen(function* () {
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  return Option.isSome(yield* secrets.get(CLOUD_CLI_TRANSFER_LINK_SECRET));
+});
+
 export const setCliDesiredCloudLink = Effect.fn("cloud.cli_state.set_desired")(function* (
   desired: boolean,
   mode: CliDesiredLinkMode = "managed",
+  transferExistingLinks = false,
 ) {
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   if (desired) {
-    yield* secrets.set(
-      CLOUD_CLI_DESIRED_LINK_SECRET,
-      mode === "publish_only" ? PUBLISH_ONLY_BYTES : MANAGED_BYTES,
+    yield* Effect.all(
+      [
+        secrets.set(
+          CLOUD_CLI_DESIRED_LINK_SECRET,
+          mode === "publish_only" ? PUBLISH_ONLY_BYTES : MANAGED_BYTES,
+        ),
+        transferExistingLinks
+          ? secrets.set(CLOUD_CLI_TRANSFER_LINK_SECRET, MANAGED_BYTES)
+          : secrets.remove(CLOUD_CLI_TRANSFER_LINK_SECRET),
+      ],
+      { concurrency: "unbounded" },
     );
   } else {
-    yield* secrets.remove(CLOUD_CLI_DESIRED_LINK_SECRET);
+    yield* Effect.all(
+      [
+        secrets.remove(CLOUD_CLI_DESIRED_LINK_SECRET),
+        secrets.remove(CLOUD_CLI_TRANSFER_LINK_SECRET),
+      ],
+      { concurrency: "unbounded" },
+    );
   }
 });
 
@@ -61,6 +82,7 @@ export const clearPersistedCloudLink = Effect.gen(function* () {
   yield* Effect.all(
     [
       secrets.remove(CLOUD_CLI_DESIRED_LINK_SECRET),
+      secrets.remove(CLOUD_CLI_TRANSFER_LINK_SECRET),
       secrets.remove(CLOUD_LINKED_USER_ID),
       secrets.remove(RELAY_URL_SECRET),
       secrets.remove(RELAY_ISSUER_SECRET),

@@ -8,6 +8,9 @@ const publicConfigDefine = {
   __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(
     repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
   ),
+  __T3CODE_BUILD_OAUTH_ISSUER__: JSON.stringify(repoEnv.T3CODE_OAUTH_ISSUER?.trim() ?? ""),
+  __T3CODE_BUILD_OAUTH_CLIENT_ID__: JSON.stringify(repoEnv.T3CODE_OAUTH_CLIENT_ID?.trim() ?? ""),
+  __T3CODE_BUILD_OAUTH_RESOURCE__: JSON.stringify(repoEnv.T3CODE_OAUTH_RESOURCE?.trim() ?? ""),
 };
 
 export default defineConfig({

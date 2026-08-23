@@ -42,6 +42,7 @@ it.layer(NodeServices.layer)("CliState", (it) => {
       const secrets = yield* ServerSecretStore.ServerSecretStore;
 
       assert.isFalse(yield* CliState.readCliDesiredCloudLink);
+      assert.isFalse(yield* CliState.readCliDesiredLinkTransfer);
       yield* CliState.setCliDesiredCloudLink(true);
       assert.isTrue(yield* CliState.readCliDesiredCloudLink);
 
@@ -51,6 +52,7 @@ it.layer(NodeServices.layer)("CliState", (it) => {
       yield* CliState.clearPersistedCloudLink;
 
       assert.isFalse(yield* CliState.readCliDesiredCloudLink);
+      assert.isFalse(yield* CliState.readCliDesiredLinkTransfer);
       for (const name of persistedCloudLinkSecrets) {
         assert.isTrue(Option.isNone(yield* secrets.get(name)));
       }
@@ -77,6 +79,19 @@ it.layer(NodeServices.layer)("CliState", (it) => {
 
       yield* CliState.setCliDesiredCloudLink(false);
       assert.equal(yield* CliState.readCliDesiredLinkMode, "managed");
+    }).pipe(Effect.provide(makeTestLayer())),
+  );
+
+  it.effect("keeps transfer intent one-shot while the desired link remains durable", () =>
+    Effect.gen(function* () {
+      yield* CliState.setCliDesiredCloudLink(true, "managed", true);
+      assert.isTrue(yield* CliState.readCliDesiredLinkTransfer);
+
+      // A successful reconciliation writes the durable mode again without the
+      // transfer flag, so restarts cannot repeatedly evict shared users.
+      yield* CliState.setCliDesiredCloudLink(true, "managed");
+      assert.isTrue(yield* CliState.readCliDesiredCloudLink);
+      assert.isFalse(yield* CliState.readCliDesiredLinkTransfer);
     }).pipe(Effect.provide(makeTestLayer())),
   );
 });

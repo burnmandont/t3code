@@ -66,15 +66,14 @@ function SovereignConnectCliAuthorizeSurface({
   readonly request: ReturnType<typeof readConnectAuthorizeRequest>;
 }) {
   const redirecting = useRef(false);
+  const authorizeUrl = request ? buildConnectCliOAuthAuthorizeUrl(request) : null;
 
   useEffect(() => {
-    if (!request || redirecting.current) return;
-    const authorizeUrl = buildConnectCliOAuthAuthorizeUrl(request);
-    if (!authorizeUrl) return;
+    if (!request || !authorizeUrl || redirecting.current) return;
     redirecting.current = true;
     rememberConnectCliAuthState(request.state);
     window.location.assign(authorizeUrl);
-  }, [request]);
+  }, [authorizeUrl, request]);
 
   return (
     <AuthSurfaceShell>
@@ -87,6 +86,15 @@ function SovereignConnectCliAuthorizeSurface({
             }
           : invalidLinkMessage)}
       />
+      {request && authorizeUrl ? (
+        <a
+          className="mt-6 inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
+          href={authorizeUrl}
+          onClick={() => rememberConnectCliAuthState(request.state)}
+        >
+          Continue to account
+        </a>
+      ) : null}
     </AuthSurfaceShell>
   );
 }

@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${T3_RELAY_SIGNING_PRIVATE_KEY:-}" ]; then
+  : "${T3_RELAY_SIGNING_PRIVATE_KEY_B64:?T3_RELAY_SIGNING_PRIVATE_KEY_B64 is required}"
+  T3_RELAY_SIGNING_PRIVATE_KEY="$(printf '%s' "$T3_RELAY_SIGNING_PRIVATE_KEY_B64" | base64 -d)"
+  export T3_RELAY_SIGNING_PRIVATE_KEY
+fi
+
+if [ -z "${T3_RELAY_SIGNING_PUBLIC_KEY:-}" ]; then
+  : "${T3_RELAY_SIGNING_PUBLIC_KEY_B64:?T3_RELAY_SIGNING_PUBLIC_KEY_B64 is required}"
+  T3_RELAY_SIGNING_PUBLIC_KEY="$(printf '%s' "$T3_RELAY_SIGNING_PUBLIC_KEY_B64" | base64 -d)"
+  export T3_RELAY_SIGNING_PUBLIC_KEY
+fi
+
+exec node /app/relay-server.mjs

@@ -1064,6 +1064,20 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
   input: PreviewAutomationWaitForInput,
 });
 
+export const DesktopSovereignAuthSnapshotSchema = Schema.Struct({
+  isSignedIn: Schema.Boolean,
+  userId: Schema.NullOr(Schema.String),
+});
+export type DesktopSovereignAuthSnapshot = typeof DesktopSovereignAuthSnapshotSchema.Type;
+
+export interface DesktopSovereignAuthBridge {
+  beginSignIn: (returnUrl: string) => Promise<string>;
+  getSnapshot: () => Promise<DesktopSovereignAuthSnapshot>;
+  getToken: () => Promise<string | null>;
+  signOut: () => Promise<void>;
+  onStateChange: (listener: (snapshot: DesktopSovereignAuthSnapshot) => void) => () => void;
+}
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /**
@@ -1150,6 +1164,8 @@ export interface DesktopBridge {
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
   /** Desktop-owned loopback listeners. Optional for desktop/web version skew. */
   portForward?: DesktopPortForwardBridge;
+  /** Present on Electron builds; methods reject when the build uses Clerk identity. */
+  sovereignAuth?: DesktopSovereignAuthBridge;
   /**
    * Desktop-only preview surface. Present iff the renderer is hosted by the
    * Electron desktop build; web builds have `preview === undefined`.

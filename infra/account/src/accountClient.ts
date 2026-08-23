@@ -99,9 +99,9 @@ const renderPasskeys = async () => {
     remove.type = "button";
     remove.className = "danger compact";
     remove.textContent = "Remove";
-    remove.disabled = !passwordLoginEnabled && passkeys.length <= 2;
+    remove.disabled = !passwordLoginEnabled && passkeys.length <= 1;
     remove.title = remove.disabled
-      ? "Keep at least two passkeys while password login is disabled."
+      ? "Keep at least one working passkey while password login is disabled."
       : "Remove this passkey";
     remove.addEventListener("click", async () => {
       showMessage("");
@@ -129,7 +129,7 @@ const showAuthenticatedState = async () => {
   document.querySelector<HTMLElement>("#passkey-sign-in")?.setAttribute("hidden", "");
   await renderPasskeys();
   showMessage(
-    "Signed in. Add at least two independent passkeys before disabling password login.",
+    "Signed in. Verify this passkey before disabling password login, and test the source-restricted operator recovery procedure before public exposure.",
     false,
   );
 };
@@ -202,7 +202,7 @@ document.querySelector("[data-action='passkey-add']")?.addEventListener("click",
       ("code" in result.error &&
         result.error.code === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED") ||
         /previously registered/iu.test(result.error.message || "")
-        ? "That authenticator already holds this account's passkey. Choose a different password manager, device account, or external security key for an independent recovery path."
+        ? "That authenticator already holds this account's passkey. Keep the current passkey or choose a different password manager or device; the source-restricted operator procedure can provide the independent recovery path."
         : result.error.message || "Passkey enrollment failed.",
     );
     return;
@@ -243,9 +243,14 @@ for (const [selector, accept] of [
   });
 }
 
-void authClient.getSession().then(({ data }) => {
+void authClient.getSession().then(async ({ data }) => {
   if (!data?.session) return;
   if (forceOauthLogin) {
+    const result = await authClient.signOut();
+    if (result.error) {
+      showMessage(result.error.message || "Could not switch accounts.");
+      return;
+    }
     showMessage("Sign in with the account you want to use.", false);
     return;
   }

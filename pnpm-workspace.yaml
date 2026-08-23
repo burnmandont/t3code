@@ -82,6 +82,7 @@ minimumReleaseAgeExclude:
   - alchemy@2.0.0-beta.65
   - effect@4.0.0-beta.103
   - "@legendapp/list@3.3.5"
+  - hono@4.13.1
 
 overrides:
   # The SDK always receives the user's Claude executable, so its bundled binaries are unused.
@@ -93,6 +94,9 @@ overrides:
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64-musl": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-arm64": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-x64": "-"
+  "@modelcontextprotocol/sdk": 1.30.0
+  "@modelcontextprotocol/sdk>@hono/node-server": 2.1.0
+  "@modelcontextprotocol/sdk>hono": 4.13.1
   "@clerk/backend": "catalog:"
   "@clerk/clerk-js": "catalog:"
   "@clerk/clerk-js>@base-org/account": "-"
@@ -121,6 +125,9 @@ overrides:
   expo-modules-jsi: 56.0.10
   "expo-sharing>@expo/config-plugins": 56.0.9
   "expo-sharing>@expo/config-types": 56.0.6
+  fast-uri: 3.1.5
+  ip-address: 10.4.0
+  "alchemy>undici": 7.29.0
   vite: "catalog:"
   yaml: "catalog:"
 

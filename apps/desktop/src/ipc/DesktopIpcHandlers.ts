@@ -47,6 +47,12 @@ import {
 import * as PreviewIpc from "./methods/preview.ts";
 import * as PortForwardIpc from "./methods/portForward.ts";
 import { getWslState, setWslBackendEnabled, setWslDistro, setWslOnly } from "./methods/wsl.ts";
+import {
+  beginSovereignSignIn,
+  getSovereignAuthSnapshot,
+  getSovereignAuthToken,
+  signOutSovereignAuth,
+} from "./methods/sovereignAuth.ts";
 
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
@@ -97,6 +103,10 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(PortForwardIpc.stopEnvironmentPortForwards);
   yield* ipc.handle(PortForwardIpc.resetEnvironmentPortForwardConnections);
   yield* ipc.handle(PortForwardIpc.resolvePortForwardAuthorization);
+  yield* ipc.handle(beginSovereignSignIn);
+  yield* ipc.handle(getSovereignAuthSnapshot);
+  yield* ipc.handle(getSovereignAuthToken);
+  yield* ipc.handle(signOutSovereignAuth);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
   yield* ipc.handle(downloadUpdate);

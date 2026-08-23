@@ -45,6 +45,7 @@ describe("RelayTokens", () => {
           notificationsEnabled: true,
           liveActivitiesEnabled: true,
           managedTunnelsEnabled: true,
+          transferExistingLinks: false,
         },
         jti: "challenge-1",
         issuedAtEpochSeconds: 100,
@@ -59,10 +60,24 @@ describe("RelayTokens", () => {
             notificationsEnabled: true,
             liveActivitiesEnabled: true,
             managedTunnelsEnabled: true,
+            transferExistingLinks: false,
           },
           nowEpochSeconds: 150,
         }),
       ).toMatchObject({ sub: "user_123", jti: "challenge-1" });
+      expect(
+        yield* relayTokens.verifyLinkChallenge({
+          token,
+          userId: "user_123",
+          request: {
+            notificationsEnabled: true,
+            liveActivitiesEnabled: true,
+            managedTunnelsEnabled: true,
+            transferExistingLinks: true,
+          },
+          nowEpochSeconds: 150,
+        }),
+      ).toBeNull();
       expect(
         yield* relayTokens.verifyLinkChallenge({
           token,
@@ -71,6 +86,7 @@ describe("RelayTokens", () => {
             notificationsEnabled: true,
             liveActivitiesEnabled: true,
             managedTunnelsEnabled: true,
+            transferExistingLinks: false,
           },
           nowEpochSeconds: 150,
         }),

@@ -1,12 +1,17 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { describe, expect, it } from "vite-plus/test";
 
-import { mergeEnvironmentSettings, resolveEnvironmentIdentificationMode } from "./useSettings";
+import {
+  mergeEnvironmentSettings,
+  resolveEnvironmentIdentificationMode,
+  resolveSettingsEnvironmentId,
+} from "./useSettings";
 
 describe("resolveEnvironmentIdentificationMode", () => {
   it("keeps identification hidden until client settings hydrate", () => {
@@ -75,5 +80,51 @@ describe("mergeEnvironmentSettings", () => {
 
     expect(settings.providerInstances).toBe(serverSettings.providerInstances);
     expect(settings.favorites).toBe(clientSettings.favorites);
+  });
+});
+
+describe("resolveSettingsEnvironmentId", () => {
+  const primary = EnvironmentId.make("primary");
+  const active = EnvironmentId.make("active");
+  const remote = EnvironmentId.make("remote");
+
+  it("prefers the primary environment when one exists", () => {
+    expect(
+      resolveSettingsEnvironmentId({
+        primaryEnvironmentId: primary,
+        activeEnvironmentId: active,
+        environmentIds: [primary, active],
+      }),
+    ).toBe(primary);
+  });
+
+  it("uses the active remote environment in hosted mode", () => {
+    expect(
+      resolveSettingsEnvironmentId({
+        primaryEnvironmentId: null,
+        activeEnvironmentId: active,
+        environmentIds: [remote, active],
+      }),
+    ).toBe(active);
+  });
+
+  it("uses the sole remote environment when no environment is active", () => {
+    expect(
+      resolveSettingsEnvironmentId({
+        primaryEnvironmentId: null,
+        activeEnvironmentId: null,
+        environmentIds: [remote],
+      }),
+    ).toBe(remote);
+  });
+
+  it("does not choose arbitrarily between multiple inactive remotes", () => {
+    expect(
+      resolveSettingsEnvironmentId({
+        primaryEnvironmentId: null,
+        activeEnvironmentId: null,
+        environmentIds: [remote, active],
+      }),
+    ).toBeNull();
   });
 });

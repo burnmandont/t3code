@@ -109,11 +109,25 @@ export function isManagedEndpointHostname(hostname: string, baseDomain: string):
   );
 }
 
-export function managedEndpointForHostname(hostname: string): RelayManagedEndpoint {
+export function managedEndpointForHostname(
+  hostname: string,
+  options: {
+    readonly providerKind?: RelayManagedEndpoint["providerKind"];
+    readonly httpScheme?: "http" | "https";
+    readonly httpPort?: number;
+  } = {},
+): RelayManagedEndpoint {
+  const httpScheme = options.httpScheme ?? "https";
+  const wsScheme = httpScheme === "https" ? "wss" : "ws";
+  const defaultPort = httpScheme === "https" ? 443 : 80;
+  const port =
+    options.httpPort === undefined || options.httpPort === defaultPort
+      ? ""
+      : `:${options.httpPort}`;
   return {
-    httpBaseUrl: `https://${hostname}/`,
-    wsBaseUrl: `wss://${hostname}/ws`,
-    providerKind: "cloudflare_tunnel",
+    httpBaseUrl: `${httpScheme}://${hostname}${port}/`,
+    wsBaseUrl: `${wsScheme}://${hostname}${port}/ws`,
+    providerKind: options.providerKind ?? "cloudflare_tunnel",
   };
 }
 

@@ -6,6 +6,7 @@ import * as Result from "effect/Result";
 import {
   hostedAppUrlConfig,
   makeCloudCliOAuthConfig,
+  makeHostedAppUrlConfig,
   makeRelayUrlConfig,
   resolveRelayClientTracingConfig,
 } from "./publicConfig.ts";
@@ -62,6 +63,26 @@ it.effect("normalizes the hosted app URL to an absolute origin", () =>
       ),
       "http://localhost:5733",
     );
+  }),
+);
+
+it.effect("uses the statically injected hosted app URL when no runtime override exists", () =>
+  Effect.gen(function* () {
+    const hostedAppUrl = yield* makeHostedAppUrlConfig("https://code.example.test").pipe(
+      provideEnv({}),
+    );
+
+    assert.equal(hostedAppUrl, "https://code.example.test");
+  }),
+);
+
+it.effect("prefers a runtime hosted app URL over the statically injected value", () =>
+  Effect.gen(function* () {
+    const hostedAppUrl = yield* makeHostedAppUrlConfig("https://code.example.test").pipe(
+      provideEnv({ T3CODE_HOSTED_APP_URL: "https://runtime.example.test" }),
+    );
+
+    assert.equal(hostedAppUrl, "https://runtime.example.test");
   }),
 );
 

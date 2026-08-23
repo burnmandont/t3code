@@ -153,7 +153,7 @@ export function SettingsEnvironmentsRouteScreen() {
               />
             </View>
             <Text className="text-center text-sm leading-normal text-foreground-muted">
-              No environments connected yet.{"\n"}Tap{" "}
+              No direct environments added yet.{"\n"}Tap{" "}
               <Text className="font-t3-bold text-foreground">+</Text> to add one.
             </Text>
           </View>

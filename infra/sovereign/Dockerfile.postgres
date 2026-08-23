@@ -1,0 +1,6 @@
+FROM postgres:17.6-bookworm
+
+# Runtime bind mounts are unreliable in Coolify's generated application
+# directory. Keep database initialization immutable and versioned in the
+# image instead.
+COPY --chmod=755 infra/sovereign/postgres/init-databases.sh /docker-entrypoint-initdb.d/10-t3-databases.sh

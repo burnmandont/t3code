@@ -119,6 +119,7 @@ import {
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import * as FrpcClient from "@t3tools/shared/frpcClient";
 import * as ManagedConnectorClients from "@t3tools/shared/managedConnectorClients";
 import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
 import { forkParked, ServerActivation } from "./serverActivation.ts";
@@ -183,8 +184,16 @@ const RelayClientLive = Layer.unwrap(
   }),
 );
 
-const ManagedConnectorClientsLive = ManagedConnectorClients.layerCloudflaredFromRelayClient.pipe(
-  Layer.provide(RelayClientLive),
+const FrpcClientLive = Layer.unwrap(
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    return FrpcClient.layerFrpc({ baseDir: config.baseDir });
+  }),
+);
+
+const ManagedConnectorClientsLive = ManagedConnectorClients.layerFromConnectorClients.pipe(
+  Layer.provideMerge(RelayClientLive),
+  Layer.provideMerge(FrpcClientLive),
 );
 
 const HttpServerLive = Layer.unwrap(
@@ -364,6 +373,7 @@ const AuthLayerLive = EnvironmentAuth.layer.pipe(
 
 const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
   RelayClientLive,
+  FrpcClientLive,
   ManagedConnectorClientsLive,
   CloudManagedEndpointRuntime.layer.pipe(
     Layer.provide(ServerSecretStore.layer),

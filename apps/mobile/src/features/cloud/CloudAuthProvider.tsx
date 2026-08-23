@@ -1,5 +1,3 @@
-import { ClerkProvider, useAuth } from "@clerk/expo";
-import { tokenCache } from "@clerk/expo/token-cache";
 import { ManagedRelay, setManagedRelaySession } from "@t3tools/client-runtime/relay";
 import {
   reportAtomCommandResult,
@@ -7,7 +5,16 @@ import {
   settlePromise,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
-import { type ReactNode, useEffect, useRef } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { environmentCatalog } from "../../connection/catalog";
 import { runtime } from "../../lib/runtime";
@@ -19,7 +26,40 @@ import {
   unregisterAgentAwarenessDeviceForCurrentUser,
 } from "../agent-awareness/remoteRegistration";
 import { clearConnectOnboardingRequest, requestConnectOnboarding } from "./connectOnboarding";
-import { resolveCloudPublicConfig, resolveRelayClerkTokenOptions } from "./publicConfig";
+import {
+  type CloudIdentityConfig,
+  resolveCloudIdentityConfig,
+  resolveCloudPublicConfig,
+} from "./publicConfig";
+import { makeSovereignMobileAuthClient } from "./sovereignMobileAuth";
+
+export interface MobileCloudAuthSession {
+  readonly provider: "sovereign" | "disabled";
+  readonly isLoaded: boolean;
+  readonly isSignedIn: boolean;
+  readonly userId: string | null;
+  readonly accountLabel: string | null;
+  readonly getToken: () => Promise<string | null>;
+  readonly signIn: () => Promise<void>;
+  readonly signOut: () => Promise<void>;
+}
+
+const disabledCloudAuthSession: MobileCloudAuthSession = {
+  provider: "disabled",
+  isLoaded: true,
+  isSignedIn: false,
+  userId: null,
+  accountLabel: null,
+  getToken: async () => null,
+  signIn: async () => undefined,
+  signOut: async () => undefined,
+};
+
+const MobileCloudAuthContext = createContext<MobileCloudAuthSession>(disabledCloudAuthSession);
+
+export function useMobileCloudAuth(): MobileCloudAuthSession {
+  return useContext(MobileCloudAuthContext);
+}
 
 function resetManagedRelayTokenCache() {
   return settleAsyncResult(() =>
@@ -45,8 +85,8 @@ export function activateCloudRelayAccount(
   });
 }
 
-function CloudAuthBridge(props: { readonly children: ReactNode }) {
-  const { getToken, isLoaded, isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false });
+function RelayCloudAuthBridge(props: { readonly children: ReactNode }) {
+  const { getToken, isLoaded, isSignedIn, userId } = useMobileCloudAuth();
   const removeRelayEnvironments = useAtomCommand(environmentCatalog.removeRelayEnvironments, {
     reportFailure: false,
     reportDefect: false,
@@ -60,26 +100,14 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    if (!isLoaded) {
-      return;
-    }
+    if (!isLoaded) return;
 
     const previousObservedAccount = observedAccountRef.current;
     const nextAccount = isSignedIn && userId ? userId : null;
     observedAccountRef.current = nextAccount;
-
-    // Every sign-in or account switch that completes during this session (a
-    // cold start observes undefined → account and must not re-prompt) requests
-    // the T3 Connect onboarding sheet — account transitions clear the
-    // connected environments, so each new session starts with no devices to
-    // reach. The request itself is issued after the cleanup transition inside
-    // activateSession, so the sheet never lists the previous account's
-    // environments; sign-out drops any not-yet-presented request instead.
     const isAccountTransition =
       previousObservedAccount !== undefined && previousObservedAccount !== nextAccount;
-    if (isAccountTransition && nextAccount === null) {
-      clearConnectOnboardingRequest();
-    }
+    if (isAccountTransition && nextAccount === null) clearConnectOnboardingRequest();
 
     const queueAccountCleanup = (
       previous: {
@@ -114,23 +142,17 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
       const previous = previousTokenProviderRef.current;
       previousTokenProviderRef.current = null;
       deactivateCloudRelayAccount();
-      if (previousObservedAccount !== null) {
-        void queueAccountCleanup(previous);
-      }
+      if (previousObservedAccount !== null) void queueAccountCleanup(previous);
       return;
     }
 
     const previous = previousTokenProviderRef.current;
-    const tokenProvider = () => getToken(resolveRelayClerkTokenOptions());
+    const tokenProvider = getToken;
     const activateSession = () => {
-      if (cancelled) {
-        return;
-      }
+      if (cancelled) return;
       previousTokenProviderRef.current = { userId, provider: tokenProvider };
       activateCloudRelayAccount(userId, tokenProvider);
-      if (isAccountTransition) {
-        requestConnectOnboarding(userId);
-      }
+      if (isAccountTransition) requestConnectOnboarding(userId);
     };
     const activateAfterTransition = (transition: Promise<void>) => {
       void (async () => {
@@ -161,9 +183,6 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
   useEffect(
     () => () => {
       previousTokenProviderRef.current = null;
-      // Unmounting is not a sign-out: the user is usually still signed in, so
-      // detach the provider without ending lock-screen activities or wiping the
-      // persisted registration (a remount reuses both).
       releaseAgentAwarenessRelayTokenProvider();
       setManagedRelaySession(appAtomRegistry, null);
     },
@@ -173,24 +192,88 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
   return props.children;
 }
 
-export function CloudAuthProvider(props: { readonly children: ReactNode }) {
-  const config = resolveCloudPublicConfig();
-  const publishableKey = config.clerk.publishableKey;
-  const relayUrl = config.relay.url;
+function SovereignCloudAuthSessionProvider({
+  config,
+  children,
+}: {
+  readonly config: Extract<CloudIdentityConfig, { readonly provider: "sovereign" }>;
+  readonly children: ReactNode;
+}) {
+  const redirectUri = `${config.redirectScheme}://app/connect/account/callback`;
+  const client = useMemo(
+    () =>
+      makeSovereignMobileAuthClient({
+        issuer: config.issuer,
+        clientId: config.clientId,
+        resource: config.resource,
+        redirectUri,
+      }),
+    [config.clientId, config.issuer, config.resource, redirectUri],
+  );
+  const [session, setSession] = useState({
+    isLoaded: false,
+    isSignedIn: false,
+    userId: null as string | null,
+  });
 
   useEffect(() => {
-    if (!publishableKey || !relayUrl) {
-      deactivateCloudRelayAccount();
-    }
-  }, [publishableKey, relayUrl]);
+    let cancelled = false;
+    void client.initialize().then(async () => {
+      await client.getToken();
+      if (!cancelled) setSession({ isLoaded: true, ...client.snapshot() });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
 
-  if (!publishableKey || !relayUrl) {
-    return props.children;
+  const getToken = useCallback(async () => {
+    const token = await client.getToken();
+    setSession({ isLoaded: true, ...client.snapshot() });
+    return token;
+  }, [client]);
+  const signIn = useCallback(async () => {
+    await client.signIn();
+    setSession({ isLoaded: true, ...client.snapshot() });
+  }, [client]);
+  const signOut = useCallback(async () => {
+    await client.clear();
+    setSession({ isLoaded: true, ...client.snapshot() });
+  }, [client]);
+  const value = useMemo<MobileCloudAuthSession>(
+    () => ({
+      provider: "sovereign",
+      ...session,
+      accountLabel: session.isSignedIn ? "Signed in" : null,
+      getToken,
+      signIn,
+      signOut,
+    }),
+    [getToken, session, signIn, signOut],
+  );
+  return <MobileCloudAuthContext value={value}>{children}</MobileCloudAuthContext>;
+}
+
+export function CloudAuthProvider(props: { readonly children: ReactNode }) {
+  const config = resolveCloudPublicConfig();
+  const identity = resolveCloudIdentityConfig(config);
+  const isConfigured = identity.provider === "sovereign" && Boolean(config.relay.url);
+
+  useEffect(() => {
+    if (!isConfigured) deactivateCloudRelayAccount();
+  }, [isConfigured]);
+
+  if (!isConfigured || identity.provider !== "sovereign") {
+    return (
+      <MobileCloudAuthContext value={disabledCloudAuthSession}>
+        {props.children}
+      </MobileCloudAuthContext>
+    );
   }
 
   return (
-    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-      <CloudAuthBridge>{props.children}</CloudAuthBridge>
-    </ClerkProvider>
+    <SovereignCloudAuthSessionProvider config={identity}>
+      <RelayCloudAuthBridge>{props.children}</RelayCloudAuthBridge>
+    </SovereignCloudAuthSessionProvider>
   );
 }

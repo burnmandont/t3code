@@ -80,6 +80,7 @@ import { relayUrlConfig } from "./publicConfig.ts";
 import {
   readCliDesiredCloudLink,
   readCliDesiredLinkMode,
+  readCliDesiredLinkTransfer,
   setCliDesiredCloudLink,
 } from "./CliState.ts";
 import * as CliTokenManager from "./CliTokenManager.ts";
@@ -312,13 +313,13 @@ function isAllowedEndpointOrigin(input: {
   return input.origin.localHttpPort === endpointRequestPort(url);
 }
 
-// A managed (Cloudflare tunnel) endpoint is provisioned by the relay and must
-// point at a loopback origin. A manual endpoint is reached out of band (e.g.
-// Tailscale) or not advertised at all for publish-only links, so it is not
-// tied to the managed-tunnel scope.
+// Managed endpoints are provisioned by either the upstream or sovereign relay
+// and must point at a loopback origin. A manual endpoint is reached out of band
+// or not advertised at all for publish-only links, so it has no tunnel scope.
 export function isSupportedLinkProviderKind(request: RelayLinkProofRequest): boolean {
   return (
     request.endpoint.providerKind === "cloudflare_tunnel" ||
+    request.endpoint.providerKind === "t3_relay" ||
     request.endpoint.providerKind === "manual"
   );
 }
@@ -326,9 +327,9 @@ export function isSupportedLinkProviderKind(request: RelayLinkProofRequest): boo
 export function linkProofScopes(
   request: RelayLinkProofRequest,
 ): RelayEnvironmentLinkProofPayload["scopes"] {
-  return request.endpoint.providerKind === "cloudflare_tunnel"
-    ? ["agent_activity_notifications", "managed_tunnels"]
-    : ["agent_activity_notifications"];
+  return request.endpoint.providerKind === "manual"
+    ? ["agent_activity_notifications"]
+    : ["agent_activity_notifications", "managed_tunnels"];
 }
 
 function hasExactScope(input: {
@@ -567,6 +568,7 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
     );
     const mode = yield* readCliDesiredLinkMode;
     const managedTunnelsEnabled = mode !== "publish_only";
+    const transferExistingLinks = yield* readCliDesiredLinkTransfer;
     const relayUrl = yield* requireRelayUrl;
     const challenge = yield* relayClientRequest(dependencies, {
       url: `${relayUrl}/v1/client/environment-link-challenges`,
@@ -575,6 +577,7 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
         notificationsEnabled: true,
         liveActivitiesEnabled: true,
         managedTunnelsEnabled,
+        transferExistingLinks,
       },
       schema: RelayEnvironmentLinkChallengeResponse,
     });
@@ -603,6 +606,7 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
         notificationsEnabled: true,
         liveActivitiesEnabled: true,
         managedTunnelsEnabled,
+        transferExistingLinks,
       },
       schema: RelayEnvironmentLinkResponse,
     });

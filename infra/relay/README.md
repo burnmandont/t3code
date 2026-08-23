@@ -74,6 +74,77 @@ vp run typecheck
 Backend changes should include tests. Prefer testing the real business logic with external
 dependencies represented at their boundary rather than mocking internal behavior.
 
+## Sovereign Runtime (in progress)
+
+`src/sovereign.ts` runs the existing relay API as a conventional Node service and runs the private
+frps authorization callback on a second listener. It uses ordinary PostgreSQL, the `t3_relay`
+endpoint provider, JWKS-verified OAuth access tokens, and local logs. APNs delivery is disabled.
+The runtime does not read Clerk, Cloudflare, PlanetScale, Axiom, or APNs configuration.
+
+The Node process also runs relay maintenance immediately at startup and every five minutes. It
+prunes expired DPoP replay records and terminal agent-activity rows using the same retention policy
+as the upstream Worker. Token exchange and terminal/deletion activity events perform the same
+cleanup opportunistically. Event cleanup is best-effort so a maintenance failure never rejects an
+otherwise valid authorization or activity update; the periodic pass logs failures and retries on
+the next cycle. The same reconciliation pass deprovisions allocation rows that no longer have an
+active managed link, including teardown left incomplete by a failed unlink or account transfer.
+Background cleanup waits through a 15-minute orphan grace period and uses allocation-generation
+compare-and-swap checks so it cannot tear down a tunnel that is concurrently being linked.
+
+Environment sharing remains the default. To move a machine exclusively to another account, run
+`t3 connect link --transfer` while authorizing the destination account. Transfer intent is bound
+into the signed link challenge and revokes only other users linked with that exact environment
+signing key; an environment-ID collision alone cannot take over an existing link.
+
+Apply the relay schema to an empty database, then start the process:
+
+```sh
+export T3_RELAY_DATABASE_URL='postgres://...'
+vp run --filter t3code-relay sovereign:db:migrate
+vp run --filter t3code-relay sovereign
+```
+
+Required runtime configuration:
+
+- `T3_RELAY_DATABASE_URL`: owned PostgreSQL connection URL.
+- `T3_RELAY_ISSUER`: canonical public relay origin.
+- `T3_RELAY_ALLOWED_ORIGINS`: comma-separated exact browser origins permitted by relay CORS. Native
+  clients do not require CORS; do not use `*` for an Internet-facing sovereign deployment.
+- `T3_RELAY_SIGNING_PRIVATE_KEY` and `T3_RELAY_SIGNING_PUBLIC_KEY`: Ed25519 PKCS#8/SPKI PEM used
+  by the existing relay and environment mint-proof protocol.
+- `T3_OIDC_ISSUER`, `T3_OIDC_AUDIENCE`, and `T3_OIDC_JWKS_URL`: owned OAuth 2.1 issuer, relay
+  resource identifier, and JWKS URL.
+- `T3_MANAGED_ENDPOINT_BASE_DOMAIN`: environment endpoint zone.
+- `T3_FRPS_SERVER_ADDR`: address remote frpc connectors can reach.
+
+For a local sovereign relay whose managed wildcard names do not resolve through the host DNS,
+set `T3_MANAGED_ENDPOINT_DIAL_HOST` to the local frps HTTP listener address, such as
+`127.0.0.1`. Relay-to-environment health and credential-mint requests then dial that address while
+preserving the allocated hostname in the HTTP `Host` header used by frps virtual-host routing. The
+public endpoint returned to clients is unchanged. Do not include a port; the configured managed
+endpoint HTTP port remains authoritative.
+
+For a container deployment where the private route also uses a different scheme or port, prefer
+`T3_MANAGED_ENDPOINT_DIAL_ORIGIN`, for example `http://frps:8080`. It replaces only the network
+dial origin. The public managed endpoint URL and its `Host` header remain unchanged. This avoids
+public-DNS hairpinning between a co-located relay and frps.
+
+The remaining variables have local-development defaults in `src/sovereign.ts`. The frps plugin
+listener defaults to `127.0.0.1:4101` and must remain on loopback or a private service network. A
+matching frps configuration is:
+
+```toml
+[[httpPlugins]]
+name = "t3-sovereign-authorization"
+addr = "127.0.0.1:4101"
+path = "/internal/frp/authorize"
+ops = ["Login", "NewProxy", "Ping", "CloseProxy"]
+```
+
+Schema changes are generated into `infra/relay/drizzle`; keep the Drizzle schema, generated
+migration, and snapshot in the same commit. Better Auth account tables will use their own generated
+migration boundary rather than being handwritten into the relay schema.
+
 ## Deployment
 
 The relay deploys through Alchemy:

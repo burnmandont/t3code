@@ -72,8 +72,7 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
     "'self'",
     "'unsafe-inline'",
     "'wasm-unsafe-eval'",
-    ...(clerkOrigin ? [clerkOrigin] : []),
-    "https://challenges.cloudflare.com",
+    ...(clerkOrigin ? [clerkOrigin, "https://challenges.cloudflare.com"] : []),
   ];
 
   // The renderer connects directly to user-configured environments in addition to
@@ -90,7 +89,7 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
     "style-src 'self' 'unsafe-inline'",
     `font-src 'self' ${input.scheme}: data:`,
     "worker-src 'self' blob:",
-    "frame-src 'self' https://challenges.cloudflare.com",
+    clerkOrigin ? "frame-src 'self' https://challenges.cloudflare.com" : "frame-src 'none'",
     "form-action 'self'",
   ].join("; ");
 }

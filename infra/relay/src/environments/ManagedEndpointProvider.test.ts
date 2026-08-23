@@ -48,8 +48,10 @@ interface AllocationCall {
     | "reserve"
     | "recordTunnel"
     | "recordDns"
+    | "recordConnectorCredential"
     | "markReady"
     | "claimRelease"
+    | "claimConnectorRevocation"
     | "claimDeprovision"
     | "remove"
     | "removeClaimed";
@@ -177,13 +179,22 @@ function makeAllocations(calls: AllocationCall[] = []) {
         calls.push({ operation: "get", input });
         return allocations.get(allocationKey(input)) ?? null;
       }),
+    getByConnectorId: (connectorId) =>
+      Effect.sync(
+        () =>
+          [...allocations.values()].find((allocation) => allocation.tunnelId === connectorId) ??
+          null,
+      ),
+    listOrphaned: () => Effect.succeed([]),
     reserve: (input) =>
       Effect.sync(() => {
         calls.push({ operation: "reserve", input });
         const allocation = allocations.get(allocationKey(input)) ?? {
           ...input,
+          providerKind: input.providerKind ?? "cloudflare_tunnel",
           tunnelId: null,
           dnsRecordId: null,
+          connectorTokenHash: null,
           readyAt: null,
           updatedAt: `generation-${++generation}`,
         };
@@ -206,6 +217,18 @@ function makeAllocations(calls: AllocationCall[] = []) {
           dnsRecordId: input.dnsRecordId,
         }));
       }),
+    recordConnectorCredential: (input) =>
+      Effect.sync(() => {
+        calls.push({ operation: "recordConnectorCredential", input });
+        mutate(allocationKey(input), (allocation) => ({
+          ...allocation,
+          providerKind: "t3_relay",
+          tunnelId: input.connectorId,
+          connectorTokenHash: input.connectorTokenHash,
+          dnsRecordId: null,
+          readyAt: "2026-06-02T00:00:00.000Z",
+        }));
+      }),
     markReady: (input) =>
       Effect.sync(() => {
         calls.push({ operation: "markReady", input });
@@ -226,6 +249,23 @@ function makeAllocations(calls: AllocationCall[] = []) {
           return false;
         }
         mutate(allocationKey(input), (current) => current);
+        return true;
+      }),
+    claimConnectorRevocation: (input) =>
+      Effect.sync(() => {
+        calls.push({ operation: "claimConnectorRevocation", input });
+        const allocation = allocations.get(allocationKey(input));
+        if (
+          allocation === undefined ||
+          allocation.tunnelId !== input.connectorId ||
+          allocation.updatedAt !== input.updatedAt
+        ) {
+          return false;
+        }
+        mutate(allocationKey(input), (current) => ({
+          ...current,
+          connectorTokenHash: null,
+        }));
         return true;
       }),
     claimDeprovision: (input) =>

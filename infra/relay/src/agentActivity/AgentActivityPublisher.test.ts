@@ -87,6 +87,7 @@ function makeEnvironmentLinks(
     listForUser: () => Effect.succeed([]),
     getForUser: () => Effect.succeed(null),
     revokeForUser: () => Effect.succeed(false),
+    revokeOtherUsersForEnvironmentKey: () => Effect.succeed([]),
     ...overrides,
   };
 }
@@ -218,7 +219,6 @@ describe("AgentActivityPublisher", () => {
     }> = [];
     const upserts: Array<Parameters<AgentActivityRows.AgentActivityRows["Service"]["upsert"]>[0]> =
       [];
-
     return Effect.gen(function* () {
       const result = yield* Effect.gen(function* () {
         const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
@@ -312,6 +312,7 @@ describe("AgentActivityPublisher", () => {
     > = [];
     const upserts: Array<Parameters<AgentActivityRows.AgentActivityRows["Service"]["upsert"]>[0]> =
       [];
+    const terminalPruneCutoffs: string[] = [];
 
     return Effect.gen(function* () {
       const result = yield* Effect.gen(function* () {
@@ -333,6 +334,10 @@ describe("AgentActivityPublisher", () => {
                     upsert: (input) =>
                       Effect.sync(() => {
                         upserts.push(input);
+                      }),
+                    pruneTerminal: ({ updatedBefore }) =>
+                      Effect.sync(() => {
+                        terminalPruneCutoffs.push(updatedBefore);
                       }),
                     listForUser: () => Effect.succeed([]),
                   }),
@@ -382,14 +387,16 @@ describe("AgentActivityPublisher", () => {
           ok: true,
         },
       ]);
-      // Terminal states are persisted (and later pruned by the cron) so the
-      // finished thread can keep a Done row in later aggregates.
+      // Terminal states are persisted long enough to display, while this
+      // terminal event opportunistically removes rows older than retention.
       expect(upserts).toEqual([
         {
           environmentPublicKey: "environment-public-key",
           state: completedState,
         },
       ]);
+      expect(terminalPruneCutoffs).toHaveLength(1);
+      expect(Date.parse(terminalPruneCutoffs[0]!)).not.toBeNaN();
       expect(sentAggregates).toHaveLength(1);
       expect(sentAggregates[0]?.aggregate).toMatchObject({
         activeCount: 0,

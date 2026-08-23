@@ -19,6 +19,10 @@ vi.mock("expo-updates", () => ({
   reloadAsync: vi.fn(),
 }));
 
+vi.mock("expo-constants", () => ({
+  default: { expoConfig: undefined },
+}));
+
 function makeUpdateClient(overrides: Partial<AppUpdateClient> = {}): AppUpdateClient {
   return {
     isEnabled: true,
@@ -602,6 +606,14 @@ describe("createAppUpdateLaunchCheck", () => {
   it("does nothing when Expo updates are disabled", () => {
     const client = makeUpdateClient({ isEnabled: false });
     const checkOnLaunch = createAppUpdateLaunchCheck(client);
+
+    expect(checkOnLaunch()).toBeUndefined();
+    expect(client.checkForUpdateAsync).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when sovereign runtime policy disables an available native updater", () => {
+    const client = makeUpdateClient({ isEnabled: true });
+    const checkOnLaunch = createAppUpdateLaunchCheck(client, false);
 
     expect(checkOnLaunch()).toBeUndefined();
     expect(client.checkForUpdateAsync).not.toHaveBeenCalled();

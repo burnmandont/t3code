@@ -21,6 +21,7 @@ import * as ManagedTunnelLimits from "./environments/ManagedTunnelLimits.ts";
 import * as ManagedEndpointProvider from "./environments/ManagedEndpointProviderService.ts";
 import * as RelayDb from "./RelayDbService.ts";
 import * as RelayHttpApp from "./RelayHttpApp.ts";
+import * as RelayMaintenance from "./RelayMaintenance.ts";
 
 /**
  * Provider-neutral relay behavior. Deployments supply identity verification,
@@ -33,8 +34,8 @@ export const make = <ME, MR, AE, AR, IE, IR, PE, PR, CE, CR>(options: {
   readonly identity: Layer.Layer<RelayIdentityVerifier.RelayIdentityVerifier, IE, IR>;
   readonly persistence: Layer.Layer<RelayDb.RelayDb | RelayDb.RelayTransactions, PE, PR>;
   readonly configuration: Layer.Layer<RelayConfiguration.RelayConfiguration, CE, CR>;
-}) =>
-  Layer.empty.pipe(
+}) => {
+  const domain = Layer.empty.pipe(
     Layer.provideMerge(MobileRegistrations.layer),
     Layer.provideMerge(AgentActivityPublisher.layer),
     Layer.provideMerge(EnvironmentConnector.layer),
@@ -60,3 +61,5 @@ export const make = <ME, MR, AE, AR, IE, IR, PE, PR, CE, CR>(options: {
     Layer.provideMerge(options.configuration),
     Layer.provideMerge(RelayHttpApp.webcryptoLayer),
   );
+  return Layer.merge(domain, RelayMaintenance.layer.pipe(Layer.provide(domain)));
+};

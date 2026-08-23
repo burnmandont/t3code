@@ -1,0 +1,63 @@
+FROM node:24.13.1-bookworm-slim AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=/pnpm:$PATH
+ENV BETTER_AUTH_TELEMETRY=0
+
+RUN npm install --global pnpm@11.10.0
+
+WORKDIR /app
+COPY . .
+
+# Install the two service dependency closures only in the build stage. The
+# runtime image receives self-contained bundles, not the monorepo dependency
+# graph or pnpm's content-addressable store.
+RUN pnpm install --frozen-lockfile \
+    --ignore-scripts \
+    --filter @t3tools/monorepo \
+    --filter t3code-account... \
+    --filter t3code-relay...
+RUN pnpm rebuild esbuild
+RUN pnpm --filter t3code-account typecheck \
+    && pnpm --filter t3code-relay typecheck
+
+RUN mkdir -p /out \
+    && pnpm exec esbuild infra/account/src/server.ts \
+      --bundle --platform=node --format=esm --target=node24 \
+      --external:pg-native \
+      --banner:js="import { createRequire as __t3CreateRequire } from 'node:module'; const require = __t3CreateRequire(import.meta.url);" \
+      --outfile=/out/account-server.mjs \
+    && pnpm exec esbuild infra/account/src/migrate.ts \
+      --bundle --platform=node --format=esm --target=node24 \
+      --external:pg-native \
+      --banner:js="import { createRequire as __t3CreateRequire } from 'node:module'; const require = __t3CreateRequire(import.meta.url);" \
+      --outfile=/out/account-migrate.mjs \
+    && pnpm exec esbuild infra/account/src/provisionClient.ts \
+      --bundle --platform=node --format=esm --target=node24 \
+      --external:pg-native \
+      --banner:js="import { createRequire as __t3CreateRequire } from 'node:module'; const require = __t3CreateRequire(import.meta.url);" \
+      --outfile=/out/account-provision.mjs \
+    && pnpm exec esbuild infra/relay/src/sovereign.ts \
+      --bundle --platform=node --format=esm --target=node24 \
+      --external:pg-native \
+      --banner:js="import { createRequire as __t3CreateRequire } from 'node:module'; const require = __t3CreateRequire(import.meta.url);" \
+      --outfile=/out/relay-server.mjs \
+    && pnpm exec esbuild infra/relay/src/migrate.ts \
+      --bundle --platform=node --format=esm --target=node24 \
+      --external:pg-native \
+      --banner:js="import { createRequire as __t3CreateRequire } from 'node:module'; const require = __t3CreateRequire(import.meta.url);" \
+      --outfile=/out/relay-migrate.mjs
+
+FROM node:24.13.1-bookworm-slim
+
+ENV NODE_ENV=production
+ENV BETTER_AUTH_TELEMETRY=0
+
+WORKDIR /app
+
+COPY --from=build /out/ /app/
+COPY infra/account/drizzle/ /app/drizzle/account/
+COPY infra/relay/drizzle/ /app/drizzle/relay/
+COPY infra/sovereign/scripts/start-relay.sh /app/start-relay.sh
+
+USER node

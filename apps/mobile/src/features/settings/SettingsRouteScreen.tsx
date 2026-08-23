@@ -1,4 +1,3 @@
-import { useAuth, useUser } from "@clerk/expo";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
@@ -28,8 +27,9 @@ import {
   refreshAgentAwarenessRegistration,
   subscribeAgentAwarenessRegistrationStatus,
 } from "../agent-awareness/remoteRegistration";
+import { useMobileCloudAuth } from "../cloud/CloudAuthProvider";
 import { refreshManagedRelayEnvironments } from "../cloud/managedRelayState";
-import { hasCloudPublicConfig, resolveRelayClerkTokenOptions } from "../cloud/publicConfig";
+import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { WorkspaceSidebarToolbar } from "../layout/workspace-sidebar-toolbar";
 import { runtime } from "../../lib/runtime";
@@ -148,8 +148,12 @@ function ConfiguredSettingsRouteScreen() {
   const agentAwarenessPlatform = resolveAgentAwarenessPlatformPresentation(Platform.OS);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { getToken, isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
-  const { user } = useUser();
+  const {
+    accountLabel: configuredAccountLabel,
+    getToken,
+    isLoaded,
+    isSignedIn,
+  } = useMobileCloudAuth();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>("checking");
   const [liveActivityStatus, setLiveActivityStatus] = useState<LiveActivityStatus>("checking");
@@ -163,8 +167,8 @@ function ConfiguredSettingsRouteScreen() {
   const accountLabel = useMemo(() => {
     if (!isLoaded) return "Checking";
     if (!isSignedIn) return "Sign in";
-    return user?.primaryEmailAddress?.emailAddress ?? "Signed in";
-  }, [isLoaded, isSignedIn, user?.primaryEmailAddress?.emailAddress]);
+    return configuredAccountLabel ?? "Signed in";
+  }, [configuredAccountLabel, isLoaded, isSignedIn]);
 
   const refreshNotifications = useCallback(async () => {
     if (process.env.EXPO_OS !== "ios") {
@@ -288,7 +292,7 @@ function ConfiguredSettingsRouteScreen() {
     }
 
     setLiveActivityStatus("linking");
-    const tokenResult = await settlePromise(() => getToken(resolveRelayClerkTokenOptions()));
+    const tokenResult = await settlePromise(() => getToken());
     if (tokenResult._tag === "Failure") {
       setLiveActivityStatus("disabled");
       const error = squashAtomCommandFailure(tokenResult);
@@ -381,9 +385,7 @@ function ConfiguredSettingsRouteScreen() {
         void (async () => {
           let token: string | null = null;
           if (isSignedIn) {
-            const tokenResult = await settlePromise(() =>
-              getToken(resolveRelayClerkTokenOptions()),
-            );
+            const tokenResult = await settlePromise(() => getToken());
             if (tokenResult._tag === "Failure") {
               reportAtomCommandResult(tokenResult, {
                 label: "live activity disable token lookup",

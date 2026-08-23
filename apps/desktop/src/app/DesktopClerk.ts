@@ -1,11 +1,9 @@
 import { createClerkBridge } from "@clerk/electron";
 import { storage } from "@clerk/electron/storage";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as Scope from "effect/Scope";
 
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import * as ElectronApp from "../electron/ElectronApp.ts";
@@ -13,6 +11,7 @@ import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as DesktopIdentity from "./DesktopIdentity.ts";
 
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
 
@@ -41,17 +40,6 @@ export class DesktopClerkBridgeCleanupError extends Schema.TaggedErrorClass<Desk
     return `Failed to clean up the desktop Clerk bridge for state directory "${this.stateDir}" (development: ${this.isDevelopment}).`;
   }
 }
-
-export class DesktopClerk extends Context.Service<
-  DesktopClerk,
-  {
-    readonly configure: Effect.Effect<
-      void,
-      never,
-      ElectronApp.ElectronApp | ElectronWindow.ElectronWindow | Scope.Scope
-    >;
-  }
->()("@t3tools/desktop/app/DesktopClerk") {}
 
 export function resolveDesktopClerkFrontendApiHostname(
   publishableKey: string | undefined,
@@ -118,7 +106,8 @@ export const make = Effect.gen(function* () {
       }).pipe(Effect.orDie),
   );
 
-  return DesktopClerk.of({
+  return DesktopIdentity.DesktopIdentity.of({
+    mode: "clerk",
     configure: Effect.gen(function* () {
       const electronApp = yield* ElectronApp.ElectronApp;
       const electronWindow = yield* ElectronWindow.ElectronWindow;
@@ -146,7 +135,9 @@ export const make = Effect.gen(function* () {
         );
       });
     }).pipe(Effect.withSpan("desktop.clerk.configure")),
+    ready: Effect.void,
+    ...DesktopIdentity.unavailableSovereignMethods,
   });
 });
 
-export const layer = Layer.effect(DesktopClerk, make);
+export const layer = Layer.effect(DesktopIdentity.DesktopIdentity, make);

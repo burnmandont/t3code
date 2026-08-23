@@ -1,0 +1,14 @@
+bindAddr = "0.0.0.0"
+bindPort = 7000
+vhostHTTPPort = 8080
+
+# Public TLS terminates at sovereign HTTPS ingress before the WebSocket upgrade
+# is forwarded to this Docker-private listener. Connector authentication still
+# happens in the relay-backed FRPS authorization plugin below.
+transport.tls.force = false
+
+[[httpPlugins]]
+name = "t3-sovereign-authorization"
+addr = "relay:4101"
+path = "/internal/frp/authorize"
+ops = ["Login", "NewProxy", "Ping", "CloseProxy"]

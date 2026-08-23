@@ -12,6 +12,8 @@ import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import * as RelayDb from "../RelayDbService.ts";
 import { relayAgentActivityRows, relayEnvironmentLinks } from "../persistence/schema.ts";
 
+export const TERMINAL_AGENT_ACTIVITY_RETENTION = { minutes: 30 } as const;
+
 export class AgentActivityRowUpsertPersistenceError extends Schema.TaggedErrorClass<AgentActivityRowUpsertPersistenceError>()(
   "AgentActivityRowUpsertPersistenceError",
   {

@@ -18,6 +18,7 @@ import { RelayEnvironmentAuth } from "@t3tools/contracts/relay";
 import {
   RELAY_REQUEST_DEADLINE_MS,
   relayCors,
+  relayCorsForAllowedOrigins,
   relayDocsRedirectRoute,
   relayEnvironmentAuthLayer,
   relayNotFoundRoute,
@@ -122,6 +123,7 @@ function relayUnlinkTestLayer(input?: {
         listForUser: () => Effect.die("unused listForUser"),
         getForUser: input?.getForUser ?? (() => Effect.succeed(null)),
         revokeForUser: input?.revokeForUser ?? (() => Effect.succeed(false)),
+        revokeOtherUsersForEnvironmentKey: () => Effect.succeed([]),
       }),
     ),
     Layer.succeed(
@@ -195,10 +197,12 @@ describe("relay environment unlink", () => {
     const deprovisionTarget = {
       userId: "user-1",
       environmentId: "environment-1",
+      providerKind: "cloudflare_tunnel",
       hostname: "environment-1.example.test",
       tunnelId: "tunnel-1",
       tunnelName: "environment-1-tunnel",
       dnsRecordId: "dns-1",
+      connectorTokenHash: null,
       readyAt: "2026-07-28T00:00:00.000Z",
       updatedAt: "generation-before-unlink",
     } satisfies ManagedEndpointProvider.ManagedEndpointDeprovisionTarget;
@@ -441,6 +445,54 @@ describe("relay routing fallback", () => {
 
       expect(response.status).toBe(404);
       expect(response.headers["access-control-allow-origin"]).toBe("*");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("grants sovereign browser CORS only to an exact configured origin", () =>
+    Effect.gen(function* () {
+      const allowedOrigin = "https://code.example.test";
+      const desktopOrigin = "t3code-dev://app";
+      const cors = relayCorsForAllowedOrigins([allowedOrigin, desktopOrigin]);
+      const httpEffect = yield* HttpRouter.toHttpEffect(Layer.merge(relayNotFoundRoute, cors));
+
+      const allowed = yield* httpEffect.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request("https://relay.test/missing", {
+              headers: { origin: allowedOrigin },
+            }),
+          ),
+        ),
+      );
+      expect(allowed.headers["access-control-allow-origin"]).toBe(allowedOrigin);
+      expect(allowed.headers.vary).toBe("Origin");
+
+      const desktop = yield* httpEffect.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request("https://relay.test/missing", {
+              headers: { origin: desktopOrigin },
+            }),
+          ),
+        ),
+      );
+      expect(desktop.headers["access-control-allow-origin"]).toBe(desktopOrigin);
+      expect(desktop.headers.vary).toBe("Origin");
+
+      const rejected = yield* httpEffect.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request("https://relay.test/missing", {
+              headers: { origin: "https://attacker.example" },
+            }),
+          ),
+        ),
+      );
+      expect(rejected.headers["access-control-allow-origin"]).toBeUndefined();
+      expect(rejected.headers.vary).toBe("Origin");
     }).pipe(Effect.scoped),
   );
 });

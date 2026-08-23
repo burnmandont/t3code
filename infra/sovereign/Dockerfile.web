@@ -1,0 +1,36 @@
+FROM node:24.13.1-bookworm-slim AS build
+
+ARG T3CODE_OAUTH_ISSUER
+ARG T3CODE_OAUTH_CLIENT_ID=t3-code
+ARG T3CODE_OAUTH_RESOURCE
+ARG T3CODE_RELAY_URL
+ARG VITE_HOSTED_APP_URL
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=/pnpm:$PATH
+ENV T3CODE_OAUTH_ISSUER=$T3CODE_OAUTH_ISSUER
+ENV T3CODE_OAUTH_CLIENT_ID=$T3CODE_OAUTH_CLIENT_ID
+ENV T3CODE_OAUTH_RESOURCE=$T3CODE_OAUTH_RESOURCE
+ENV T3CODE_RELAY_URL=$T3CODE_RELAY_URL
+ENV VITE_HOSTED_APP_URL=$VITE_HOSTED_APP_URL
+ENV VITE_HOSTED_APP_CHANNEL=sovereign
+ENV VITE_REMOTE_FAVICONS=0
+ENV T3CODE_WEB_SOURCEMAP=0
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install --global pnpm@11.10.0
+
+WORKDIR /app
+COPY . .
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter @t3tools/web...
+RUN pnpm rebuild esbuild
+RUN pnpm --filter @t3tools/web build
+
+FROM nginx:1.29.1-alpine
+
+COPY infra/sovereign/nginx.conf /etc/nginx/nginx.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+
+EXPOSE 8080

@@ -1,0 +1,4 @@
+tls:
+  certificates:
+    - certFile: /traefik/certs/t3-sovereign/current/fullchain.pem
+      keyFile: /traefik/certs/t3-sovereign/current/privkey.pem

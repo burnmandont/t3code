@@ -163,6 +163,7 @@ function connectorTestLayer(
   options?: {
     readonly links?: EnvironmentLinks.EnvironmentLinks["Service"];
     readonly allocations?: ManagedEndpointAllocations.ManagedEndpointAllocations["Service"];
+    readonly settings?: RelayConfiguration.RelayConfiguration["Service"];
   },
 ) {
   return EnvironmentConnector.layer.pipe(
@@ -174,7 +175,7 @@ function connectorTestLayer(
         options?.allocations ?? makeAllocations(),
       ),
     ),
-    Layer.provide(RelayConfiguration.layer(settings)),
+    Layer.provide(RelayConfiguration.layer(options?.settings ?? settings)),
     Layer.provide(Layer.succeed(HttpClient.HttpClient, HttpClient.make(execute))),
   );
 }
@@ -183,21 +184,27 @@ function makeAllocations(
   allocation: ManagedEndpointAllocations.ManagedEndpointAllocation | null = {
     userId: "user_123",
     environmentId: "env-connector-test",
+    providerKind: "cloudflare_tunnel",
     hostname: "env.example.test",
     tunnelId: "tunnel-id",
     tunnelName: "tunnel-name",
     dnsRecordId: "dns-record-id",
+    connectorTokenHash: null,
     readyAt: "2026-05-25T00:00:00.000Z",
     updatedAt: "2026-05-25T00:00:00.000Z",
   },
 ): ManagedEndpointAllocations.ManagedEndpointAllocations["Service"] {
   return {
     get: () => Effect.succeed(allocation),
+    getByConnectorId: () => Effect.die("unused"),
+    listOrphaned: () => Effect.succeed([]),
     reserve: () => Effect.die("unused"),
     recordTunnel: () => Effect.die("unused"),
     recordDns: () => Effect.die("unused"),
+    recordConnectorCredential: () => Effect.die("unused"),
     markReady: () => Effect.die("unused"),
     claimRelease: () => Effect.die("unused"),
+    claimConnectorRevocation: () => Effect.die("unused"),
     claimDeprovision: () => Effect.die("unused"),
     remove: () => Effect.die("unused"),
     removeClaimed: () => Effect.die("unused"),
@@ -227,10 +234,61 @@ function makeLinks(
         ...overrides,
       }),
     revokeForUser: () => Effect.succeed(false),
+    revokeOtherUsersForEnvironmentKey: () => Effect.succeed([]),
   };
 }
 
 describe("EnvironmentConnector", () => {
+  it.effect("rejects an environment that is not linked to the authenticated user", () => {
+    let requestCount = 0;
+    let lookupInput: { readonly userId: string; readonly environmentId: string } | undefined;
+    const execute = () =>
+      Effect.sync(() => {
+        requestCount += 1;
+        throw new Error("unexpected request");
+      });
+    const links = makeLinks();
+
+    return Effect.gen(function* () {
+      const connector = yield* EnvironmentConnector.EnvironmentConnector;
+      const result = yield* Effect.result(
+        connector.connect({
+          userId: "attacker-user",
+          environmentId: "victim-environment",
+          clientProofKeyThumbprint: "attacker-proof-key-thumbprint",
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(isEnvironmentConnectNotAuthorized(result.failure)).toBe(true);
+        if (isEnvironmentConnectNotAuthorized(result.failure)) {
+          expect(result.failure).toMatchObject({
+            operation: "connect",
+            reason: "environment_link_not_found",
+          });
+        }
+      }
+      expect(lookupInput).toMatchObject({
+        userId: "attacker-user",
+        environmentId: "victim-environment",
+      });
+      expect(requestCount).toBe(0);
+    }).pipe(
+      Effect.provide(
+        connectorTestLayer(execute, {
+          links: {
+            ...links,
+            getForUser: (input) => {
+              lookupInput = input;
+              return Effect.succeed(null);
+            },
+          },
+        }),
+      ),
+    );
+  });
+
   it.effect("loads the environment link and managed allocation concurrently", () =>
     Effect.gen(function* () {
       const started = yield* Ref.make(0);
@@ -321,6 +379,79 @@ describe("EnvironmentConnector", () => {
         },
       });
     }).pipe(Effect.provide(connectorTestLayer(execute)));
+  });
+
+  it.effect(
+    "dials an operator-provided host while preserving the managed endpoint Host header",
+    () => {
+      const seenRequests: Array<HttpClientRequest.HttpClientRequest> = [];
+      const execute = (request: HttpClientRequest.HttpClientRequest) =>
+        Effect.sync(() => {
+          seenRequests.push(request);
+          const healthRequest = decodeHealthRequestBody(requestBodyText(request));
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json(signHealthResponse(healthRequest), { status: 200 }),
+          );
+        });
+
+      return Effect.gen(function* () {
+        const connector = yield* EnvironmentConnector.EnvironmentConnector;
+        const result = yield* connector.status({
+          userId: "user_123",
+          environmentId: "env-connector-test",
+        });
+
+        expect(result.status).toBe("online");
+        expect(seenRequests).toHaveLength(1);
+        expect(seenRequests[0]?.url).toBe("https://127.0.0.1/api/t3-connect/health");
+        expect(seenRequests[0]?.headers.host).toBe("env.example.test");
+      }).pipe(
+        Effect.provide(
+          connectorTestLayer(execute, {
+            settings: RelayConfiguration.RelayConfiguration.of({
+              ...settings,
+              managedEndpointDialHost: "127.0.0.1",
+            }),
+          }),
+        ),
+      );
+    },
+  );
+
+  it.effect("dials a private origin while preserving the public managed endpoint Host", () => {
+    const seenRequests: Array<HttpClientRequest.HttpClientRequest> = [];
+    const execute = (request: HttpClientRequest.HttpClientRequest) =>
+      Effect.sync(() => {
+        seenRequests.push(request);
+        const healthRequest = decodeHealthRequestBody(requestBodyText(request));
+        return HttpClientResponse.fromWeb(
+          request,
+          Response.json(signHealthResponse(healthRequest), { status: 200 }),
+        );
+      });
+
+    return Effect.gen(function* () {
+      const connector = yield* EnvironmentConnector.EnvironmentConnector;
+      const result = yield* connector.status({
+        userId: "user_123",
+        environmentId: "env-connector-test",
+      });
+
+      expect(result.status).toBe("online");
+      expect(seenRequests).toHaveLength(1);
+      expect(seenRequests[0]?.url).toBe("http://frps:8080/api/t3-connect/health");
+      expect(seenRequests[0]?.headers.host).toBe("env.example.test");
+    }).pipe(
+      Effect.provide(
+        connectorTestLayer(execute, {
+          settings: RelayConfiguration.RelayConfiguration.of({
+            ...settings,
+            managedEndpointDialOrigin: "http://frps:8080",
+          }),
+        }),
+      ),
+    );
   });
 
   it.effect("rejects manual endpoints before sending a health request", () => {
@@ -466,10 +597,12 @@ describe("EnvironmentConnector", () => {
           allocations: makeAllocations({
             userId: "user_123",
             environmentId: "env-connector-test",
+            providerKind: "cloudflare_tunnel",
             hostname: "env.example.test",
             tunnelId: "tunnel-id",
             tunnelName: "tunnel-name",
             dnsRecordId: "dns-record-id",
+            connectorTokenHash: null,
             readyAt: null,
             updatedAt: "2026-05-25T00:00:00.000Z",
           }),

@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as HttpApi from "effect/unstable/httpapi/HttpApi";
 import * as HttpApiEndpoint from "effect/unstable/httpapi/HttpApiEndpoint";
@@ -175,6 +176,11 @@ export const RelayT3EndpointRuntimeConfig = Schema.Struct({
   ),
   proxyName: TrimmedNonEmptyString,
   hostname: TrimmedNonEmptyString,
+  localHttpHost: TrimmedNonEmptyString,
+  localHttpPort: Schema.Int.check(
+    Schema.isGreaterThanOrEqualTo(1),
+    Schema.isLessThanOrEqualTo(65_535),
+  ),
 });
 export type RelayT3EndpointRuntimeConfig = typeof RelayT3EndpointRuntimeConfig.Type;
 
@@ -263,6 +269,13 @@ export const RelayEnvironmentLinkChallengeRequest = Schema.Struct({
   managedTunnelsEnabled: Schema.Boolean.annotate({
     description: "Whether the relay should provision a managed tunnel for this environment.",
   }),
+  transferExistingLinks: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(false)),
+    Schema.annotate({
+      description:
+        "Whether this environment should revoke links held by other users for the same environment signing key.",
+    }),
+  ),
 }).annotate({ description: "Requested capabilities for a new environment-link challenge." });
 export type RelayEnvironmentLinkChallengeRequest = typeof RelayEnvironmentLinkChallengeRequest.Type;
 
@@ -285,6 +298,7 @@ export const RelayEnvironmentLinkRequest = Schema.Struct({
   notificationsEnabled: Schema.Boolean,
   liveActivitiesEnabled: Schema.Boolean,
   managedTunnelsEnabled: Schema.Boolean,
+  transferExistingLinks: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
 }).annotate({ description: "Links an authenticated cloud user to a T3 environment." });
 export type RelayEnvironmentLinkRequest = typeof RelayEnvironmentLinkRequest.Type;
 

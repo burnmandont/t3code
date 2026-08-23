@@ -133,6 +133,9 @@
   },
   "expo": {
     "autolinking": {
+      "exclude": [
+        "@clerk/expo"
+      ],
       "buildFromSource": [
         "react-native-screens",
         "@react-native-menu/menu"

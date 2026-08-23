@@ -10,6 +10,19 @@ Object.assign(process.env, repoEnv);
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
 const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
+const sovereignOAuthValues = {
+  issuer: repoEnv.T3CODE_OAUTH_ISSUER?.trim(),
+  clientId: repoEnv.T3CODE_OAUTH_CLIENT_ID?.trim(),
+  resource: repoEnv.T3CODE_OAUTH_RESOURCE?.trim(),
+  relayUrl: repoEnv.T3CODE_RELAY_URL?.trim(),
+};
+const sovereignOAuthValueCount = Object.values(sovereignOAuthValues).filter(Boolean).length;
+if (sovereignOAuthValueCount > 0 && sovereignOAuthValueCount < 4) {
+  throw new Error(
+    "Sovereign mobile builds require T3CODE_OAUTH_ISSUER, T3CODE_OAUTH_CLIENT_ID, T3CODE_OAUTH_RESOURCE, and T3CODE_RELAY_URL together.",
+  );
+}
+const isSovereignBuild = sovereignOAuthValueCount === 4;
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
@@ -100,7 +113,11 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 const variant = VARIANT_CONFIG[APP_VARIANT];
 const iosBundleIdentifier = isIosPersonalTeamBuild
   ? personalTeamBundleIdentifier!
-  : variant.iosBundleIdentifier;
+  : isSovereignBuild
+    ? (repoEnv.T3CODE_IOS_BUNDLE_ID?.trim() ?? `com.moondiner.t3code.${APP_VARIANT}`)
+    : variant.iosBundleIdentifier;
+const sovereignUpdatesUrl = repoEnv.T3CODE_EXPO_UPDATES_URL?.trim();
+const appUpdatesEnabled = !isSovereignBuild || Boolean(sovereignUpdatesUrl);
 
 const dmSansFonts = {
   regular: "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
@@ -152,6 +169,11 @@ const sharingPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   },
 ];
 
+const clerkPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
+  "@clerk/expo",
+  { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild },
+];
+
 // These aliases match the fonts' PostScript names on iOS. Register the same
 // names on Android so React Native and the native composer use one set of
 // family names without waiting for runtime font loading.
@@ -173,8 +195,10 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    enabled: true,
-    url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
+    enabled: appUpdatesEnabled,
+    ...(!isSovereignBuild || sovereignUpdatesUrl
+      ? { url: sovereignUpdatesUrl ?? "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454" }
+      : {}),
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
   },
@@ -188,11 +212,10 @@ const config: ExpoConfig = {
     // Pin code signing to the T3 Tools team so non-interactive `expo run:ios`
     // does not fall back to a personal team (which cannot sign app groups,
     // Sign in with Apple, or push notification entitlements).
-    appleTeamId: "ARK85ZXQ4Z",
-    associatedDomains: [
-      `applinks:${variant.relyingParty}`,
-      `webcredentials:${variant.relyingParty}`,
-    ],
+    appleTeamId: isSovereignBuild ? repoEnv.T3CODE_APPLE_TEAM_ID?.trim() : "ARK85ZXQ4Z",
+    associatedDomains: isSovereignBuild
+      ? []
+      : [`applinks:${variant.relyingParty}`, `webcredentials:${variant.relyingParty}`],
     infoPlist: {
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
@@ -272,9 +295,9 @@ const config: ExpoConfig = {
         mode: APP_VARIANT === "development" ? "development" : "production",
       },
     ],
-    // appleSignIn must be gated here: withoutIosPersonalTeamCapabilities.cjs runs before
-    // plugins earlier in this array, so it cannot strip the entitlement Clerk would add.
-    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild }],
+    // Sovereign clients use first-party browser OAuth and must not install
+    // Clerk's native identity configuration.
+    ...(!isSovereignBuild ? [clerkPlugin] : []),
     "expo-web-browser",
     [
       "expo-quick-actions",
@@ -317,11 +340,15 @@ const config: ExpoConfig = {
       {
         ios: {
           deploymentTarget: "18.0",
-          // AppCheckCore 11.3+ includes Swift and needs module maps for these Objective-C dependencies.
-          extraPods: [
-            { name: "GoogleUtilities", modular_headers: true },
-            { name: "RecaptchaInterop", modular_headers: true },
-          ],
+          ...(!isSovereignBuild
+            ? {
+                // AppCheckCore 11.3+ includes Swift and needs module maps for these Objective-C dependencies.
+                extraPods: [
+                  { name: "GoogleUtilities", modular_headers: true },
+                  { name: "RecaptchaInterop", modular_headers: true },
+                ],
+              }
+            : {}),
         },
       },
     ],
@@ -347,6 +374,12 @@ const config: ExpoConfig = {
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
     },
+    oauth: {
+      issuer: sovereignOAuthValues.issuer ?? null,
+      clientId: sovereignOAuthValues.clientId ?? null,
+      resource: sovereignOAuthValues.resource ?? null,
+      redirectScheme: isSovereignBuild ? variant.scheme : null,
+    },
     clerk: {
       publishableKey: repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null,
       jwtTemplate: repoEnv.EXPO_PUBLIC_CLERK_JWT_TEMPLATE ?? null,
@@ -361,15 +394,26 @@ const config: ExpoConfig = {
     EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID,
     EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME,
     observability: {
-      tracesUrl: repoEnv.EXPO_PUBLIC_OTLP_TRACES_URL ?? "https://api.axiom.co/v1/traces",
+      tracesUrl: repoEnv.EXPO_PUBLIC_OTLP_TRACES_URL ?? null,
       tracesDataset: repoEnv.EXPO_PUBLIC_OTLP_TRACES_DATASET ?? null,
       tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
     },
-    eas: {
-      projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",
+    appUpdates: {
+      // Expo Dev Client can report its native update module as enabled even
+      // when this build deliberately has no OTA channel. Mirror the manifest
+      // policy into public runtime config so launch and manual checks fail
+      // closed instead of invoking an unconfigured updater.
+      enabled: appUpdatesEnabled,
     },
+    ...(!isSovereignBuild
+      ? {
+          eas: {
+            projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",
+          },
+        }
+      : {}),
   },
-  owner: "pingdotgg",
+  ...(!isSovereignBuild ? { owner: "pingdotgg" } : {}),
 };
 
 export default config;

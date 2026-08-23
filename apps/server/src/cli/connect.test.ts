@@ -35,7 +35,7 @@ it("explains how to complete headless authorization", () => {
 });
 
 it("formats relay readiness without printing its installation path", () => {
-  assert.equal(formatRelayClientReady("2026.5.2"), "✓ Relay client ready · cloudflared 2026.5.2");
+  assert.equal(formatRelayClientReady("0.70.1"), "✓ Relay client ready · frpc 0.70.1");
 });
 
 const readHeadlessSessionConfig = (env: Record<string, string>) =>

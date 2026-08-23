@@ -1,14 +1,18 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { vi } from "vite-plus/test";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import * as FrpcClient from "@t3tools/shared/frpcClient";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import * as ManagedConnectorClients from "@t3tools/shared/managedConnectorClients";
 
@@ -29,14 +33,34 @@ const relayClientAvailableLayer = Layer.succeed(
   }),
 );
 
+const frpcClientAvailableLayer = Layer.succeed(
+  FrpcClient.FrpcClient,
+  FrpcClient.FrpcClient.of({
+    resolve: Effect.succeed({
+      status: "available",
+      executablePath: "frpc",
+      source: "path",
+      version: FrpcClient.FRPC_VERSION,
+    }),
+    install: Effect.die("unused"),
+    installWithProgress: () => Effect.die("unused"),
+  }),
+);
+
 const runtimeDependencies = (
   spawner: ReturnType<typeof ChildProcessSpawner.make>,
   relayClientLayer = relayClientAvailableLayer,
+  frpcLayer = frpcClientAvailableLayer,
 ) =>
   Layer.mergeAll(
+    NodeFileSystem.layer,
     Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
     relayClientLayer,
-    ManagedConnectorClients.layerCloudflaredFromRelayClient.pipe(Layer.provide(relayClientLayer)),
+    frpcLayer,
+    ManagedConnectorClients.layerFromConnectorClients.pipe(
+      Layer.provideMerge(relayClientLayer),
+      Layer.provideMerge(frpcLayer),
+    ),
     Layer.mock(ServerSecretStore.ServerSecretStore)({
       get: () => Effect.succeed(Option.none()),
     }),
@@ -45,11 +69,12 @@ const runtimeDependencies = (
 const buildCloudManagedEndpointRuntime = (
   spawner: ReturnType<typeof ChildProcessSpawner.make>,
   relayClientLayer = relayClientAvailableLayer,
+  frpcLayer = frpcClientAvailableLayer,
 ) =>
   Effect.gen(function* () {
     const context = yield* Layer.build(
       ManagedEndpointRuntime.layer.pipe(
-        Layer.provide(runtimeDependencies(spawner, relayClientLayer)),
+        Layer.provide(runtimeDependencies(spawner, relayClientLayer, frpcLayer)),
       ),
     );
     return yield* Effect.service(ManagedEndpointRuntime.CloudManagedEndpointRuntime).pipe(
@@ -106,6 +131,21 @@ describe("CloudManagedEndpointRuntime", () => {
     ).toBe("warning");
     expect(
       ManagedEndpointRuntime.classifyRelayClientOutput("2026-06-17T02:00:00Z PNC runtime panic"),
+    ).toBe("warning");
+  });
+
+  it("classifies frpc route readiness and failures", () => {
+    expect(
+      ManagedEndpointRuntime.classifyRelayClientOutput(
+        "[I] [proxy.go:204] [environment] start proxy success",
+        "t3_relay",
+      ),
+    ).toBe("connected");
+    expect(
+      ManagedEndpointRuntime.classifyRelayClientOutput(
+        "[W] [service.go:179] login to server failed: authorization denied",
+        "t3_relay",
+      ),
     ).toBe("warning");
   });
 
@@ -172,15 +212,32 @@ describe("CloudManagedEndpointRuntime", () => {
     }),
   );
 
-  it.effect("stops an active connector when a T3 relay runtime config is applied", () =>
+  it.effect("rotates to frpc using an owner-only temporary config and no argv or env secret", () =>
     Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
       const killed: Array<number> = [];
-      const spawner = ChildProcessSpawner.make(() =>
+      const spawned: Array<ChildProcess.StandardCommand> = [];
+      let frpcConfigPath: string | undefined;
+      let frpcConfigContents: string | undefined;
+      let frpcConfigMode: number | undefined;
+      const spawner = ChildProcessSpawner.make((command) =>
         Effect.gen(function* () {
+          if (!ChildProcess.isStandardCommand(command)) {
+            throw new Error("Expected standard command.");
+          }
+          spawned.push(command);
+          const pid = spawned.length === 1 ? 200 : 201;
+          if (command.command === "frpc") {
+            const configPath = command.args[1];
+            if (!configPath) throw new Error("Expected an frpc config path.");
+            frpcConfigPath = configPath;
+            frpcConfigContents = yield* fileSystem.readFileString(configPath);
+            frpcConfigMode = (yield* fileSystem.stat(configPath)).mode & 0o777;
+          }
           const handle = makeHandle({
-            pid: 200,
+            pid,
             onKill: () => {
-              killed.push(200);
+              killed.push(pid);
             },
           });
           yield* Effect.addFinalizer(() => handle.kill().pipe(Effect.ignore));
@@ -193,7 +250,7 @@ describe("CloudManagedEndpointRuntime", () => {
         providerKind: "cloudflare_tunnel",
         connectorToken: "token",
       });
-      const unsupported = yield* runtime.applyConfig({
+      const sovereign = yield* runtime.applyConfig({
         providerKind: "t3_relay",
         connectorId: "environment-id",
         connectorToken: "connector-token",
@@ -201,12 +258,30 @@ describe("CloudManagedEndpointRuntime", () => {
         serverPort: 7000,
         proxyName: "environment-proxy",
         hostname: "environment.example.test",
+        localHttpHost: "127.0.0.1",
+        localHttpPort: 3773,
       });
+      yield* runtime.applyConfig(null);
 
       expect(started.status).toBe("running");
-      expect(unsupported).toEqual({ status: "unsupported", providerKind: "t3_relay" });
-      expect(killed).toEqual([200]);
-    }),
+      expect(sovereign).toEqual({
+        status: "running",
+        providerKind: "t3_relay",
+        pid: 201,
+        proxyName: "environment-proxy",
+        hostname: "environment.example.test",
+      });
+      expect(spawned.map((command) => command.command)).toEqual(["cloudflared", "frpc"]);
+      expect(spawned[1]?.args[0]).toBe("-c");
+      expect(spawned[1]?.args.join(" ")).not.toContain("connector-token");
+      expect(spawned[1]?.options.env?.TUNNEL_TOKEN).toBeUndefined();
+      expect(frpcConfigContents).toContain('metadatas.t3_connector_token = "connector-token"');
+      expect(frpcConfigContents).toContain('localIP = "127.0.0.1"');
+      expect(frpcConfigMode).toBe(0o600);
+      expect(frpcConfigPath).toBeDefined();
+      expect(yield* fileSystem.exists(frpcConfigPath!)).toBe(false);
+      expect(killed).toEqual([200, 201]);
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 
   it.effect("restarts the connector when the active process has exited", () =>
@@ -282,6 +357,9 @@ describe("CloudManagedEndpointRuntime", () => {
         tunnelId: "tunnel-1",
       });
       yield* Deferred.succeed(firstExit, ChildProcessSpawner.ExitCode(1));
+      yield* Effect.yieldNow;
+      expect(spawned).toEqual([400]);
+      yield* TestClock.adjust("1 second");
       yield* Deferred.await(secondSpawned);
 
       expect(started).toMatchObject({ status: "running", pid: 400 });
@@ -399,5 +477,64 @@ describe("CloudManagedEndpointRuntime", () => {
       });
       expect(spawn).not.toHaveBeenCalled();
     }),
+  );
+
+  it.effect("installs frpc on first sovereign allocation without a separate UI flow", () =>
+    Effect.gen(function* () {
+      const installs: Array<string> = [];
+      const spawned: Array<string> = [];
+      const spawner = ChildProcessSpawner.make((command) =>
+        Effect.gen(function* () {
+          if (!ChildProcess.isStandardCommand(command)) {
+            throw new Error("Expected standard command.");
+          }
+          spawned.push(command.command);
+          const handle = makeHandle({ pid: 700, onKill: () => undefined });
+          yield* Effect.addFinalizer(() => handle.kill().pipe(Effect.ignore));
+          return handle;
+        }),
+      );
+      const frpcLayer = Layer.succeed(
+        FrpcClient.FrpcClient,
+        FrpcClient.FrpcClient.of({
+          resolve: Effect.succeed({ status: "missing", version: FrpcClient.FRPC_VERSION }),
+          install: Effect.sync(() => {
+            installs.push("frpc");
+            return {
+              status: "available" as const,
+              executablePath: "managed-frpc",
+              source: "managed" as const,
+              version: FrpcClient.FRPC_VERSION,
+            };
+          }),
+          installWithProgress: () => Effect.die("unused"),
+        }),
+      );
+      const runtime = yield* buildCloudManagedEndpointRuntime(
+        spawner,
+        relayClientAvailableLayer,
+        frpcLayer,
+      );
+
+      const status = yield* runtime.applyConfig({
+        providerKind: "t3_relay",
+        connectorId: "environment-id",
+        connectorToken: "connector-token",
+        serverAddr: "connect.example.test",
+        serverPort: 7000,
+        proxyName: "environment-proxy",
+        hostname: "environment.example.test",
+        localHttpHost: "127.0.0.1",
+        localHttpPort: 3773,
+      });
+
+      expect(status).toMatchObject({
+        status: "running",
+        providerKind: "t3_relay",
+        pid: 700,
+      });
+      expect(installs).toEqual(["frpc"]);
+      expect(spawned).toEqual(["managed-frpc"]);
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 });

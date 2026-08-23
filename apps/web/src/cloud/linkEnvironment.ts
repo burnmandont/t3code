@@ -432,6 +432,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
           notificationsEnabled: true,
           liveActivitiesEnabled: true,
           managedTunnelsEnabled,
+          transferExistingLinks: false,
         },
       })
       .pipe(
@@ -464,6 +465,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
           notificationsEnabled: true,
           liveActivitiesEnabled: true,
           managedTunnelsEnabled,
+          transferExistingLinks: false,
         },
       })
       .pipe(

@@ -1,9 +1,10 @@
 "use strict";
 
 // expo-sharing intentionally uses a fixed target name and also uses that
-// internal target name as CFBundleDisplayName. Brand the extension while
-// leaving its initially-empty signing team intact: Expo uses that state to
-// select ios.appleTeamId and enable first-time profile provisioning.
+// internal target name as CFBundleDisplayName. Brand the extension and copy
+// ios.appleTeamId into the generated target: expo-sharing does not currently
+// propagate the team, which makes simulator builds pass but device builds fail
+// before automatic provisioning can begin.
 //
 // ORDERING: list this plugin BEFORE expo-sharing. Expo runs same-type mods in
 // reverse registration order, so this executes after the extension exists.
@@ -57,7 +58,7 @@ function withDisplayNamePlist(config, displayName) {
   ]);
 }
 
-function withExtensionDisplayNameBuildSetting(config, displayName) {
+function withExtensionBuildSettings(config, displayName, developmentTeam) {
   return withXcodeProject(config, (cfg) => {
     const objects = cfg.modResults.hash.project.objects;
     const targetEntry = findByName(objects.PBXNativeTarget, TARGET_NAME);
@@ -78,6 +79,10 @@ function withExtensionDisplayNameBuildSetting(config, displayName) {
       const buildConfiguration = buildConfigurations[reference.value];
       if (buildConfiguration?.buildSettings) {
         buildConfiguration.buildSettings.INFOPLIST_KEY_CFBundleDisplayName = `"${displayName}"`;
+        if (developmentTeam) {
+          buildConfiguration.buildSettings.DEVELOPMENT_TEAM = developmentTeam;
+          buildConfiguration.buildSettings.CODE_SIGN_STYLE = "Automatic";
+        }
       }
     }
     return cfg;
@@ -86,8 +91,9 @@ function withExtensionDisplayNameBuildSetting(config, displayName) {
 
 module.exports = function withShareExtensionDisplayName(config) {
   const displayName = config.name;
-  return withExtensionDisplayNameBuildSetting(
+  return withExtensionBuildSettings(
     withDisplayNamePlist(config, displayName),
     displayName,
+    config.ios?.appleTeamId,
   );
 };

@@ -10,6 +10,12 @@ const CONNECT_AUTHORIZE_PATH = "/connect";
 const CONNECT_CALLBACK_PATH = "/connect/callback";
 
 /**
+ * Interactive app callback. Keep this below the frontend-owned `/connect`
+ * namespace: local T3 servers proxy `/oauth` to the backend OAuth API.
+ */
+export const SOVEREIGN_APP_CALLBACK_PATH = "/connect/account/callback";
+
+/**
  * The CLI prints URLs against this origin and the web bundle uses it to
  * decide whether it is the hosted deployment — the two must agree, so the
  * default lives here.

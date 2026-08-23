@@ -28,6 +28,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as DesktopIdentity from "./DesktopIdentity.ts";
 
 const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
   const environment = DesktopEnvironment.DesktopEnvironment.of({
@@ -51,6 +52,10 @@ const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
       Layer.mergeAll(
         Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
         Layer.succeed(ElectronApp.ElectronApp, electronApp),
+        Layer.succeed(
+          ElectronWindow.ElectronWindow,
+          {} as ElectronWindow.ElectronWindow["Service"],
+        ),
         FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
       ),
     ),
@@ -168,8 +173,8 @@ describe("DesktopClerk", () => {
     const electronWindow = {} as ElectronWindow.ElectronWindow["Service"];
 
     return Effect.gen(function* () {
-      const clerk = yield* DesktopClerk.DesktopClerk;
-      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
+      const identity = yield* DesktopIdentity.DesktopIdentity;
+      const exit = yield* Effect.exit(Effect.scoped(identity.configure));
 
       assert.isTrue(Exit.isSuccess(exit));
       assert.equal(quit.mock.calls.length, 0);
@@ -196,8 +201,8 @@ describe("DesktopClerk", () => {
     const electronWindow = {} as ElectronWindow.ElectronWindow["Service"];
 
     return Effect.gen(function* () {
-      const clerk = yield* DesktopClerk.DesktopClerk;
-      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
+      const identity = yield* DesktopIdentity.DesktopIdentity;
+      const exit = yield* Effect.exit(Effect.scoped(identity.configure));
 
       assert.isTrue(Exit.hasInterrupts(exit));
       assert.equal(quit.mock.calls.length, 1);

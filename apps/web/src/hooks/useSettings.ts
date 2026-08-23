@@ -25,6 +25,7 @@ import {
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import { environmentCatalog } from "~/connection/catalog";
 import { ensureLocalApi } from "~/localApi";
 import {
   getThemeDefinition,
@@ -34,8 +35,9 @@ import {
   themeAllowsSidebarArtwork,
 } from "~/themePalette";
 import * as Struct from "effect/Struct";
+import { activeEnvironmentIdAtom } from "~/state/entities";
+import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
-import { usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
 
@@ -219,6 +221,40 @@ export function mergeEnvironmentSettings(
   return { ...serverSettings, ...clientSettings };
 }
 
+export function resolveSettingsEnvironmentId(input: {
+  readonly primaryEnvironmentId: EnvironmentId | null;
+  readonly activeEnvironmentId: EnvironmentId | null;
+  readonly environmentIds: ReadonlyArray<EnvironmentId>;
+}): EnvironmentId | null {
+  if (input.primaryEnvironmentId !== null) {
+    return input.primaryEnvironmentId;
+  }
+  if (
+    input.activeEnvironmentId !== null &&
+    input.environmentIds.includes(input.activeEnvironmentId)
+  ) {
+    return input.activeEnvironmentId;
+  }
+  return input.environmentIds.length === 1 ? (input.environmentIds[0] ?? null) : null;
+}
+
+function useSettingsEnvironmentId(): EnvironmentId | null {
+  const primaryEnvironmentId = useAtomValue(primaryEnvironmentIdAtom);
+  const activeEnvironmentId = useAtomValue(activeEnvironmentIdAtom);
+  const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
+  const environmentIds = useMemo(() => [...catalog.entries.keys()], [catalog.entries]);
+
+  return useMemo(
+    () =>
+      resolveSettingsEnvironmentId({
+        primaryEnvironmentId,
+        activeEnvironmentId,
+        environmentIds,
+      }),
+    [activeEnvironmentId, environmentIds, primaryEnvironmentId],
+  );
+}
+
 function useMergedSettings<T>(
   serverSettings: ServerSettings,
   selector: ((settings: UnifiedSettings) => T) | undefined,
@@ -298,11 +334,24 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
   return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
-/** Primary-only settings access for the settings UI and other explicitly global surfaces. */
+/**
+ * Settings access for global surfaces. Hosted clients have no
+ * PrimaryConnectionTarget, so fall back to the active (or sole) remote
+ * environment instead of rendering unwritable defaults.
+ */
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  return useMergedSettings(useAtomValue(primaryServerSettingsAtom), selector);
+  const environmentId = useSettingsEnvironmentId();
+  const settingsAtom = useMemo(
+    () =>
+      environmentId === null
+        ? primaryServerSettingsAtom
+        : serverEnvironment.settingsValueAtom(environmentId),
+    [environmentId],
+  );
+  const serverSettings = useAtomValue(settingsAtom) ?? DEFAULT_SERVER_SETTINGS;
+  return useMergedSettings(serverSettings, selector);
 }
 
 /**
@@ -346,7 +395,7 @@ export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
 }
 
 export function useUpdatePrimarySettings() {
-  return useUpdateSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
+  return useUpdateSettingsTarget(useSettingsEnvironmentId());
 }
 
 export function useUpdateClientSettings() {

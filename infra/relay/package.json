@@ -5,6 +5,9 @@
   "scripts": {
     "deploy": "node -- scripts/deploy.ts",
     "destroy": "alchemy destroy",
+    "sovereign": "node -- src/sovereign.ts",
+    "sovereign:db:generate": "node --preserve-symlinks --preserve-symlinks-main node_modules/drizzle-kit/bin.cjs generate --config drizzle.config.ts",
+    "sovereign:db:migrate": "node --preserve-symlinks --preserve-symlinks-main node_modules/drizzle-kit/bin.cjs migrate --config drizzle.config.ts",
     "test": "vp test run",
     "typecheck": "tsgo --noEmit"
   },
@@ -25,7 +28,9 @@
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "drizzle-kit": "1.0.0-rc.4",
+    "pg": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }

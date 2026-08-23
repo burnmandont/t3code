@@ -3,9 +3,12 @@ import { CheckIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  connectOnboardingPublishActionLabel,
   CONNECT_ONBOARDING_OPT_OUT_STORAGE_KEY,
   ConnectOnboardingOptOutSchema,
+  DEFAULT_CONNECT_ONBOARDING_PUBLISH_SELECTION,
   EMPTY_CONNECT_ONBOARDING_OPT_OUT_STATE,
+  shouldPublishConnectOnboardingSelection,
 } from "~/cloud/connectOnboarding";
 import { useCloudAuth } from "~/cloud/auth";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
@@ -80,8 +83,12 @@ function ConfiguredConnectOnboardingDialog() {
   const [requestedAccount, setRequestedAccount] = useState<string | null>(null);
   const [openForAccount, setOpenForAccount] = useState<string | null>(null);
   const [step, setStep] = useState<OnboardingStep>("devices");
-  const [exposeEnvironment, setExposeEnvironment] = useState(true);
-  const [publishAgentActivity, setPublishAgentActivity] = useState(true);
+  const [exposeEnvironment, setExposeEnvironment] = useState<boolean>(
+    DEFAULT_CONNECT_ONBOARDING_PUBLISH_SELECTION.exposeEnvironment,
+  );
+  const [publishAgentActivity, setPublishAgentActivity] = useState<boolean>(
+    DEFAULT_CONNECT_ONBOARDING_PUBLISH_SELECTION.publishAgentActivity,
+  );
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const prefilledFromLinkStateRef = useRef(false);
@@ -124,8 +131,8 @@ function ConfiguredConnectOnboardingDialog() {
     if (!sessionScopesKnown || !publishStepDecided) return;
     setRequestedAccount(null);
     prefilledFromLinkStateRef.current = false;
-    setExposeEnvironment(true);
-    setPublishAgentActivity(true);
+    setExposeEnvironment(DEFAULT_CONNECT_ONBOARDING_PUBLISH_SELECTION.exposeEnvironment);
+    setPublishAgentActivity(DEFAULT_CONNECT_ONBOARDING_PUBLISH_SELECTION.publishAgentActivity);
     setDontShowAgain(false);
     setStep(canManageRelay && controller.linkState.target !== null ? "publish" : "devices");
     setOpenForAccount(requestedAccount);
@@ -150,8 +157,8 @@ function ConfiguredConnectOnboardingDialog() {
     }
   }, [isSignedIn, openForAccount, requestedAccount, userId]);
 
-  // Toggles default on, but an environment that is already linked should show
-  // its actual configuration instead of silently proposing to rewrite it.
+  // Publishing is explicit opt-in, but an environment that is already linked
+  // should show its actual configuration instead of pretending it is off.
   // Only when the link belongs to the account being onboarded, though — after
   // an account switch the cached link state can still describe the previous
   // account's setup.
@@ -185,7 +192,7 @@ function ConfiguredConnectOnboardingDialog() {
   const applyPublishSelection = async () => {
     // The wizard only ever enables — with both toggles off there is nothing to
     // apply, and an existing link must not be torn down from onboarding.
-    if (!exposeEnvironment && !publishAgentActivity) {
+    if (!shouldPublishConnectOnboardingSelection({ exposeEnvironment, publishAgentActivity })) {
       setStep("devices");
       return;
     }
@@ -219,8 +226,8 @@ function ConfiguredConnectOnboardingDialog() {
         <DialogHeader>
           <DialogTitle>Set up T3 Connect</DialogTitle>
           <DialogDescription>
-            Mesh your devices together — publish this environment and connect the rest, all in one
-            place.
+            Connect to environments already published to your account. Publishing this environment
+            is optional and always requires your explicit choice.
           </DialogDescription>
           {steps.length > 1 ? (
             <OnboardingStepper
@@ -265,7 +272,12 @@ function ConfiguredConnectOnboardingDialog() {
                   }
                   onClick={() => void applyPublishSelection()}
                 >
-                  {isApplying ? "Enabling…" : "Continue"}
+                  {isApplying
+                    ? "Enabling…"
+                    : connectOnboardingPublishActionLabel({
+                        exposeEnvironment,
+                        publishAgentActivity,
+                      })}
                 </Button>
               </>
             ) : (

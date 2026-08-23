@@ -9,7 +9,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 
 import * as RelayDb from "../RelayDbService.ts";
 import { relayEnvironmentLinks } from "../persistence/schema.ts";
@@ -101,6 +101,19 @@ export class EnvironmentLinkRevokePersistenceError extends Schema.TaggedErrorCla
   }
 }
 
+export class EnvironmentLinkTransferPersistenceError extends Schema.TaggedErrorClass<EnvironmentLinkTransferPersistenceError>()(
+  "EnvironmentLinkTransferPersistenceError",
+  {
+    userId: Schema.String,
+    environmentId: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to transfer environment '${this.environmentId}' to user '${this.userId}'`;
+  }
+}
+
 export class EnvironmentLinks extends Context.Service<
   EnvironmentLinks,
   {
@@ -137,6 +150,11 @@ export class EnvironmentLinks extends Context.Service<
       readonly userId: string;
       readonly environmentId: string;
     }) => Effect.Effect<boolean, EnvironmentLinkRevokePersistenceError>;
+    readonly revokeOtherUsersForEnvironmentKey: (input: {
+      readonly userId: string;
+      readonly environmentId: string;
+      readonly environmentPublicKey: string;
+    }) => Effect.Effect<ReadonlyArray<string>, EnvironmentLinkTransferPersistenceError>;
   }
 >()("t3code-relay/environments/EnvironmentLinks") {}
 
@@ -426,6 +444,39 @@ const make = Effect.gen(function* () {
           ),
         );
       return rows.length > 0;
+    }),
+
+    revokeOtherUsersForEnvironmentKey: Effect.fn(
+      "relay.environment_links.revoke_other_users_for_environment_key",
+    )(function* (input) {
+      yield* Effect.annotateCurrentSpan({
+        "relay.environment_id": input.environmentId,
+        "relay.environment_transfer.target_user_id": input.userId,
+      });
+      const revokedAt = DateTime.formatIso(yield* DateTime.now);
+      return yield* db
+        .update(relayEnvironmentLinks)
+        .set({ revokedAt, updatedAt: revokedAt })
+        .where(
+          and(
+            eq(relayEnvironmentLinks.environmentId, input.environmentId),
+            eq(relayEnvironmentLinks.environmentPublicKey, input.environmentPublicKey),
+            ne(relayEnvironmentLinks.userId, input.userId),
+            isNull(relayEnvironmentLinks.revokedAt),
+          ),
+        )
+        .returning({ userId: relayEnvironmentLinks.userId })
+        .pipe(
+          Effect.map((rows) => rows.map((row) => row.userId)),
+          Effect.mapError(
+            (cause) =>
+              new EnvironmentLinkTransferPersistenceError({
+                userId: input.userId,
+                environmentId: input.environmentId,
+                cause,
+              }),
+          ),
+        );
     }),
   });
 });

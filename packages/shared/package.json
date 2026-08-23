@@ -167,6 +167,10 @@
       "types": "./src/connectAuth.ts",
       "import": "./src/connectAuth.ts"
     },
+    "./sovereignAuth": {
+      "types": "./src/sovereignAuth.ts",
+      "import": "./src/sovereignAuth.ts"
+    },
     "./path": {
       "types": "./src/path.ts",
       "import": "./src/path.ts"
@@ -190,6 +194,10 @@
     "./relayClient": {
       "types": "./src/relayClient.ts",
       "import": "./src/relayClient.ts"
+    },
+    "./frpcClient": {
+      "types": "./src/frpcClient.ts",
+      "import": "./src/frpcClient.ts"
     },
     "./relayTracing": {
       "types": "./src/relayTracing.ts",

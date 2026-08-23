@@ -300,6 +300,7 @@ export function linkEnvironmentToCloudWithPreference(
           notificationsEnabled: true,
           liveActivitiesEnabled,
           managedTunnelsEnabled: true,
+          transferExistingLinks: false,
         },
       })
       .pipe(
@@ -332,6 +333,7 @@ export function linkEnvironmentToCloudWithPreference(
           notificationsEnabled: true,
           liveActivitiesEnabled,
           managedTunnelsEnabled: true,
+          transferExistingLinks: false,
         },
       })
       .pipe(
