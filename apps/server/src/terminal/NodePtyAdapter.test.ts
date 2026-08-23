@@ -21,7 +21,17 @@ const spawn = vi.fn(() => ({
 
 vi.mock("node-pty", () => ({ spawn }));
 
-const testLayer = NodePtyAdapter.layer.pipe(
+const darwinTestLayer = NodePtyAdapter.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      NodeServices.layer,
+      Layer.succeed(HostProcessPlatform, "darwin"),
+      Layer.succeed(HostProcessArchitecture, "arm64"),
+    ),
+  ),
+);
+
+const win32TestLayer = NodePtyAdapter.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       NodeServices.layer,
@@ -36,28 +46,27 @@ it.effect("spawns through the public adapter with the provided host references",
     spawn.mockClear();
     const adapter = yield* PtyAdapter.PtyAdapter;
     const process = yield* adapter.spawn({
-      shell: "powershell.exe",
-      args: ["-NoLogo"],
-      cwd: "C:\\workspace",
+      shell: "/bin/zsh",
+      cwd: "/workspace",
       cols: 120,
       rows: 40,
-      env: {},
+      env: { TERM: "dumb", TEST_KEEP: "yes" },
     });
 
     assert.equal(process.pid, 42);
     assert.equal(spawn.mock.calls.length, 1);
     assert.deepEqual(spawn.mock.calls[0], [
-      "powershell.exe",
-      ["-NoLogo"],
+      "/bin/zsh",
+      [],
       {
-        cwd: "C:\\workspace",
+        cwd: "/workspace",
         cols: 120,
         rows: 40,
-        env: { TERM: "xterm-256color" },
+        env: { TERM: "xterm-256color", TEST_KEEP: "yes" },
         name: "xterm-256color",
       },
     ]);
-  }).pipe(Effect.provide(testLayer)),
+  }).pipe(Effect.provide(darwinTestLayer)),
 );
 
 it.effect("preserves a caller-provided TERM in the spawn env on win32", () =>
@@ -81,10 +90,10 @@ it.effect("preserves a caller-provided TERM in the spawn env on win32", () =>
         cols: 80,
         rows: 24,
         env: { TERM: "xterm-direct" },
-        name: "xterm-256color",
+        name: "xterm-color",
       },
     ]);
-  }).pipe(Effect.provide(testLayer)),
+  }).pipe(Effect.provide(win32TestLayer)),
 );
 
 it.effect("reports native module load failures as structured startup defects", () =>

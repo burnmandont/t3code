@@ -2,11 +2,17 @@ import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
 } from "@pierre/trees";
-import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectDirectoryEntry,
+  ProjectEntry,
+  ProjectGitStatus,
+  ProjectListDirectoryResult,
+} from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { RotateCw } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
@@ -18,9 +24,11 @@ import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
+import { useServerConfigs } from "~/state/entities";
+import { useProjectPathSearch } from "~/state/queries";
 
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
-import { useProjectEntriesQuery } from "./projectFilesQueryState";
+import { loadProjectDirectory, useProjectDirectoryQuery } from "./projectFilesQueryState";
 
 interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
@@ -44,9 +52,22 @@ const TREE_UNSAFE_CSS = `
     --trees-font-size-override: 12px;
   }
   button[data-type='item'] { border-radius: 5px; }
+  /* Pierre prioritizes the end of every middle-truncated label to preserve file
+     extensions. Folders have no useful extension, so keep their identifying
+     prefix visible instead (for example, run_identity_…). */
+  button[data-item-type='folder']
+    [data-truncate-group-container='middle']
+    > div[data-truncate-segment-priority='1'] {
+    flex: 0 999999 max-content;
+  }
+  button[data-item-type='folder']
+    [data-truncate-group-container='middle']
+    > div[data-truncate-segment-priority='2'] {
+    flex: 0 1 max-content;
+  }
 `;
 
-function treePath(entry: ProjectEntry): string {
+function treePath(entry: ProjectEntry | ProjectDirectoryEntry): string {
   return entry.kind === "directory" ? `${entry.path}/` : entry.path;
 }
 
@@ -110,15 +131,23 @@ export default function FileBrowserPanel({
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
-  const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
-  const entries = entriesQuery.data?.entries ?? [];
-  const entryKinds = useMemo(
-    () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
-    [entries],
+  const serverConfigs = useServerConfigs();
+  const supportsDirectoryListing =
+    serverConfigs.get(environmentId)?.environment.capabilities.projectDirectoryListing === true;
+  const rootDirectoryQuery = useProjectDirectoryQuery(
+    environmentId,
+    cwd,
+    "",
+    supportsDirectoryListing,
   );
-  const entryKindsRef = useRef<ReadonlyMap<string, ProjectEntry["kind"]>>(entryKinds);
-  const treePaths = useMemo(() => entries.map(treePath), [entries]);
-  const previousTreePathsRef = useRef<readonly string[]>([]);
+  const entryKindsRef = useRef(new Map<string, ProjectEntry["kind"]>());
+  const loadedDirectoriesRef = useRef(new Set<string>());
+  const loadingDirectoriesRef = useRef(new Map<string, Promise<void>>());
+  const gitStatusesRef = useRef(new Map<string, ProjectGitStatus>());
+  const rootResultRef = useRef<ProjectListDirectoryResult | null>(null);
+  const loadGenerationRef = useRef(0);
+  const refreshDirectoryQueriesRef = useRef(false);
+  const [loadingDirectoryCount, setLoadingDirectoryCount] = useState(0);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
   const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
@@ -223,8 +252,8 @@ export default function FileBrowserPanel({
     dragAndDrop: { canDrop: () => false },
     density: "compact",
     fileTreeSearchMode: "hide-non-matches",
-    flattenEmptyDirectories: true,
-    initialExpansion: 1,
+    flattenEmptyDirectories: false,
+    initialExpansion: "closed",
     icons: T3_PIERRE_ICONS,
     onSelectionChange: (selectedPaths) => {
       // The drag controller's selection cache must track every change,
@@ -249,6 +278,7 @@ export default function FileBrowserPanel({
     unsafeCSS: TREE_UNSAFE_CSS,
   });
   const search = useFileTreeSearch(model);
+  const indexedSearch = useProjectPathSearch({ environmentId, cwd, query: search.value }, 200);
   const handleSearchValueChange = (value: string) => {
     if (value.trim().length === 0) {
       search.close();
@@ -256,17 +286,144 @@ export default function FileBrowserPanel({
     }
     search.setValue(value);
   };
-  const handleRefresh = () => {
-    entriesQuery.refresh();
-    onRefreshSelectedFile?.();
-  };
+  const applyDirectoryResult = useCallback(
+    (directoryPath: string, result: ProjectListDirectoryResult, resetRoot = false) => {
+      const paths = result.entries.map(treePath);
+      if (resetRoot) {
+        entryKindsRef.current.clear();
+        loadedDirectoriesRef.current.clear();
+        gitStatusesRef.current.clear();
+        for (const entry of result.entries) entryKindsRef.current.set(entry.path, entry.kind);
+        loadedDirectoriesRef.current.add("");
+        model.resetPaths(paths);
+      } else {
+        const additions = [];
+        for (const entry of result.entries) {
+          entryKindsRef.current.set(entry.path, entry.kind);
+          const path = treePath(entry);
+          if (model.getItem(path) === null) additions.push({ type: "add" as const, path });
+        }
+        if (additions.length > 0) model.batch(additions);
+        loadedDirectoriesRef.current.add(directoryPath);
+      }
+
+      for (const entry of result.gitStatus) gitStatusesRef.current.set(entry.path, entry.status);
+      model.setGitStatus([...gitStatusesRef.current].map(([path, status]) => ({ path, status })));
+    },
+    [model],
+  );
+
+  const loadDirectory = useCallback(
+    (directoryPath: string, options?: { readonly refresh?: boolean }): Promise<void> => {
+      if (!options?.refresh && loadedDirectoriesRef.current.has(directoryPath)) {
+        return Promise.resolve();
+      }
+      const existing = loadingDirectoriesRef.current.get(directoryPath);
+      if (existing) return existing;
+
+      const generation = loadGenerationRef.current;
+      const request = loadProjectDirectory(
+        environmentId,
+        cwd,
+        directoryPath,
+        supportsDirectoryListing,
+        supportsDirectoryListing && refreshDirectoryQueriesRef.current
+          ? { ...options, refresh: true }
+          : options,
+      )
+        .then((result) => {
+          if (loadGenerationRef.current !== generation) return;
+          applyDirectoryResult(directoryPath, result);
+        })
+        .catch((error: unknown) => {
+          if (loadGenerationRef.current !== generation) return;
+          toastManager.add({
+            type: "error",
+            title: "Failed to load folder",
+            description: error instanceof Error ? error.message : directoryPath,
+          });
+        })
+        .finally(() => {
+          if (loadingDirectoriesRef.current.get(directoryPath) !== request) return;
+          loadingDirectoriesRef.current.delete(directoryPath);
+          setLoadingDirectoryCount(loadingDirectoriesRef.current.size);
+        });
+      loadingDirectoriesRef.current.set(directoryPath, request);
+      setLoadingDirectoryCount(loadingDirectoriesRef.current.size);
+      return request;
+    },
+    [applyDirectoryResult, cwd, environmentId, supportsDirectoryListing],
+  );
 
   useEffect(() => {
-    if (previousTreePathsRef.current === treePaths) return;
-    entryKindsRef.current = entryKinds;
-    previousTreePathsRef.current = treePaths;
-    model.resetPaths(treePaths);
-  }, [entryKinds, model, treePaths]);
+    loadGenerationRef.current += 1;
+    rootResultRef.current = null;
+    refreshDirectoryQueriesRef.current = false;
+    loadingDirectoriesRef.current.clear();
+    setLoadingDirectoryCount(0);
+    entryKindsRef.current.clear();
+    loadedDirectoriesRef.current.clear();
+    gitStatusesRef.current.clear();
+    model.resetPaths([]);
+    model.setGitStatus([]);
+  }, [cwd, environmentId, model]);
+
+  useEffect(() => {
+    const result = rootDirectoryQuery.data;
+    if (result === null || rootResultRef.current === result) return;
+    loadGenerationRef.current += 1;
+    loadingDirectoriesRef.current.clear();
+    setLoadingDirectoryCount(0);
+    rootResultRef.current = result;
+    applyDirectoryResult("", result, true);
+  }, [applyDirectoryResult, rootDirectoryQuery.data]);
+
+  const handleRefresh = useCallback(() => {
+    refreshDirectoryQueriesRef.current = true;
+    rootDirectoryQuery.refresh();
+    onRefreshSelectedFile?.();
+  }, [onRefreshSelectedFile, rootDirectoryQuery.refresh]);
+
+  useEffect(() => {
+    const loadExpandedDirectories = () => {
+      for (const [path, kind] of entryKindsRef.current) {
+        if (kind !== "directory" || loadedDirectoriesRef.current.has(path)) continue;
+        const item = model.getItem(path);
+        if (item && "isExpanded" in item && item.isExpanded()) void loadDirectory(path);
+      }
+    };
+    loadExpandedDirectories();
+    return model.subscribe(loadExpandedDirectories);
+  }, [loadDirectory, model]);
+
+  useEffect(() => {
+    if (
+      search.value.trim().length === 0 ||
+      indexedSearch.isPending ||
+      indexedSearch.searchedQuery !== search.value.trim()
+    ) {
+      return;
+    }
+    const additions = new Map<string, { readonly type: "add"; readonly path: string }>();
+    for (const entry of indexedSearch.entries) {
+      const segments = entry.path.split("/");
+      let ancestorPath = "";
+      for (const segment of segments.slice(0, -1)) {
+        ancestorPath = ancestorPath ? `${ancestorPath}/${segment}` : segment;
+        entryKindsRef.current.set(ancestorPath, "directory");
+      }
+      entryKindsRef.current.set(entry.path, entry.kind);
+      const path = treePath(entry);
+      if (model.getItem(path) === null) additions.set(path, { type: "add", path });
+    }
+    if (additions.size > 0) model.batch([...additions.values()]);
+  }, [
+    indexedSearch.entries,
+    indexedSearch.isPending,
+    indexedSearch.searchedQuery,
+    model,
+    search.value,
+  ]);
 
   useEffect(() => {
     if (!selectedPath) {
@@ -275,7 +432,7 @@ export default function FileBrowserPanel({
     }
     const revealRequest = { path: selectedPath, revealId: selectedPathRevealId };
     const handledReveal = handledRevealRef.current;
-    // Entry refreshes rebuild treePaths while the same preview stays open.
+    // Entry refreshes rebuild the tree while the same preview stays open.
     // Replaying a handled reveal would close an active tree search and steal focus.
     if (
       handledReveal?.path === revealRequest.path &&
@@ -283,47 +440,48 @@ export default function FileBrowserPanel({
     ) {
       return;
     }
-    if (entryKinds.get(selectedPath) !== "file") return;
-    const selectedItem = model.getItem(selectedPath);
-    if (!selectedItem) return;
+    let cancelled = false;
+    void (async () => {
+      const segments = selectedPath.split("/");
+      let ancestorPath = "";
+      for (const segment of segments.slice(0, -1)) {
+        ancestorPath = ancestorPath ? `${ancestorPath}/${segment}` : segment;
+        const item = model.getItem(ancestorPath);
+        if (!item || !("expand" in item)) return;
+        item.expand();
+        await loadDirectory(ancestorPath);
+        if (cancelled) return;
+      }
 
-    // A selection that originated inside the tree (clicking a row, possibly
-    // in an active tree search) is already visible; re-revealing it would
-    // close the search and clobber the user's context. Only sync external
-    // opens (file picker, content search, chat links).
-    const selectedInTree = model
-      .getSelectedPaths()
-      .some((path) => path.replace(/\/$/, "") === selectedPath);
-    if (selectedInTree && treeSelectionPathRef.current === selectedPath) {
+      if (entryKindsRef.current.get(selectedPath) !== "file") return;
+      const selectedItem = model.getItem(selectedPath);
+      if (!selectedItem || cancelled) return;
+
+      // A selection that originated inside the tree is already visible.
+      // Re-revealing it would close search and clobber the user's context.
+      const selectedInTree = model
+        .getSelectedPaths()
+        .some((path) => path.replace(/\/$/, "") === selectedPath);
+      if (selectedInTree && treeSelectionPathRef.current === selectedPath) {
+        treeSelectionPathRef.current = null;
+        handledRevealRef.current = revealRequest;
+        return;
+      }
       treeSelectionPathRef.current = null;
       handledRevealRef.current = revealRequest;
-      return;
-    }
-    treeSelectionPathRef.current = null;
-    handledRevealRef.current = revealRequest;
-
-    syncingSelectionRef.current = true;
-    model.closeSearch();
-    for (const path of model.getSelectedPaths()) {
-      model.getItem(path)?.deselect();
-    }
-
-    // Directory rows are registered with a trailing slash (see treePath), so
-    // ancestor lookups must use the same form to expand them.
-    const segments = selectedPath.split("/");
-    let ancestorPath = "";
-    for (const segment of segments.slice(0, -1)) {
-      ancestorPath = ancestorPath ? `${ancestorPath}/${segment}` : segment;
-      const item = model.getItem(`${ancestorPath}/`) ?? model.getItem(ancestorPath);
-      if (item && "expand" in item) item.expand();
-    }
-
-    selectedItem.select();
-    model.scrollToPath(selectedPath, { focus: true, offset: "center" });
-    queueMicrotask(() => {
-      syncingSelectionRef.current = false;
-    });
-  }, [entryKinds, model, selectedPath, selectedPathRevealId, treePaths]);
+      syncingSelectionRef.current = true;
+      model.closeSearch();
+      for (const path of model.getSelectedPaths()) model.getItem(path)?.deselect();
+      selectedItem.select();
+      model.scrollToPath(selectedPath, { focus: true, offset: "center" });
+      queueMicrotask(() => {
+        syncingSelectionRef.current = false;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDirectory, model, rootDirectoryQuery.data, selectedPath, selectedPathRevealId]);
 
   // Tag tree drags with the composer mention payload. The row is read from
   // the composed event path (the tree's shadow root is open), so this does
@@ -360,7 +518,10 @@ export default function FileBrowserPanel({
         className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"
         data-surface-subheader
       >
-        <RefreshFilesButton isPending={entriesQuery.isPending} onRefresh={handleRefresh} />
+        <RefreshFilesButton
+          isPending={rootDirectoryQuery.isPending || loadingDirectoryCount > 0}
+          onRefresh={handleRefresh}
+        />
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
@@ -369,8 +530,10 @@ export default function FileBrowserPanel({
           onClose={search.close}
         />
       </div>
-      {entriesQuery.error && entriesQuery.data === null ? (
-        <div className="p-4 text-xs leading-relaxed text-destructive">{entriesQuery.error}</div>
+      {rootDirectoryQuery.error && rootDirectoryQuery.data === null ? (
+        <div className="p-4 text-xs leading-relaxed text-destructive">
+          {rootDirectoryQuery.error}
+        </div>
       ) : (
         <FileTree
           model={model}

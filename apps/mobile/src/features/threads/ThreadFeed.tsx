@@ -52,7 +52,6 @@ import { useFontFamily } from "../../lib/useFontFamily";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
-import { hasWideMarkdownBlock } from "../../lib/wideMarkdownBlocks";
 import {
   hasNativeSelectableMarkdownText,
   SelectableMarkdownText,
@@ -107,10 +106,6 @@ import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import { useAssetUrl, useAssetUrlState } from "../../state/assets";
 import { resolveWorkspaceRelativeFilePath } from "../files/filePath";
 import { MARKDOWN_IMAGE_MAX_WIDTH, resolveMarkdownImageDisplaySize } from "./markdownImageSize";
-
-const WIDE_MARKDOWN_BLOCK_OPTIONS = {
-  includeOrderedLists: Platform.OS === "android",
-} as const;
 
 const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -967,7 +962,6 @@ function renderFeedEntry(
     readonly userBubbleColor: string | import("react-native").ColorValue;
     readonly markdownStyles: MarkdownStyleSets;
     readonly reviewCommentColors: ReviewCommentColors;
-    readonly reviewCommentBubbleWidth: number;
     readonly userBubbleMaxWidth: number;
   },
 ) {
@@ -1018,13 +1012,6 @@ function renderFeedEntry(
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = formatMessageTime(isUser ? message.createdAt : message.updatedAt);
     const attachments = message.attachments ?? [];
-    const hasReviewCommentContext = message.text.includes("<review_comment");
-    // A bubble that sizes itself from its content cannot lay out a block whose
-    // intrinsic width overflows `maxWidth`: Android positions the bubble's
-    // children during the unclamped pass and never moves them once the width
-    // is clamped, so the paragraphs around the block end up drawn on top of
-    // each other. Pinning the width removes that pass.
-    const hasWideBlock = hasWideMarkdownBlock(message.text, WIDE_MARKDOWN_BLOCK_OPTIONS);
     const assistantTurnStillInProgress =
       message.role === "assistant" &&
       props.unsettledTurnId !== null &&
@@ -1046,12 +1033,8 @@ function renderFeedEntry(
             className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
             style={{
               backgroundColor: userBubbleColor,
+              width: props.userBubbleMaxWidth,
               maxWidth: props.userBubbleMaxWidth,
-              ...(hasReviewCommentContext
-                ? { width: props.reviewCommentBubbleWidth }
-                : hasWideBlock
-                  ? { width: props.userBubbleMaxWidth }
-                  : null),
             }}
           >
             {message.text.trim().length > 0 ? (
@@ -1529,8 +1512,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     minimumPadding: horizontalPadding,
   });
   const contentWidth = Math.max(0, viewportWidth - contentHorizontalPadding * 2);
-  const userBubbleMaxWidth = contentWidth * 0.85;
-  const reviewCommentBubbleWidth = Math.min(Math.max(280, contentWidth * 0.85), contentWidth);
+  const userBubbleMaxWidth = contentWidth;
   const insets = useSafeAreaInsets();
   const topContentInset = props.contentTopInset ?? insets.top + IOS_NAV_BAR_HEIGHT;
   const bottomContentInset = props.contentBottomInset ?? 18;
@@ -2001,7 +1983,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         userBubbleColor,
         markdownStyles,
         reviewCommentColors,
-        reviewCommentBubbleWidth,
         userBubbleMaxWidth,
         skills: props.skills,
       }),
@@ -2014,7 +1995,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       userBubbleColor,
       markdownStyles,
       reviewCommentColors,
-      reviewCommentBubbleWidth,
       userBubbleMaxWidth,
       onCopyWorkRow,
       onMarkdownLinkPress,

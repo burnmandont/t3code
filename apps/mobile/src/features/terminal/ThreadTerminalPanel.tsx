@@ -31,7 +31,7 @@ const DEFAULT_TERMINAL_ROWS = 24;
 export const ThreadTerminalPanel = memo(function ThreadTerminalPanel(
   props: ThreadTerminalPanelProps,
 ) {
-  const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
+  const writeTerminal = useAtomCommand(terminalEnvironment.input, "terminal input");
   const resizeTerminal = useAtomCommand(terminalEnvironment.resize, "terminal resize");
   const closeTerminal = useAtomCommand(terminalEnvironment.close, "terminal close");
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");

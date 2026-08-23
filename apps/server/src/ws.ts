@@ -35,8 +35,10 @@ import {
   ORCHESTRATION_WS_METHODS,
   type ProjectId,
   type ProjectEntriesFailure,
+  type ProjectListDirectoryFailure,
   type ProjectFileFailure,
   type ProjectFileOperation,
+  ProjectListDirectoryError,
   ProjectListEntriesError,
   ProjectReadFileError,
   ProjectSearchContentsError,
@@ -205,6 +207,42 @@ function projectEntriesFailureContext(error: WorkspaceEntries.WorkspaceEntriesEr
         normalizedCwd: error.cwd,
         detail: error.reason,
       };
+    default:
+      return unexpectedCompatibilityError(error);
+  }
+}
+
+function projectListDirectoryFailureContext(
+  error: WorkspaceEntries.WorkspaceEntriesListDirectoryError,
+): {
+  readonly failure: ProjectListDirectoryFailure;
+  readonly normalizedCwd?: string;
+} {
+  switch (error._tag) {
+    case "WorkspaceRootNotExistsError":
+      return {
+        failure: "workspace_root_not_found",
+        normalizedCwd: error.normalizedWorkspaceRoot,
+      };
+    case "WorkspaceRootCreateFailedError":
+      return {
+        failure: "workspace_root_create_failed",
+        normalizedCwd: error.normalizedWorkspaceRoot,
+      };
+    case "WorkspaceRootStatFailedError":
+      return {
+        failure: "workspace_root_stat_failed",
+        normalizedCwd: error.normalizedWorkspaceRoot,
+      };
+    case "WorkspaceRootNotDirectoryError":
+      return {
+        failure: "workspace_root_not_directory",
+        normalizedCwd: error.normalizedWorkspaceRoot,
+      };
+    case "WorkspacePathOutsideRootError":
+      return { failure: "workspace_path_outside_root" };
+    case "WorkspaceEntriesListDirectoryReadError":
+      return { failure: "read_directory_failed" };
     default:
       return unexpectedCompatibilityError(error);
   }
@@ -1895,6 +1933,21 @@ const makeWsRpcLayer = (
                   new ProjectListEntriesError({
                     ...input,
                     ...projectEntriesFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsListDirectory]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListDirectory,
+            workspaceEntries.listDirectory(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectListDirectoryError({
+                    ...input,
+                    ...projectListDirectoryFailureContext(cause),
                     cause,
                   }),
               ),

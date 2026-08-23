@@ -83,6 +83,9 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server accepts destination-bound, single-use tickets for TCP forwarding
       to its own loopback interface. */
   tcpPortForwarding: Schema.optionalKey(Schema.Boolean),
+  /** Server can list immediate filesystem children for lazy project trees.
+      Absent servers only support the legacy search-index snapshot. */
+  projectDirectoryListing: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

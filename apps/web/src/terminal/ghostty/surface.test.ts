@@ -15,6 +15,7 @@ import {
   isTerminalLinkPointerGesture,
   isTerminalPasteShortcut,
   loadTerminalFontFamily,
+  normalizeTerminalPasteText,
   primeTerminalCopyInput,
   resolveTerminalMouseData,
   resolveTerminalMouseTrackingState,
@@ -33,6 +34,26 @@ import {
   terminalWheelArrowData,
   terminalWheelDeltaRows,
 } from "./surface";
+
+describe("normalizeTerminalPasteText", () => {
+  it("unwraps a complete shell-language Markdown fence", () => {
+    expect(
+      normalizeTerminalPasteText(
+        "```bash\ncurl -fsSL https://get.moondiner.com/install | sh -s -- serve\n```",
+      ),
+    ).toBe("curl -fsSL https://get.moondiner.com/install | sh -s -- serve");
+    expect(normalizeTerminalPasteText("```powershell\nGet-ChildItem\n```\n")).toBe("Get-ChildItem");
+  });
+
+  it("preserves non-shell fences and mixed Markdown selections", () => {
+    expect(normalizeTerminalPasteText("```ts\nconst answer = 42;\n```")).toBe(
+      "```ts\nconst answer = 42;\n```",
+    );
+    expect(normalizeTerminalPasteText("Run this:\n\n```bash\npwd\n```")).toBe(
+      "Run this:\n\n```bash\npwd\n```",
+    );
+  });
+});
 
 const cell = (text: string): GhosttyCell => ({
   text,

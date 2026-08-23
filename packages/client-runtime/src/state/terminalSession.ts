@@ -15,6 +15,14 @@ export interface TerminalSessionState {
   readonly hasRunningSubprocess: boolean;
   readonly updatedAt: string | null;
   readonly version: number;
+  readonly renderVersion: number;
+  readonly renderUpdates: ReadonlyArray<TerminalRenderUpdate>;
+}
+
+export interface TerminalRenderUpdate {
+  readonly version: number;
+  readonly type: "append" | "reset";
+  readonly data: string;
 }
 
 export interface TerminalBufferState {
@@ -23,6 +31,8 @@ export interface TerminalBufferState {
   readonly error: string | null;
   readonly updatedAt: string | null;
   readonly version: number;
+  readonly renderVersion: number;
+  readonly renderUpdates: ReadonlyArray<TerminalRenderUpdate>;
 }
 
 export interface KnownTerminalSessionTarget {
@@ -50,6 +60,8 @@ export const EMPTY_TERMINAL_BUFFER_STATE = Object.freeze<TerminalBufferState>({
   error: null,
   updatedAt: null,
   version: 0,
+  renderVersion: 0,
+  renderUpdates: [],
 });
 
 export const EMPTY_TERMINAL_SESSION_STATE = Object.freeze<TerminalSessionState>({
@@ -60,9 +72,12 @@ export const EMPTY_TERMINAL_SESSION_STATE = Object.freeze<TerminalSessionState>(
   hasRunningSubprocess: false,
   updatedAt: null,
   version: 0,
+  renderVersion: 0,
+  renderUpdates: [],
 });
 
 export const DEFAULT_MAX_TERMINAL_BUFFER_BYTES = 512 * 1024;
+export const DEFAULT_MAX_TERMINAL_RENDER_UPDATES = 64;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -92,12 +107,15 @@ export function terminalBufferStateFromSnapshot(
   snapshot: TerminalSessionSnapshot,
   maxBufferBytes: number,
 ): TerminalBufferState {
+  const buffer = trimBufferToBytes(snapshot.history, maxBufferBytes);
   return {
-    buffer: trimBufferToBytes(snapshot.history, maxBufferBytes),
+    buffer,
     status: snapshot.status,
     error: null,
     updatedAt: snapshot.updatedAt,
     version: 1,
+    renderVersion: 1,
+    renderUpdates: [{ version: 1, type: "reset", data: buffer }],
   };
 }
 
@@ -119,6 +137,56 @@ export function combineTerminalSessionState(
     hasRunningSubprocess: summary?.hasRunningSubprocess ?? false,
     updatedAt: latestTimestamp(summary?.updatedAt ?? null, buffer.updatedAt),
     version: buffer.version,
+    renderVersion: buffer.renderVersion,
+    renderUpdates: buffer.renderUpdates,
+  };
+}
+
+function appendTerminalRenderUpdate(
+  current: TerminalBufferState,
+  type: TerminalRenderUpdate["type"],
+  data: string,
+): Pick<TerminalBufferState, "renderVersion" | "renderUpdates"> {
+  const update = { version: current.renderVersion + 1, type, data } as const;
+  const renderUpdates =
+    type === "reset"
+      ? [update]
+      : [...current.renderUpdates, update].slice(-DEFAULT_MAX_TERMINAL_RENDER_UPDATES);
+  return { renderVersion: update.version, renderUpdates };
+}
+
+export type TerminalRenderAction =
+  | { readonly type: "none"; readonly version: number }
+  | { readonly type: "append" | "reset"; readonly version: number; readonly data: string };
+
+/** Returns every render delta since the surface's cursor, or a full reset after a gap. */
+export function resolveTerminalRenderAction(
+  state: Pick<TerminalBufferState, "buffer" | "renderVersion" | "renderUpdates">,
+  renderedVersion: number,
+): TerminalRenderAction {
+  if (renderedVersion === state.renderVersion) {
+    return { type: "none", version: renderedVersion };
+  }
+
+  const firstUpdateIndex = state.renderUpdates.findIndex(
+    (update) => update.version === renderedVersion + 1,
+  );
+  if (firstUpdateIndex < 0) {
+    return { type: "reset", version: state.renderVersion, data: state.buffer };
+  }
+
+  const updates = state.renderUpdates.slice(firstUpdateIndex);
+  for (let index = 1; index < updates.length; index += 1) {
+    if (updates[index]!.version !== updates[index - 1]!.version + 1) {
+      return { type: "reset", version: state.renderVersion, data: state.buffer };
+    }
+  }
+  const lastReset = updates.findLastIndex((update) => update.type === "reset");
+  const applicable = lastReset < 0 ? updates : updates.slice(lastReset);
+  return {
+    type: lastReset < 0 ? "append" : "reset",
+    version: state.renderVersion,
+    data: applicable.map((update) => update.data).join(""),
   };
 }
 
@@ -129,8 +197,14 @@ export function applyTerminalAttachStreamEvent(
 ): TerminalBufferState {
   switch (event.type) {
     case "snapshot":
-    case "restarted":
-      return terminalBufferStateFromSnapshot(event.snapshot, maxBufferBytes);
+    case "restarted": {
+      const snapshot = terminalBufferStateFromSnapshot(event.snapshot, maxBufferBytes);
+      return {
+        ...snapshot,
+        version: current.version + 1,
+        ...appendTerminalRenderUpdate(current, "reset", snapshot.buffer),
+      };
+    }
     case "output":
       return {
         ...current,
@@ -138,6 +212,7 @@ export function applyTerminalAttachStreamEvent(
         status: current.status === "closed" ? "running" : current.status,
         error: null,
         version: current.version + 1,
+        ...appendTerminalRenderUpdate(current, "append", event.data),
       };
     case "cleared":
       return {
@@ -145,6 +220,7 @@ export function applyTerminalAttachStreamEvent(
         buffer: "",
         error: null,
         version: current.version + 1,
+        ...appendTerminalRenderUpdate(current, "reset", ""),
       };
     case "exited":
       return {

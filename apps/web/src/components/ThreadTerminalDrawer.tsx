@@ -3,7 +3,11 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { type TerminalSessionState } from "@t3tools/client-runtime/state/terminal";
+import {
+  resolveTerminalRenderAction,
+  type TerminalBufferState,
+  type TerminalSessionState,
+} from "@t3tools/client-runtime/state/terminal";
 import {
   Plus,
   SquareSplitHorizontal,
@@ -20,6 +24,7 @@ import {
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -62,7 +67,7 @@ import { readLocalApi } from "~/localApi";
 import { confirmTerminalClose } from "~/lib/terminalCloseConfirm";
 import { useClientSettings } from "../hooks/useSettings";
 import { useLocalStorage } from "../hooks/useLocalStorage";
-import { useAttachedTerminalSession } from "../state/terminalSessions";
+import { useAttachedTerminalPresentation } from "../state/terminalSessions";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
@@ -74,6 +79,7 @@ import {
   resolveTerminalFontSizePreference,
   TYPOGRAPHY_ADVANCED_STORAGE_KEY,
 } from "../appearanceFonts";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
@@ -363,7 +369,7 @@ export function TerminalViewport({
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
-  const runTerminalWrite = useAtomCommand(terminalEnvironment.write, {
+  const runTerminalWrite = useAtomCommand(terminalEnvironment.input, {
     reportFailure: false,
   });
   const runTerminalResize = useAtomCommand(terminalEnvironment.resize, {
@@ -402,15 +408,23 @@ export function TerminalViewport({
     }),
   );
   const terminalFontRef = useRef({ family: terminalFontFamily, size: terminalFontSize });
-  const terminalSession = useAttachedTerminalSession({
-    environmentId,
-    terminal: {
+  const terminalAttachInput = useMemo(
+    () => ({
       threadId,
       terminalId,
       cwd,
       ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
-    },
+    }),
+    [cwd, runtimeEnvKey, terminalId, threadId, worktreePath],
+  );
+  const terminalAttachAtom = terminalEnvironment.attach({
+    environmentId,
+    input: terminalAttachInput,
+  });
+  const terminalSession = useAttachedTerminalPresentation({
+    environmentId,
+    terminal: terminalAttachInput,
   });
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
@@ -424,7 +438,6 @@ export function TerminalViewport({
       input: { threadId, terminalId, cols, rows },
     }),
   );
-  const terminalBuffer = terminalSession.buffer;
   const terminalError = terminalSession.error;
   const terminalStatus = terminalSession.status;
   const synchronizedStatusRef = useRef<TerminalSessionState["status"]>("closed");
@@ -446,15 +459,14 @@ export function TerminalViewport({
     },
   );
   const terminalVersion = terminalSession.version;
+  const renderedVersionRef = useRef(0);
   const previousSessionRef = useRef({
-    buffer: terminalBuffer,
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
   });
   const latestSessionRef = useRef(previousSessionRef.current);
   latestSessionRef.current = {
-    buffer: terminalBuffer,
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
@@ -517,7 +529,42 @@ export function TerminalViewport({
       }
       const latestSession = latestSessionRef.current;
       previousSessionRef.current = latestSession;
-      if (latestSession.buffer.length > 0) terminal.resetAndWrite(latestSession.buffer);
+      let pendingOutputState: TerminalBufferState | null = null;
+      let outputFlushScheduled = false;
+      const applyOutputState = (state: TerminalBufferState) => {
+        if (cancelled || terminalRef.current !== terminal) return;
+        const renderAction = resolveTerminalRenderAction(state, renderedVersionRef.current);
+        if (renderAction.type === "append") {
+          terminal.write(renderAction.data);
+        } else if (renderAction.type === "reset") {
+          writeTerminalBuffer(terminal, renderAction.data);
+        }
+        if (renderAction.type !== "none") {
+          renderedVersionRef.current = renderAction.version;
+          terminal.clearSelection();
+        }
+      };
+      const synchronizeOutput = (result: ReturnType<typeof terminalAttachAtom.read>) => {
+        const state = AsyncResult.getOrElse(result, () => null);
+        if (state === null) return;
+        pendingOutputState = state;
+        if (outputFlushScheduled) return;
+        outputFlushScheduled = true;
+        queueMicrotask(() => {
+          outputFlushScheduled = false;
+          const pending = pendingOutputState;
+          pendingOutputState = null;
+          if (pending !== null) applyOutputState(pending);
+        });
+      };
+      const initialAttachState = appAtomRegistry.get(terminalAttachAtom);
+      const initialBufferState = AsyncResult.getOrElse(initialAttachState, () => null);
+      if (initialBufferState !== null) {
+        terminal.resetAndWrite(initialBufferState.buffer);
+        renderedVersionRef.current = initialBufferState.renderVersion;
+      }
+      setupCleanups.push(appAtomRegistry.subscribe(terminalAttachAtom, synchronizeOutput));
+      synchronizeOutput(appAtomRegistry.get(terminalAttachAtom));
       if (latestSession.error !== null) writeSystemMessage(terminal, latestSession.error);
       // Attaching to a session that already exited must still run exit handling
       // once, so mount synchronization starts from the empty "closed" state.
@@ -904,12 +951,11 @@ export function TerminalViewport({
     };
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
-  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
+  }, [cwd, environmentId, runtimeEnvKey, terminalAttachAtom, terminalId, threadId, worktreePath]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
     const current = {
-      buffer: terminalBuffer,
       error: terminalError,
       status: terminalStatus,
       version: terminalVersion,
@@ -925,16 +971,6 @@ export function TerminalViewport({
       return;
     }
 
-    if (
-      current.buffer.length >= previous.buffer.length &&
-      current.buffer.startsWith(previous.buffer)
-    ) {
-      terminal.write(current.buffer.slice(previous.buffer.length));
-    } else {
-      writeTerminalBuffer(terminal, current.buffer);
-    }
-    terminal.clearSelection();
-
     if (current.error !== null && current.error !== previous.error) {
       writeSystemMessage(terminal, current.error);
     }
@@ -945,7 +981,7 @@ export function TerminalViewport({
       });
     }
     previousSessionRef.current = current;
-  }, [autoFocus, terminalBuffer, terminalError, terminalStatus, terminalVersion]);
+  }, [autoFocus, terminalError, terminalStatus, terminalVersion]);
 
   useEffect(() => {
     if (!autoFocus) return;

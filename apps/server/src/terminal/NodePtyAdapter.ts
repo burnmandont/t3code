@@ -141,12 +141,13 @@ export const make = Effect.fn("NodePtyAdapter.make")(function* (
   return PtyAdapter.PtyAdapter.of({
     spawn: Effect.fn("NodePtyAdapter.spawn")(function* (input) {
       yield* ensureNodePtySpawnHelperExecutableCached;
-      // node-pty only writes `name` into the child's TERM on the Unix path;
-      // the ConPTY path leaves the environment untouched, so Windows children
-      // inherit a missing or 16-color TERM unless it is set here.
+      const terminalName = platform === "win32" ? "xterm-color" : "xterm-256color";
+      // Electron can contribute TERM=dumb, while ConPTY may contribute no TERM
+      // at all. Replace only those unusable defaults so an explicit caller
+      // choice such as xterm-direct remains intact.
       const env =
-        platform === "win32" && input.env["TERM"] === undefined
-          ? { ...input.env, TERM: "xterm-256color" }
+        input.env["TERM"] === undefined || input.env["TERM"] === "dumb"
+          ? { ...input.env, TERM: terminalName }
           : input.env;
       const ptyProcess = yield* Effect.try({
         try: () =>
@@ -155,7 +156,7 @@ export const make = Effect.fn("NodePtyAdapter.make")(function* (
             cols: input.cols,
             rows: input.rows,
             env,
-            name: "xterm-256color",
+            name: terminalName,
           }),
         catch: (cause) =>
           new PtyAdapter.PtySpawnError({

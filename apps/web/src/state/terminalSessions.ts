@@ -7,10 +7,58 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import { ThreadId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { useMemo } from "react";
 
 import { useEnvironmentQuery } from "./query";
 import { terminalEnvironment } from "./terminal";
+
+export interface AttachedTerminalPresentation {
+  readonly status: TerminalSessionState["status"];
+  readonly error: string | null;
+  readonly version: number;
+}
+
+export function useAttachedTerminalPresentation(input: {
+  readonly environmentId: EnvironmentId;
+  readonly terminal: TerminalAttachInput;
+}): AttachedTerminalPresentation {
+  const atom = terminalEnvironment.attach({
+    environmentId: input.environmentId,
+    input: input.terminal,
+  });
+  const selectPresentation = useMemo(() => {
+    let previous: AttachedTerminalPresentation = { status: "closed", error: null, version: 0 };
+    return (result: ReturnType<typeof atom.read>) => {
+      const state = Option.getOrNull(AsyncResult.value(result));
+      const requestError =
+        result._tag === "Failure"
+          ? (() => {
+              const error = Cause.squash(result.cause);
+              return error instanceof Error && error.message.trim().length > 0
+                ? error.message
+                : "The terminal connection failed.";
+            })()
+          : null;
+      const status = requestError === null ? (state?.status ?? "closed") : "error";
+      const error = requestError ?? state?.error ?? null;
+      const initialized = (state?.version ?? 0) > 0;
+      if (
+        previous.status === status &&
+        previous.error === error &&
+        previous.version > 0 === initialized
+      ) {
+        return previous;
+      }
+      previous = { status, error, version: previous.version + 1 };
+      return previous;
+    };
+  }, [atom]);
+  return useAtomValue(atom, selectPresentation);
+}
 
 export function useAttachedTerminalSession(input: {
   readonly environmentId: EnvironmentId | null;

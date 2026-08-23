@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { serializeRenderedMarkdownFragment } from "./markdown-clipboard";
+import { plainTextForChatSelection, serializeRenderedMarkdownFragment } from "./markdown-clipboard";
 
 const TEXT_NODE = 3;
 const ELEMENT_NODE = 1;
@@ -91,5 +91,39 @@ describe("serializeRenderedMarkdownFragment", () => {
     const container = new FakeElement("DIV").append(code);
 
     expect(serializeRenderedMarkdownFragment(asNode(container))).toBe("first line\nsecond line");
+  });
+});
+
+function range(text: string, collapsed = false) {
+  return {
+    collapsed,
+    toString: () => text,
+  } as Range;
+}
+
+function selection(...ranges: ReadonlyArray<Range>) {
+  return {
+    rangeCount: ranges.length,
+    getRangeAt: (index: number) => ranges[index]!,
+  };
+}
+
+describe("plainTextForChatSelection", () => {
+  it("copies rendered text without recreating Markdown markers", () => {
+    expect(
+      plainTextForChatSelection(
+        selection(range("Heading\nBold text and linked label\nfirst item\nconst value = 1;")),
+      ),
+    ).toBe("Heading\nBold text and linked label\nfirst item\nconst value = 1;");
+  });
+
+  it("joins multiple browser selection ranges as plain text", () => {
+    expect(plainTextForChatSelection(selection(range("first"), range("second")))).toBe(
+      "first\n\nsecond",
+    );
+  });
+
+  it("ignores collapsed and empty ranges", () => {
+    expect(plainTextForChatSelection(selection(range("ignored", true), range("")))).toBeNull();
   });
 });

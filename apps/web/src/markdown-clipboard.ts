@@ -1,26 +1,19 @@
-/**
- * Converts a DOM selection inside rendered chat markdown back into markdown
- * source so highlight-and-copy keeps formatting (links, emphasis, lists,
- * fences, tables) instead of flattening to plain text. The `text/plain`
- * clipboard flavor carries the markdown; `text/html` carries a sanitized
- * copy of the rendered fragment for rich-paste targets.
- */
+/** Clipboard helpers for rendered chat content and explicit table exports. */
 
 const SKIPPED_TAGS = new Set(["BUTTON", "INPUT", "SCRIPT", "STYLE", "TEMPLATE"]);
 const SKIPPED_CLASS_NAMES = ["select-none", "sr-only"];
-const SANITIZED_HTML_SELECTOR = [
-  "button",
-  "input",
-  "script",
-  "style",
-  "svg",
-  '[aria-hidden="true"]',
-  ...SKIPPED_CLASS_NAMES.map((className) => `.${className}`),
-].join(", ");
+type ClipboardSelection = Pick<Selection, "getRangeAt" | "rangeCount">;
 
-export interface MarkdownClipboardPayload {
-  text: string;
-  html: string;
+/** Preserve the browser's rendered selection text without recreating Markdown. */
+export function plainTextForChatSelection(selection: ClipboardSelection): string | null {
+  const texts: string[] = [];
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = selection.getRangeAt(index);
+    if (range.collapsed) continue;
+    const text = range.toString();
+    if (text.length > 0) texts.push(text);
+  }
+  return texts.length > 0 ? texts.join("\n\n") : null;
 }
 
 function isSkippedElement(element: Element): boolean {
@@ -291,50 +284,4 @@ export function serializeTableElementToCsv(table: Element): string {
     lines.push(cells.map((cell) => csvCell(cell.textContent ?? "")).join(","));
   }
   return lines.join("\n");
-}
-
-function sanitizedHtmlFrom(container: Element): string {
-  for (const node of container.querySelectorAll(SANITIZED_HTML_SELECTOR)) {
-    if (
-      node.classList.contains("chat-markdown-file-link") ||
-      node.closest(".chat-markdown-file-link")
-    ) {
-      if (node.getAttribute("aria-hidden") === "true" || node.localName === "svg") {
-        node.remove();
-      }
-      continue;
-    }
-    node.remove();
-  }
-  return `<meta charset="utf-8">${container.innerHTML}`;
-}
-
-export function chatMarkdownClipboardPayload(
-  selection: Selection,
-): MarkdownClipboardPayload | null {
-  const texts: string[] = [];
-  const htmls: string[] = [];
-  for (let index = 0; index < selection.rangeCount; index += 1) {
-    const range = selection.getRangeAt(index);
-    if (range.collapsed) continue;
-    const container = document.createElement("div");
-    container.appendChild(range.cloneContents());
-    const ancestor = range.commonAncestorContainer;
-    const ancestorElement =
-      ancestor.nodeType === Node.ELEMENT_NODE ? (ancestor as Element) : ancestor.parentElement;
-    if (ancestorElement?.closest("pre")) {
-      const text = range.toString();
-      if (text) {
-        texts.push(text);
-        htmls.push(sanitizedHtmlFrom(container));
-      }
-      continue;
-    }
-    const text = serializeRenderedMarkdownFragment(container);
-    if (!text) continue;
-    texts.push(text);
-    htmls.push(sanitizedHtmlFrom(container));
-  }
-  if (texts.length === 0) return null;
-  return { text: texts.join("\n\n"), html: htmls.join("") };
 }

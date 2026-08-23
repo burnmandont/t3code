@@ -83,7 +83,7 @@ patchedDependencies:
   '@clerk/expo@4.2.0': 72e426f44fc1cde16fc2cbba3d1e96cdca7c6d957faa73d0fe6b43948608a6c1
   '@effect/vitest@4.0.0-beta.103': a16b1e870d8c29e4a98b17cc4c638a4ff471753d8ca3487f78a22b759caf951b
   '@expo/metro-config@56.0.14': 8cb08b5bb7051ed9d2dbe46a2c293c5a1e17f1bd6ddf30de27909e18c921ff46
-  '@ff-labs/fff-node@0.9.4': ab9ff544009e1891cfe3930105862d3699007f38922a79f3c98d90018deca368
+  '@ff-labs/fff-node@0.10.3': ab9ff544009e1891cfe3930105862d3699007f38922a79f3c98d90018deca368
   '@legendapp/list@3.3.5': 6befc76c7f590a0b0915b531386ce7e3bbb364612868e1f04e4ac84f60a39ab5
   '@pierre/diffs@1.3.0-beta.10': 7ef7cb0cbabb17c15cdb137554068b36f15f6f5265e73fb51452aa3380db91aa
   '@react-native-menu/menu@2.0.0': c7f66d121c726ade4f5c4e1aed11a691e5711d244c544084e289ac26132a0045
@@ -470,8 +470,8 @@ importers:
         specifier: 4.0.0-beta.103
         version: 4.0.0-beta.103(effect@4.0.0-beta.103(patch_hash=af36b7948b6f9c56623074662b51dade5699880c1a7c71245de73e13c3185fb6))
       '@ff-labs/fff-node':
-        specifier: 0.9.4
-        version: 0.9.4(patch_hash=ab9ff544009e1891cfe3930105862d3699007f38922a79f3c98d90018deca368)
+        specifier: 0.10.3
+        version: 0.10.3(patch_hash=ab9ff544009e1891cfe3930105862d3699007f38922a79f3c98d90018deca368)
       '@opencode-ai/sdk':
         specifier: ^1.3.15
         version: 1.15.13
@@ -2626,55 +2626,60 @@ packages:
     resolution: {integrity: sha512-4aQzz9vgxcNXFfo/iyNgDDYfsU5XGKKxWxZopw0cVotHiW+U8IJbIxMaxsINs6bHhtkG3StKNPcOrn3eBuxKPw==}
     hasBin: true
 
-  '@ff-labs/fff-bin-darwin-arm64@0.9.4':
-    resolution: {integrity: sha512-xyivu2xB++O5xXDx5Qm50JsU2aXt8YgXlGVhH/HE7UMYDrE6L6f1RYdYs8Y0bn0D3D0+bFBrN5ELPszK9E4Wbw==}
+  '@ff-labs/fff-bin-android-arm64@0.10.3':
+    resolution: {integrity: sha512-g9MNo+rNKggdXWehd0H1fMBLnjkO2pvW6Lo3eyGCEEjms4Al1PKOTIeVju7ovrUqLjqQlyhsvUaZECkMzydvKQ==}
+    cpu: [arm64]
+    os: [android]
+
+  '@ff-labs/fff-bin-darwin-arm64@0.10.3':
+    resolution: {integrity: sha512-vMn3N39B+AJsjc24jvYsLvrc5VPo4ztSieeSjBkOYgQaG6coaVpSKPcgipJqPdv8VNLzLXd8j9O6FNP3e7HLrw==}
     cpu: [arm64]
     os: [darwin]
 
-  '@ff-labs/fff-bin-darwin-x64@0.9.4':
-    resolution: {integrity: sha512-xLooAhCnTDCipPSMMZz7kGF3lhRHx6aP5fb6DJ0Ipyw/w/UWJb+xITJFszUl/QnIBoJ/qjDc93/FZMo1dk6gVA==}
+  '@ff-labs/fff-bin-darwin-x64@0.10.3':
+    resolution: {integrity: sha512-w2X8VmqjEWASmM5LgoytBUtuJTfnZQycpFE67MytfH+57mIO4SJ7cyxvdXw/LRCMIJOToh2A9hJGrEYSLPLa5Q==}
     cpu: [x64]
     os: [darwin]
 
-  '@ff-labs/fff-bin-linux-arm64-gnu@0.9.4':
-    resolution: {integrity: sha512-m5+8vA+1veaUUWonwva1WsU6m1HRm8CpYUzr06KDB65mewlmPbqz7+Fh7hjEfiD8C4mHVHe6RysULvAH1yhsdw==}
+  '@ff-labs/fff-bin-linux-arm64-gnu@0.10.3':
+    resolution: {integrity: sha512-3MsSDY3GHLpA+RygqXs6lMeRRn5NfnhWNf/hWLGK/tmczPdQoMEjH25MhVk0HoCMOgrCP86jsBzF8QD9xgdglQ==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@ff-labs/fff-bin-linux-arm64-musl@0.9.4':
-    resolution: {integrity: sha512-EMeWm7CSTVkizy4ZEzUkLDP024tVcbCUthduuIhekFQRDsiaAze0YboIylWb9HBHJCZlCCoZrWAl4nnJbsX7AA==}
+  '@ff-labs/fff-bin-linux-arm64-musl@0.10.3':
+    resolution: {integrity: sha512-96FYchBgdHBmPPW9w4Q8mUhGTjw59ZQQEI2XZViPGfRm2DVA8Br9Npp3XX45Rw6d9G3cDZcWabr/eqvJY8vrrg==}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@ff-labs/fff-bin-linux-x64-gnu@0.9.4':
-    resolution: {integrity: sha512-pglE0uLkhnlE6bStXqfgUjYTSj+2sVwXaPfoA0QksidAsQor6NRt8004mygzC9DPubgHq5B9QezPfEwigKaP9Q==}
+  '@ff-labs/fff-bin-linux-x64-gnu@0.10.3':
+    resolution: {integrity: sha512-F1H0tP92FbaJfVzm79ptvHmR21QggNw+tQXUxq77HfKlnBLoT944pWH5MHaKGoz4pkF1Vg/hh0ROUaBTvF9Rmw==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@ff-labs/fff-bin-linux-x64-musl@0.9.4':
-    resolution: {integrity: sha512-VNKxgl8qs3aTfXViX7lqRK1aLu311h8dtBFqG4Scv+9Oi7WprybUp5L7IZ8sxKERaDAaiJMXHodXa1c90QdK8w==}
+  '@ff-labs/fff-bin-linux-x64-musl@0.10.3':
+    resolution: {integrity: sha512-p9mIROa2iEvO5HV5gNLuYr2EkQTnCeaztVnWZbDjQiQE5tTx2tUUVDzQUQutHVvtNKlsrZWoqCJ/G6xbFqWCSw==}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@ff-labs/fff-bin-win32-arm64@0.9.4':
-    resolution: {integrity: sha512-uFEt0aNL54vQxq1ivjxRuo+thnhS4wLqa4INl4VXnXJUmwB42XXxD+gsj7vzhBLLx4cFf0aWgy/+TVDR8yjZtQ==}
+  '@ff-labs/fff-bin-win32-arm64@0.10.3':
+    resolution: {integrity: sha512-Ztcb6wZwQCgF3h3kKvUaT6+6cYzzjFxTkn28b+0lqi7Yh/HTQVTS4Y0jyf/I9RVrK6sBpvDIliYaDWMRdIAmEw==}
     cpu: [arm64]
     os: [win32]
 
-  '@ff-labs/fff-bin-win32-x64@0.9.4':
-    resolution: {integrity: sha512-Yd2Eyxj+slWv+0QDW9/xBpu9FXq+hwD0rXQD5184/88d+xwWCLKhEP2w8I6OO9XCg+kLT79UJb+k0WwXUtBtMw==}
+  '@ff-labs/fff-bin-win32-x64@0.10.3':
+    resolution: {integrity: sha512-VspB3G0sA2JbJdwgTk5muvMRo2B52grPNa/IMO94tsqUV8C9Dr4iv8Ls4ze8DwywlMaR/Qp1GUrVVpgT3j+JDA==}
     cpu: [x64]
     os: [win32]
 
-  '@ff-labs/fff-node@0.9.4':
-    resolution: {integrity: sha512-yUphwzcVBuNrg1iEAE5XVPOWfCLuq/BE1scUxtHMmLo+e1KuKWBRgSKFXGjNBfL8lV3c5VGwIgK66aBqmhqVBQ==}
+  '@ff-labs/fff-node@0.10.3':
+    resolution: {integrity: sha512-tlq9GgFV3terCSaMJcPgfvVl8/lloPP9/g2sRbnc7OcSWhnopAnLMQTh3D7ru0Sq+7DRlksTOrXFfOrlC5VBMA==}
     engines: {node: '>=18.0.0'}
     cpu: [x64, arm64]
-    os: [darwin, linux, win32]
+    os: [darwin, linux, win32, android]
 
   '@floating-ui/core@1.7.5':
     resolution: {integrity: sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ==}
@@ -5153,72 +5158,72 @@ packages:
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
 
-  '@yuuang/ffi-rs-android-arm64@1.3.2':
-    resolution: {integrity: sha512-eDYLT0kVBkp7e2BwdRDmt6N1rkeDPUHDefk3ZX0/nok+GLsqfy1WBoSL3Yg7HVXN1EyW8OBVc2uK8Zq8HbmaSA==}
+  '@yuuang/ffi-rs-android-arm64@1.3.7':
+    resolution: {integrity: sha512-t6Wx3Xll6c07Nuk0k3xnZsxKFxlshm92i0U/BiTHc6kQbvu+fMJF+gKsj4yEj886jH51CM3EqZT9Xdhq9CdUVw==}
     engines: {node: '>= 12'}
     cpu: [arm64]
     os: [android]
 
-  '@yuuang/ffi-rs-darwin-arm64@1.3.2':
-    resolution: {integrity: sha512-kRdgPaOM6TfuC5wHUwstlatk4HNie2lwSLJWQL2LiAUIJ7+96CoiWUNVhwBcFrhdfxhnWenYS6F668CV0vit8Q==}
+  '@yuuang/ffi-rs-darwin-arm64@1.3.7':
+    resolution: {integrity: sha512-OueBlUFBT9IwD9pQnoYs0UszRBEySskfrEPXXfvKfGjL/DXnfn6kUheQ3oIP6sSmshVGNQUwrTCPo6feAa4QjA==}
     engines: {node: '>= 12'}
     cpu: [arm64]
     os: [darwin]
 
-  '@yuuang/ffi-rs-darwin-x64@1.3.2':
-    resolution: {integrity: sha512-O3AlVgre8FQcZRJe44Xs7A6iDLumoPXqbw40+eJCa2gyXaXyLPdHoWrS1W9rBCa1QZRRnG7zRulPVFw8C5uo8g==}
+  '@yuuang/ffi-rs-darwin-x64@1.3.7':
+    resolution: {integrity: sha512-x4mxXOKwSgwYx6OBAKrW+Ocp8um2KoPpUwaD0Z2tmR6EekoRvFGN7s/eEK1avqCxcsLN7/MzGOnCCFyGpOVfPA==}
     engines: {node: '>= 12'}
     cpu: [x64]
     os: [darwin]
 
-  '@yuuang/ffi-rs-linux-arm-gnueabihf@1.3.2':
-    resolution: {integrity: sha512-IXiNdTbIcTCPny5eeElijFWYeKSJjQWSjt9ZyJNdLHYiB1Np+XD6K7wNZS6EOMgMelhW1kQE62T654skGkVDIA==}
+  '@yuuang/ffi-rs-linux-arm-gnueabihf@1.3.7':
+    resolution: {integrity: sha512-9r//Z022QYVoIAY458Dpk8HWkisk/y4NJC3d52RlkdsLD+9p0zn0cKKSoMF/xUsOWDFSmOf+cwU/Xadi/wxFMQ==}
     engines: {node: '>= 12'}
     cpu: [arm]
     os: [linux]
 
-  '@yuuang/ffi-rs-linux-arm64-gnu@1.3.2':
-    resolution: {integrity: sha512-gWFO6xufUK9lPYUqDvKa6IR243dPqdetgl9Q7HrZWaDu7wLo06QQrosw8QTzndafQnOcBKm6LoLujmGCfTgJOA==}
+  '@yuuang/ffi-rs-linux-arm64-gnu@1.3.7':
+    resolution: {integrity: sha512-nrW4MlFlyQInfxTsI5wtcIpbV4KlHLWo2BCk4CHIETlUT+PUspNFqDg+Byy7My3hpCZlXp0WsMVP/3N0LlybNw==}
     engines: {node: '>= 12'}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@yuuang/ffi-rs-linux-arm64-musl@1.3.2':
-    resolution: {integrity: sha512-lejvOSqypPziQH5rzfkDlJ6e92qhWbDutE9ttOO6z5I2k83zoh9iZhZWhaXSU5VqgQpcshRkrbtXb9gy1ft5dA==}
+  '@yuuang/ffi-rs-linux-arm64-musl@1.3.7':
+    resolution: {integrity: sha512-eLLx4P8DzNnuPif19nAvKPaf88lSf6KFbDetH3nAIRZvI495h0jigN835Ayr7uAADssohGfO9MPMH33DXmFErA==}
     engines: {node: '>= 12'}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@yuuang/ffi-rs-linux-x64-gnu@1.3.2':
-    resolution: {integrity: sha512-s8VCFazaJKmgY2hgMTpWk4TtBY/zy5ovbaGgwyY0FvBD0YvyhcET4IrMsDJpHhFVTPCYfKZ1dN45clD/YiFp6g==}
+  '@yuuang/ffi-rs-linux-x64-gnu@1.3.7':
+    resolution: {integrity: sha512-upEz1Q98T51x2In872fsjgHCJbE3e8r9JxhJD+5NvSMk6BpieYWRodTbsMxV6oKWmfl12loKwF2j4OBSWKl0lA==}
     engines: {node: '>= 12'}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@yuuang/ffi-rs-linux-x64-musl@1.3.2':
-    resolution: {integrity: sha512-Ahr5chfKZKWUik20bEZRug+be57LZ2yYrtolyjSRoo7A4ZniBUHBZUNWm6TD6i0CJayqyxWeVk/XiaABD8bY0w==}
+  '@yuuang/ffi-rs-linux-x64-musl@1.3.7':
+    resolution: {integrity: sha512-YOcOkIwVvIhpwuGJ428h15vpE0KnT3teFG0g2J31FrBxrVh9IH4HeTGXjelI3l9SI5gyiZDnD4PQnQ1U6oqTcA==}
     engines: {node: '>= 12'}
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
+    libc: [musl]
 
-  '@yuuang/ffi-rs-win32-arm64-msvc@1.3.2':
-    resolution: {integrity: sha512-yhpLcj0qel5VNlpzxPZfNmi7+rEX8444QHjUP6WWLxdRfqPllROu/Cp3OpkBpw3BLdxfcDhWkjWMD5QsJN0Pvg==}
+  '@yuuang/ffi-rs-win32-arm64-msvc@1.3.7':
+    resolution: {integrity: sha512-ZfYzLV1w7Mhzh9XRScEMpw9oazIEiwO+0+TYHHRL882d5oD0Q99YikmRhdifsoHCCQefKmWF/4BXCeFkzg8NFA==}
     engines: {node: '>= 12'}
     cpu: [arm64]
     os: [win32]
 
-  '@yuuang/ffi-rs-win32-ia32-msvc@1.3.2':
-    resolution: {integrity: sha512-BFVSbdtg/7mJBw5kQFOPKFiA+SF7z3240HpzHN81Umm4Bp4dWkyx0msYn8+Q7/BBJiLQ4F6bi3Nftk58YA9r9w==}
+  '@yuuang/ffi-rs-win32-ia32-msvc@1.3.7':
+    resolution: {integrity: sha512-ifYz+f+giKpT39lKWDru+om6QnA9J7J953ns60xHgB46ESZvPd/Y2W5+PesRNC9U+vnFEiLZ9CNC+R3fBWC1pg==}
     engines: {node: '>= 12'}
     cpu: [x64, ia32]
     os: [win32]
 
-  '@yuuang/ffi-rs-win32-x64-msvc@1.3.2':
-    resolution: {integrity: sha512-ZL5MJ76n2rjwGo26kCWW7wK6QT/cee00Rx8pfW79pz6vM6jqfhoE7zTnwFiw4aOQUes9+HUc5DeeJ3z+Vb9oLg==}
+  '@yuuang/ffi-rs-win32-x64-msvc@1.3.7':
+    resolution: {integrity: sha512-H3s4wOLtZtKtmuPjUNE+bhnSKxxpXcuxG70jRC8dUMHqIm5iCvdoZ4XYDeq7/uUYlySerXFmRL4dAVCX/TUNTg==}
     engines: {node: '>= 12'}
     cpu: [x64]
     os: [win32]
@@ -6904,8 +6909,8 @@ packages:
   fetch-nodeshim@0.4.10:
     resolution: {integrity: sha512-m6I8ALe4L4XpdETy7MJZWs6L1IVMbjs99bwbpIKphxX+0CTns4IKDWJY0LWfr4YsFjfg+z1TjzTMU8lKl8rG0w==}
 
-  ffi-rs@1.3.2:
-    resolution: {integrity: sha512-4s8dX9VbBw/jd5NOuE3EJRqXaIVdjMyiumeeDzrOhtjQRwp6Bz2za7iksWXTnvTQKV/tTdm1s1w7mObe92zPjQ==}
+  ffi-rs@1.3.7:
+    resolution: {integrity: sha512-5MMZQS2t/6f/ec3sx0f51gBcKGZPGfolPAW04lvLOSYnr7gmOKs8YzH1Rh+34WGO+VtcgcTuxaUUoJLcR4Tirg==}
 
   filelist@1.0.6:
     resolution: {integrity: sha512-5giy2PkLYY1cP39p17Ech+2xlpTRL9HLspOfEgm0L6CwBXBTgsK5ou0JtzYuepxkaQ/tvhCFIJ5uXo0OrM2DxA==}
@@ -12702,42 +12707,46 @@ snapshots:
       chalk: 4.1.2
       js-yaml: 4.2.0
 
-  '@ff-labs/fff-bin-darwin-arm64@0.9.4':
+  '@ff-labs/fff-bin-android-arm64@0.10.3':
     optional: true
 
-  '@ff-labs/fff-bin-darwin-x64@0.9.4':
+  '@ff-labs/fff-bin-darwin-arm64@0.10.3':
     optional: true
 
-  '@ff-labs/fff-bin-linux-arm64-gnu@0.9.4':
+  '@ff-labs/fff-bin-darwin-x64@0.10.3':
     optional: true
 
-  '@ff-labs/fff-bin-linux-arm64-musl@0.9.4':
+  '@ff-labs/fff-bin-linux-arm64-gnu@0.10.3':
     optional: true
 
-  '@ff-labs/fff-bin-linux-x64-gnu@0.9.4':
+  '@ff-labs/fff-bin-linux-arm64-musl@0.10.3':
     optional: true
 
-  '@ff-labs/fff-bin-linux-x64-musl@0.9.4':
+  '@ff-labs/fff-bin-linux-x64-gnu@0.10.3':
     optional: true
 
-  '@ff-labs/fff-bin-win32-arm64@0.9.4':
+  '@ff-labs/fff-bin-linux-x64-musl@0.10.3':
     optional: true
 
-  '@ff-labs/fff-bin-win32-x64@0.9.4':
+  '@ff-labs/fff-bin-win32-arm64@0.10.3':
     optional: true
 
-  '@ff-labs/fff-node@0.9.4(patch_hash=ab9ff544009e1891cfe3930105862d3699007f38922a79f3c98d90018deca368)':
+  '@ff-labs/fff-bin-win32-x64@0.10.3':
+    optional: true
+
+  '@ff-labs/fff-node@0.10.3(patch_hash=ab9ff544009e1891cfe3930105862d3699007f38922a79f3c98d90018deca368)':
     dependencies:
-      ffi-rs: 1.3.2
+      ffi-rs: 1.3.7
     optionalDependencies:
-      '@ff-labs/fff-bin-darwin-arm64': 0.9.4
-      '@ff-labs/fff-bin-darwin-x64': 0.9.4
-      '@ff-labs/fff-bin-linux-arm64-gnu': 0.9.4
-      '@ff-labs/fff-bin-linux-arm64-musl': 0.9.4
-      '@ff-labs/fff-bin-linux-x64-gnu': 0.9.4
-      '@ff-labs/fff-bin-linux-x64-musl': 0.9.4
-      '@ff-labs/fff-bin-win32-arm64': 0.9.4
-      '@ff-labs/fff-bin-win32-x64': 0.9.4
+      '@ff-labs/fff-bin-android-arm64': 0.10.3
+      '@ff-labs/fff-bin-darwin-arm64': 0.10.3
+      '@ff-labs/fff-bin-darwin-x64': 0.10.3
+      '@ff-labs/fff-bin-linux-arm64-gnu': 0.10.3
+      '@ff-labs/fff-bin-linux-arm64-musl': 0.10.3
+      '@ff-labs/fff-bin-linux-x64-gnu': 0.10.3
+      '@ff-labs/fff-bin-linux-x64-musl': 0.10.3
+      '@ff-labs/fff-bin-win32-arm64': 0.10.3
+      '@ff-labs/fff-bin-win32-x64': 0.10.3
 
   '@floating-ui/core@1.7.5':
     dependencies:
@@ -15279,37 +15288,37 @@ snapshots:
 
   '@xmldom/xmldom@0.9.10': {}
 
-  '@yuuang/ffi-rs-android-arm64@1.3.2':
+  '@yuuang/ffi-rs-android-arm64@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-darwin-arm64@1.3.2':
+  '@yuuang/ffi-rs-darwin-arm64@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-darwin-x64@1.3.2':
+  '@yuuang/ffi-rs-darwin-x64@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-linux-arm-gnueabihf@1.3.2':
+  '@yuuang/ffi-rs-linux-arm-gnueabihf@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-linux-arm64-gnu@1.3.2':
+  '@yuuang/ffi-rs-linux-arm64-gnu@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-linux-arm64-musl@1.3.2':
+  '@yuuang/ffi-rs-linux-arm64-musl@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-linux-x64-gnu@1.3.2':
+  '@yuuang/ffi-rs-linux-x64-gnu@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-linux-x64-musl@1.3.2':
+  '@yuuang/ffi-rs-linux-x64-musl@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-win32-arm64-msvc@1.3.2':
+  '@yuuang/ffi-rs-win32-arm64-msvc@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-win32-ia32-msvc@1.3.2':
+  '@yuuang/ffi-rs-win32-ia32-msvc@1.3.7':
     optional: true
 
-  '@yuuang/ffi-rs-win32-x64-msvc@1.3.2':
+  '@yuuang/ffi-rs-win32-x64-msvc@1.3.7':
     optional: true
 
   '@zxcvbn-ts/core@3.0.4':
@@ -17444,19 +17453,19 @@ snapshots:
 
   fetch-nodeshim@0.4.10: {}
 
-  ffi-rs@1.3.2:
+  ffi-rs@1.3.7:
     optionalDependencies:
-      '@yuuang/ffi-rs-android-arm64': 1.3.2
-      '@yuuang/ffi-rs-darwin-arm64': 1.3.2
-      '@yuuang/ffi-rs-darwin-x64': 1.3.2
-      '@yuuang/ffi-rs-linux-arm-gnueabihf': 1.3.2
-      '@yuuang/ffi-rs-linux-arm64-gnu': 1.3.2
-      '@yuuang/ffi-rs-linux-arm64-musl': 1.3.2
-      '@yuuang/ffi-rs-linux-x64-gnu': 1.3.2
-      '@yuuang/ffi-rs-linux-x64-musl': 1.3.2
-      '@yuuang/ffi-rs-win32-arm64-msvc': 1.3.2
-      '@yuuang/ffi-rs-win32-ia32-msvc': 1.3.2
-      '@yuuang/ffi-rs-win32-x64-msvc': 1.3.2
+      '@yuuang/ffi-rs-android-arm64': 1.3.7
+      '@yuuang/ffi-rs-darwin-arm64': 1.3.7
+      '@yuuang/ffi-rs-darwin-x64': 1.3.7
+      '@yuuang/ffi-rs-linux-arm-gnueabihf': 1.3.7
+      '@yuuang/ffi-rs-linux-arm64-gnu': 1.3.7
+      '@yuuang/ffi-rs-linux-arm64-musl': 1.3.7
+      '@yuuang/ffi-rs-linux-x64-gnu': 1.3.7
+      '@yuuang/ffi-rs-linux-x64-musl': 1.3.7
+      '@yuuang/ffi-rs-win32-arm64-msvc': 1.3.7
+      '@yuuang/ffi-rs-win32-ia32-msvc': 1.3.7
+      '@yuuang/ffi-rs-win32-x64-msvc': 1.3.7
 
   filelist@1.0.6:
     dependencies:

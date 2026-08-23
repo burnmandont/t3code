@@ -44,6 +44,32 @@ const TERMINAL_FONT_LOAD_VARIANTS = [
   "italic 700",
 ] as const;
 
+const SHELL_FENCE_LANGUAGES = new Set([
+  "bash",
+  "cmd",
+  "fish",
+  "powershell",
+  "pwsh",
+  "sh",
+  "shell",
+  "zsh",
+]);
+
+/**
+ * Some clipboard sources wrap shell commands in Markdown. A terminal wants
+ * the command itself, not its surrounding fence. Only unwrap a clipboard
+ * containing one complete, explicitly shell-language fenced block; arbitrary
+ * Markdown and code pasted into terminal editors remain byte-for-byte unchanged.
+ */
+export function normalizeTerminalPasteText(value: string): string {
+  const normalized = value.replaceAll("\r\n", "\n");
+  const match = /^\s*```([^\s`]*)[^\n]*\n([\s\S]*?)\n```\s*$/u.exec(normalized);
+  if (!match) return value;
+  const language = match?.[1]?.toLowerCase();
+  if (!language || !SHELL_FENCE_LANGUAGES.has(language)) return value;
+  return match[2] ?? value;
+}
+
 /** Requested terminal font; omitted fields fall back to the defaults. */
 export interface GhosttyTerminalFont {
   readonly family?: string;
@@ -1085,7 +1111,9 @@ export class GhosttyTerminalSurface {
           (text) => {
             if (this.disposed || this.pasteShortcutToken !== token) return;
             this.pasteShortcutToken += 1;
-            if (text.length > 0) this.options.onData(this.core.encodePaste(text));
+            if (text.length > 0) {
+              this.options.onData(this.core.encodePaste(normalizeTerminalPasteText(text)));
+            }
           },
           () => {
             // Clipboard read denied; the native paste event remains the path.
@@ -1195,7 +1223,7 @@ export class GhosttyTerminalSurface {
     // The native paste won the race with actual text; a pending clipboard read
     // must not double. An empty native paste leaves the read as the only path.
     this.pasteShortcutToken += 1;
-    this.options.onData(this.core.encodePaste(data));
+    this.options.onData(this.core.encodePaste(normalizeTerminalPasteText(data)));
   };
 
   private readonly onCompositionStart = () => {

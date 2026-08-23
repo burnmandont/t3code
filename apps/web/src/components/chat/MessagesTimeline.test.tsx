@@ -346,6 +346,25 @@ describe("MessagesTimeline", () => {
     expect(fadedMarkup).toContain("topbar-scroll-fade");
   });
 
+  it("renders the user-message minimap on the right side", () => {
+    const firstEntry = buildUserTimelineEntry("First prompt.");
+    const secondEntry = {
+      ...buildUserTimelineEntry("Second prompt."),
+      id: "entry-2",
+      message: {
+        ...buildUserTimelineEntry("Second prompt.").message,
+        id: MessageId.make("message-2"),
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[firstEntry, secondEntry]} />,
+    );
+
+    expect(markup).toContain('data-testid="timeline-minimap"');
+    expect(markup).toContain("absolute inset-y-0 right-0");
+    expect(markup).not.toContain("absolute inset-y-0 left-0");
+  });
+
   it("keeps assistant changed-files headers sticky below the thread header", () => {
     const assistantMessageId = MessageId.make("message-assistant-with-files");
     const turnId = TurnId.make("turn-with-files");
@@ -411,6 +430,11 @@ describe("MessagesTimeline", () => {
       resolveTimelineMinimapHitStripWidth,
       resolveTimelineMinimapIndexFromPointer,
       resolveTimelineMinimapInteractiveWidth,
+      resolveTimelineMinimapMarkerIndexes,
+      resolveTimelineMinimapNearestMarkerIndex,
+      resolveTimelineMinimapPreviewPlacement,
+      resolveTimelineMinimapRailHeight,
+      resolveTimelineMinimapRailTop,
       resolveTimelineMinimapTopPercent,
     } = await import("./MessagesTimeline.logic");
 
@@ -445,7 +469,12 @@ describe("MessagesTimeline", () => {
     // Geometry missing (older state shape): fall back to the strict flag.
     expect(resolveTimelineIsAtEnd({ isAtEnd: false })).toBe(false);
 
-    expect(resolveTimelineMinimapHeightStyle(5)).toBe("min(32px, calc(100vh - 18rem))");
+    expect(resolveTimelineMinimapHeightStyle(5)).toBe("min(32px, 100%)");
+    expect(resolveTimelineMinimapRailHeight(5, 20)).toBe(20);
+    expect(resolveTimelineMinimapRailHeight(5, 100)).toBe(32);
+    expect(resolveTimelineMinimapRailTop(32, 100)).toBe(34);
+    expect(resolveTimelineMinimapRailTop(72, 100)).toBe(14);
+    expect(resolveTimelineMinimapRailTop(100, 100)).toBe(0);
     expect(resolveTimelineMinimapTopPercent(2, 5)).toBe(50);
     expect(
       resolveTimelineMinimapIndexFromPointer({
@@ -488,6 +517,42 @@ describe("MessagesTimeline", () => {
     expect(resolveTimelineMinimapInteractiveWidth(0, true)).toBe("22rem");
     expect(resolveTimelineMinimapInteractiveWidth(14, true)).toBe("22rem");
     expect(resolveTimelineMinimapInteractiveWidth(40, true)).toBe("22rem");
+
+    // Decorative ticks stay legible and bounded while pointer selection still
+    // addresses the complete item list.
+    expect(resolveTimelineMinimapMarkerIndexes(5, 32)).toEqual([0, 1, 2, 3, 4]);
+    expect(resolveTimelineMinimapMarkerIndexes(1_000, null)).toHaveLength(201);
+    const compressedMarkerIndexes = resolveTimelineMinimapMarkerIndexes(101, 40);
+    expect(compressedMarkerIndexes).toHaveLength(11);
+    expect(compressedMarkerIndexes[0]).toBe(0);
+    expect(compressedMarkerIndexes.at(-1)).toBe(100);
+    expect(resolveTimelineMinimapNearestMarkerIndex(44, compressedMarkerIndexes)).toBe(40);
+    expect(resolveTimelineMinimapNearestMarkerIndex(46, compressedMarkerIndexes)).toBe(50);
+
+    expect(
+      resolveTimelineMinimapPreviewPlacement({
+        index: 1,
+        itemCount: 101,
+        railHeight: 400,
+        availableHeight: 400,
+      }),
+    ).toEqual({ top: 0, translateY: "0%" });
+    expect(
+      resolveTimelineMinimapPreviewPlacement({
+        index: 50,
+        itemCount: 101,
+        railHeight: 400,
+        availableHeight: 400,
+      }),
+    ).toEqual({ top: 200, translateY: "-50%" });
+    expect(
+      resolveTimelineMinimapPreviewPlacement({
+        index: 99,
+        itemCount: 101,
+        railHeight: 400,
+        availableHeight: 400,
+      }),
+    ).toEqual({ top: 400, translateY: "-100%" });
   });
 
   it("anchors the first user message using its measured height", () => {
@@ -680,7 +745,8 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
-    expect(markup).toContain("rounded-2xl bg-message p-3");
+    expect(markup).toContain("relative w-full rounded-2xl bg-message p-3");
+    expect(markup).not.toContain("max-w-[80%]");
   });
 
   it("preserves arbitrary XML-like tags and comparisons in rendered user messages", async () => {

@@ -69,7 +69,7 @@ import { RenderErrorBoundary } from "./RenderErrorBoundary";
 import { useTheme } from "../hooks/useTheme";
 import { getClientSettings } from "../hooks/useSettings";
 import {
-  chatMarkdownClipboardPayload,
+  plainTextForChatSelection,
   serializeTableElementToCsv,
   serializeTableElementToMarkdown,
 } from "../markdown-clipboard";
@@ -1507,16 +1507,15 @@ function ChatMarkdown({
   const markdownUrlTransform = useCallback((href: string) => {
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
   }, []);
-  // Re-emit highlighted content as markdown so copying out of the rendered
-  // view keeps links, emphasis, lists, and code fences intact.
+  // Selection copy should match the rendered response, not its Markdown source.
   const handleCopy = useCallback((event: ReactClipboardEvent<HTMLDivElement>) => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !event.clipboardData) return;
-    const payload = chatMarkdownClipboardPayload(selection);
-    if (!payload) return;
+    const text = plainTextForChatSelection(selection);
+    if (text === null) return;
     event.preventDefault();
-    event.clipboardData.setData("text/plain", payload.text);
-    event.clipboardData.setData("text/html", payload.html);
+    event.clipboardData.clearData();
+    event.clipboardData.setData("text/plain", text);
   }, []);
   const openChangeRequestLink = useOpenChangeRequestLink(threadRef);
   const openExternalLinkInPreview = useCallback(

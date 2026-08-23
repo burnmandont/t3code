@@ -13,8 +13,10 @@ import { type MessageId, type OrchestrationLatestTurn, type TurnId } from "@t3to
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
 export const TIMELINE_MINIMAP_ITEM_SPACING = 8;
+export const TIMELINE_MINIMAP_MIN_MARKER_SPACING = 4;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
-export const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
+export const TIMELINE_MINIMAP_PREVIEW_MAX_HEIGHT = 104;
+export const TIMELINE_MINIMAP_UNMEASURED_MARKER_LIMIT = 201;
 export const TIMELINE_CONTENT_MAX_WIDTH = 768;
 export const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 
@@ -71,7 +73,123 @@ export function shouldPreserveAssistantLineBreaks(text: string): boolean {
 
 export function resolveTimelineMinimapHeightStyle(itemCount: number): string {
   const naturalHeight = Math.max(1, (itemCount - 1) * TIMELINE_MINIMAP_ITEM_SPACING);
-  return `min(${naturalHeight}px, ${TIMELINE_MINIMAP_MAX_HEIGHT_CSS})`;
+  return `min(${naturalHeight}px, 100%)`;
+}
+
+export function resolveTimelineMinimapRailHeight(
+  itemCount: number,
+  availableHeight: number,
+): number {
+  if (!Number.isFinite(availableHeight) || availableHeight <= 0) {
+    return 0;
+  }
+  const naturalHeight = Math.max(1, (itemCount - 1) * TIMELINE_MINIMAP_ITEM_SPACING);
+  return Math.min(naturalHeight, availableHeight);
+}
+
+export function resolveTimelineMinimapRailTop(railHeight: number, availableHeight: number): number {
+  if (
+    !Number.isFinite(railHeight) ||
+    railHeight <= 0 ||
+    !Number.isFinite(availableHeight) ||
+    availableHeight <= 0
+  ) {
+    return 0;
+  }
+  return Math.max(0, (availableHeight - Math.min(railHeight, availableHeight)) / 2);
+}
+
+export function resolveTimelineMinimapMarkerIndexes(
+  itemCount: number,
+  railHeight: number | null,
+): number[] {
+  if (itemCount <= 0) {
+    return [];
+  }
+  if (railHeight !== null && (!Number.isFinite(railHeight) || railHeight <= 0)) {
+    return [];
+  }
+
+  const markerCount = Math.min(
+    itemCount,
+    railHeight === null
+      ? TIMELINE_MINIMAP_UNMEASURED_MARKER_LIMIT
+      : Math.max(2, Math.floor(railHeight / TIMELINE_MINIMAP_MIN_MARKER_SPACING) + 1),
+  );
+  if (markerCount >= itemCount) {
+    return Array.from({ length: itemCount }, (_, index) => index);
+  }
+
+  return Array.from({ length: markerCount }, (_, index) =>
+    Math.round((index / (markerCount - 1)) * (itemCount - 1)),
+  );
+}
+
+export function resolveTimelineMinimapNearestMarkerIndex(
+  itemIndex: number,
+  markerIndexes: ReadonlyArray<number>,
+): number | null {
+  if (markerIndexes.length === 0) {
+    return null;
+  }
+  const lastMarkerIndex = markerIndexes.at(-1);
+  if (lastMarkerIndex === undefined) {
+    return null;
+  }
+
+  let low = 0;
+  let high = markerIndexes.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((markerIndexes[middle] ?? 0) < itemIndex) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+
+  const upper = markerIndexes[low] ?? lastMarkerIndex;
+  const lower = markerIndexes[Math.max(0, low - 1)] ?? upper;
+  return itemIndex - lower <= upper - itemIndex ? lower : upper;
+}
+
+export interface TimelineMinimapPreviewPlacement {
+  readonly top: number;
+  readonly translateY: "0%" | "-50%" | "-100%";
+}
+
+export function resolveTimelineMinimapPreviewPlacement(input: {
+  readonly index: number;
+  readonly itemCount: number;
+  readonly railHeight: number;
+  readonly availableHeight: number;
+}): TimelineMinimapPreviewPlacement | null {
+  if (
+    input.itemCount <= 0 ||
+    !Number.isFinite(input.railHeight) ||
+    input.railHeight <= 0 ||
+    !Number.isFinite(input.availableHeight) ||
+    input.availableHeight <= 0
+  ) {
+    return null;
+  }
+
+  const railTop = resolveTimelineMinimapRailTop(input.railHeight, input.availableHeight);
+  const activeTop =
+    (resolveTimelineMinimapTopPercent(input.index, input.itemCount) / 100) * input.railHeight;
+  const activeTopInContainer = railTop + activeTop;
+  const edgeThreshold = Math.min(
+    TIMELINE_MINIMAP_PREVIEW_MAX_HEIGHT / 2,
+    input.availableHeight / 2,
+  );
+
+  if (activeTopInContainer < edgeThreshold) {
+    return { top: railTop === 0 ? 0 : -railTop, translateY: "0%" };
+  }
+  if (activeTopInContainer > input.availableHeight - edgeThreshold) {
+    return { top: input.availableHeight - railTop, translateY: "-100%" };
+  }
+  return { top: activeTop, translateY: "-50%" };
 }
 
 export function resolveTimelineMinimapTopPercent(index: number, itemCount: number): number {
@@ -108,12 +226,12 @@ export function resolveTimelineMinimapHasPersistentGutter(viewportWidth: number)
   return sideGutter >= TIMELINE_MINIMAP_PERSISTENT_GUTTER;
 }
 
-export const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
+export const TIMELINE_MINIMAP_HIT_STRIP_INSET = 12;
 export const TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH = 40;
 export const TIMELINE_MINIMAP_EXPANDED_HIT_STRIP_WIDTH = "22rem";
 
 /**
- * The minimap overlays the viewport's left edge while the content column is
+ * The minimap overlays the viewport's right edge while the content column is
  * centered, so the side gutter between them shrinks under browser zoom or a
  * narrow pane. A fixed-width hover strip would then sit on top of the message
  * text and swallow its pointer events. Cap the strip's width so it never
@@ -130,7 +248,7 @@ export function resolveTimelineMinimapHitStripWidth(viewportWidth: number): numb
     0,
     Math.min(
       TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH,
-      Math.floor(sideGutter) - TIMELINE_MINIMAP_HIT_STRIP_LEFT,
+      Math.floor(sideGutter) - TIMELINE_MINIMAP_HIT_STRIP_INSET,
     ),
   );
 }

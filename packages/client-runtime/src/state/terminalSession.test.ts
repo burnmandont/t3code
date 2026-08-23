@@ -7,6 +7,7 @@ import {
   applyTerminalMetadataStreamEvent,
   combineTerminalSessionState,
   EMPTY_TERMINAL_BUFFER_STATE,
+  resolveTerminalRenderAction,
   selectRunningSubprocessTerminalIds,
 } from "./terminalSession.ts";
 
@@ -183,5 +184,51 @@ describe("terminal session reducers", () => {
     );
 
     expect(state.buffer).toBe("🙂");
+  });
+
+  it("delivers ordered output deltas without comparing the retained buffer", () => {
+    const first = applyTerminalAttachStreamEvent(EMPTY_TERMINAL_BUFFER_STATE, {
+      type: "snapshot",
+      snapshot: BASE_SNAPSHOT,
+    });
+    const second = applyTerminalAttachStreamEvent(first, {
+      type: "output",
+      threadId: TARGET.threadId,
+      terminalId: TARGET.terminalId,
+      data: " world",
+    });
+    const third = applyTerminalAttachStreamEvent(second, {
+      type: "output",
+      threadId: TARGET.threadId,
+      terminalId: TARGET.terminalId,
+      data: "!",
+    });
+
+    expect(resolveTerminalRenderAction(third, first.renderVersion)).toEqual({
+      type: "append",
+      version: third.renderVersion,
+      data: " world!",
+    });
+  });
+
+  it("falls back to a full reset when a render cursor is outside the delta window", () => {
+    let state = applyTerminalAttachStreamEvent(EMPTY_TERMINAL_BUFFER_STATE, {
+      type: "snapshot",
+      snapshot: BASE_SNAPSHOT,
+    });
+    for (let index = 0; index < 70; index += 1) {
+      state = applyTerminalAttachStreamEvent(state, {
+        type: "output",
+        threadId: TARGET.threadId,
+        terminalId: TARGET.terminalId,
+        data: String(index % 10),
+      });
+    }
+
+    expect(resolveTerminalRenderAction(state, 1)).toEqual({
+      type: "reset",
+      version: state.renderVersion,
+      data: state.buffer,
+    });
   });
 });
