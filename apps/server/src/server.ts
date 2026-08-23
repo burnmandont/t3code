@@ -100,6 +100,7 @@ import { serverRelayBrokerTracingLayer } from "./cloud/relayTracing.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as CloudCliTokenManager from "./cloud/CliTokenManager.ts";
 import * as CloudCliState from "./cloud/CliState.ts";
+import { resolveSovereignProviderSelection } from "./cloud/providerSelection.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
@@ -126,6 +127,10 @@ import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale"
 import { forkParked, ServerActivation } from "./serverActivation.ts";
 
 declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
+
+const sovereignProvidersSelected = resolveSovereignProviderSelection(
+  typeof __T3CODE_BUILD_SOVEREIGN__ === "undefined" ? undefined : __T3CODE_BUILD_SOVEREIGN__,
+);
 
 // Effect's default preemptive shutdown waits 20s before finalizing request scopes.
 // T3's primary transport is long-lived WebSocket RPC, whose Effect scope finalizer
@@ -189,7 +194,7 @@ const FrpcClientLive = Layer.unwrap(
 
 const ConnectorClientLive = Layer.unwrap(
   Effect.gen(function* () {
-    if (__T3CODE_BUILD_SOVEREIGN__) {
+    if (sovereignProvidersSelected) {
       return Layer.effect(ConnectorClient.RelayClient, FrpcClient.FrpcClient).pipe(
         Layer.provideMerge(FrpcClientLive),
       );
@@ -205,7 +210,7 @@ const ConnectorClientLive = Layer.unwrap(
 
 const ManagedConnectorClientsLive = Layer.unwrap(
   Effect.gen(function* () {
-    if (__T3CODE_BUILD_SOVEREIGN__) {
+    if (sovereignProvidersSelected) {
       return ManagedConnectorClients.layerFromFrpcClient.pipe(Layer.provideMerge(FrpcClientLive));
     }
 

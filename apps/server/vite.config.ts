@@ -17,17 +17,13 @@ import {
   isExternalCliDependency,
   shouldBundleCliDependency,
 } from "../../scripts/lib/cli-external-packages.ts";
+import { resolveSovereignProviderSelection } from "./src/cloud/providerSelection.ts";
 
 export { shouldBundleCliDependency };
 
 const repoEnv = loadRepoEnv();
 const cliBuildChannel = packageJson.version.includes("-nightly.") ? "nightly" : "latest";
-const sovereignProvidersSelected = Boolean(
-  process.env.T3CODE_BUILD_NEUTRAL_PUBLIC_RUNTIME === "1" ||
-  repoEnv.T3CODE_OAUTH_ISSUER?.trim() ||
-  repoEnv.T3CODE_OAUTH_CLIENT_ID?.trim() ||
-  repoEnv.T3CODE_OAUTH_RESOURCE?.trim(),
-);
+const sovereignProvidersSelected = resolveSovereignProviderSelection(undefined, repoEnv);
 
 export default mergeConfig(
   baseConfig,
