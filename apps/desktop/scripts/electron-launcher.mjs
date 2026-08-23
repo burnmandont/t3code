@@ -25,7 +25,7 @@ const developmentMacIconPngPath = NodePath.join(
   repoRoot,
   "assets",
   "dev",
-  "blueprint-macos-1024.png",
+  "sovereign-dev-macos-1024.png",
 );
 const productionMacIconPngPath = NodePath.join(
   repoRoot,

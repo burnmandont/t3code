@@ -54,12 +54,17 @@ T3CODE_APPLE_TEAM_ID=U2TDSUCYT4
 T3CODE_IOS_BUNDLE_ID_DEVELOPMENT=com.moondiner.t3code.development
 T3CODE_IOS_BUNDLE_ID_PRODUCTION=com.moondiner.t3code
 T3CODE_IOS_BUILD_NUMBER=1
+T3CODE_ANDROID_PACKAGE_DEVELOPMENT=com.moondiner.t3code.development
+T3CODE_ANDROID_PACKAGE_PRODUCTION=com.moondiner.t3code
 ```
 
 Increment `T3CODE_IOS_BUILD_NUMBER` before every App Store Connect upload.
 The legacy unscoped `T3CODE_IOS_BUNDLE_ID` remains accepted only for local
 development builds; preview and production builds fail closed without their
 variant-specific identifiers.
+Android defaults to the matching iOS identifier; the scoped Android values
+allow an explicit Play package namespace without falling back to the upstream
+`com.t3tools.t3code` identity.
 
 Install Xcode and CocoaPods, boot an iOS simulator, and then run from
 `apps/mobile`:
@@ -126,8 +131,8 @@ EXPO_NO_TELEMETRY=1 \
 APP_VARIANT=development \
 EXPO_NO_GIT_STATUS=1 \
 xcodebuild \
-  -workspace ios/T3CodeDev.xcworkspace \
-  -scheme T3CodeDev \
+  -workspace ios/SovereignDev.xcworkspace \
+  -scheme SovereignDev \
   -configuration Release \
   -sdk iphonesimulator \
   -destination "id=$SIMULATOR_UDID" \
@@ -138,7 +143,7 @@ xcodebuild \
 
 xcrun simctl install \
   "$SIMULATOR_UDID" \
-  /tmp/t3-sovereign-release/Build/Products/Release-iphonesimulator/T3CodeDev.app
+  /tmp/t3-sovereign-release/Build/Products/Release-iphonesimulator/SovereignDev.app
 
 xcrun simctl launch \
   "$SIMULATOR_UDID" \
@@ -166,8 +171,8 @@ EXPO_NO_TELEMETRY=1 \
 APP_VARIANT=development \
 EXPO_NO_GIT_STATUS=1 \
 xcodebuild \
-  -workspace ios/T3CodeDev.xcworkspace \
-  -scheme T3CodeDev \
+  -workspace ios/SovereignDev.xcworkspace \
+  -scheme SovereignDev \
   -showdestinations
 ```
 
@@ -181,8 +186,8 @@ EXPO_NO_TELEMETRY=1 \
 APP_VARIANT=development \
 EXPO_NO_GIT_STATUS=1 \
 xcodebuild \
-  -workspace ios/T3CodeDev.xcworkspace \
-  -scheme T3CodeDev \
+  -workspace ios/SovereignDev.xcworkspace \
+  -scheme SovereignDev \
   -configuration Release \
   -sdk iphoneos \
   -destination "id=$DEVICE_UDID" \
@@ -199,7 +204,7 @@ CORE_DEVICE_ID='<core-device-identifier>'
 
 xcrun devicectl device install app \
   --device "$CORE_DEVICE_ID" \
-  /tmp/t3-sovereign-device/Build/Products/Release-iphoneos/T3CodeDev.app
+  /tmp/t3-sovereign-device/Build/Products/Release-iphoneos/SovereignDev.app
 
 xcrun devicectl device process launch \
   --device "$CORE_DEVICE_ID" \

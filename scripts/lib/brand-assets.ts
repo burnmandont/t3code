@@ -1,7 +1,15 @@
 export const BRAND_ASSET_PATHS = {
-  developmentIconComposerProject: "assets/dev/app-icon.icon",
-  developmentIosIconPng: "assets/dev/blueprint-ios-1024.png",
-  developmentUniversalIconPng: "assets/dev/blueprint-universal-1024.png",
+  developmentIosIconPng: "assets/dev/sovereign-dev-ios-1024.png",
+  developmentDesktopIconPng: "assets/dev/sovereign-dev-macos-1024.png",
+  developmentUniversalIconPng: "assets/dev/sovereign-dev-universal-1024.png",
+  developmentWindowsIconIco: "assets/dev/sovereign-dev-windows.ico",
+  developmentWebFaviconIco: "assets/dev/sovereign-dev-web-favicon.ico",
+  developmentWebFavicon16Png: "assets/dev/sovereign-dev-web-favicon-16x16.png",
+  developmentWebFavicon32Png: "assets/dev/sovereign-dev-web-favicon-32x32.png",
+  developmentWebAppleTouchIconPng: "assets/dev/sovereign-dev-web-apple-touch-180.png",
+  developmentMobileIosIconPng: "apps/mobile/assets/branding/development/sovereign-dev-ios-1024.png",
+  developmentMobileUniversalIconPng:
+    "apps/mobile/assets/branding/development/sovereign-dev-universal-1024.png",
 
   productionRasterIconDirectory: "assets/prod/sovereign-logo",
   productionMacRasterIconPng: "assets/prod/sovereign-logo/macos-1024.png",
@@ -13,23 +21,25 @@ export const BRAND_ASSET_PATHS = {
   productionWebFavicon16Png: "assets/prod/sovereign-web-favicon-16x16.png",
   productionWebFavicon32Png: "assets/prod/sovereign-web-favicon-32x32.png",
   productionWebAppleTouchIconPng: "assets/prod/sovereign-web-apple-touch-180.png",
+  productionMobileIosIconPng: "apps/mobile/assets/branding/production/sovereign-ios-1024.png",
+  productionMobileUniversalIconPng:
+    "apps/mobile/assets/branding/production/sovereign-universal-1024.png",
 
-  nightlyIconComposerProject: "assets/nightly/app-icon.icon",
-  nightlyIosIconPng: "assets/nightly/nightly-ios-1024.png",
-  nightlyMacIconPng: "assets/nightly/nightly-macos-1024.png",
-  nightlyLinuxIconPng: "assets/nightly/nightly-universal-1024.png",
-  nightlyWindowsIconIco: "assets/nightly/nightly-windows.ico",
-  nightlyWebFaviconIco: "assets/nightly/nightly-web-favicon.ico",
-  nightlyWebFavicon16Png: "assets/nightly/nightly-web-favicon-16x16.png",
-  nightlyWebFavicon32Png: "assets/nightly/nightly-web-favicon-32x32.png",
-  nightlyWebAppleTouchIconPng: "assets/nightly/nightly-web-apple-touch-180.png",
+  nightlyIosIconPng: "assets/nightly/sovereign-preview-ios-1024.png",
+  nightlyMacIconPng: "assets/nightly/sovereign-preview-macos-1024.png",
+  nightlyLinuxIconPng: "assets/nightly/sovereign-preview-universal-1024.png",
+  nightlyWindowsIconIco: "assets/nightly/sovereign-preview-windows.ico",
+  nightlyWebFaviconIco: "assets/nightly/sovereign-preview-web-favicon.ico",
+  nightlyWebFavicon16Png: "assets/nightly/sovereign-preview-web-favicon-16x16.png",
+  nightlyWebFavicon32Png: "assets/nightly/sovereign-preview-web-favicon-32x32.png",
+  nightlyWebAppleTouchIconPng: "assets/nightly/sovereign-preview-web-apple-touch-180.png",
+  nightlyMobileIosIconPng: "apps/mobile/assets/branding/preview/sovereign-preview-ios-1024.png",
+  nightlyMobileUniversalIconPng:
+    "apps/mobile/assets/branding/preview/sovereign-preview-universal-1024.png",
 
-  developmentDesktopIconPng: "assets/dev/blueprint-macos-1024.png",
-  developmentWindowsIconIco: "assets/dev/blueprint-windows.ico",
-  developmentWebFaviconIco: "assets/dev/blueprint-web-favicon.ico",
-  developmentWebFavicon16Png: "assets/dev/blueprint-web-favicon-16x16.png",
-  developmentWebFavicon32Png: "assets/dev/blueprint-web-favicon-32x32.png",
-  developmentWebAppleTouchIconPng: "assets/dev/blueprint-web-apple-touch-180.png",
+  mobileMonochromeMarkPng: "apps/mobile/assets/sovereign-mark.png",
+  mobileNotificationMarkPng: "apps/mobile/assets/sovereign-notification-icon.png",
+  marketingIconPng: "apps/marketing/public/icon.png",
 } as const;
 
 export type WebAssetBrand = "development" | "nightly" | "production";
@@ -109,4 +119,9 @@ export const DEVELOPMENT_ICON_OVERRIDES = resolveWebIconOverrides("development",
 export const DEVELOPMENT_PUBLIC_ICON_OVERRIDES = resolveWebIconOverrides(
   "development",
   "apps/web/public",
+);
+
+export const MARKETING_PUBLIC_ICON_OVERRIDES = resolveWebIconOverrides(
+  "production",
+  "apps/marketing/public",
 );

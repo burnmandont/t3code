@@ -4,6 +4,7 @@ import {
   BRAND_ASSET_PATHS,
   DEVELOPMENT_ICON_OVERRIDES,
   DEVELOPMENT_PUBLIC_ICON_OVERRIDES,
+  MARKETING_PUBLIC_ICON_OVERRIDES,
   resolveWebAssetBrandForChannel,
   resolveWebAssetBrandForPackageVersion,
   resolveWebIconOverrides,
@@ -84,20 +85,31 @@ describe("brand-assets", () => {
   });
 
   it("keeps development, nightly, and production icon families separate", () => {
-    expect([
-      BRAND_ASSET_PATHS.developmentIconComposerProject,
-      BRAND_ASSET_PATHS.nightlyIconComposerProject,
-      BRAND_ASSET_PATHS.productionRasterIconDirectory,
-    ]).toEqual([
-      "assets/dev/app-icon.icon",
-      "assets/nightly/app-icon.icon",
-      "assets/prod/sovereign-logo",
-    ]);
-    expect(BRAND_ASSET_PATHS.developmentDesktopIconPng).toMatch(/^assets\/dev\/blueprint-/);
-    expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toMatch(/^assets\/nightly\/nightly-/);
+    expect(BRAND_ASSET_PATHS.productionRasterIconDirectory).toBe("assets/prod/sovereign-logo");
+    expect(BRAND_ASSET_PATHS.developmentDesktopIconPng).toMatch(/^assets\/dev\/sovereign-dev-/);
+    expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toMatch(/^assets\/nightly\/sovereign-preview-/);
     expect(BRAND_ASSET_PATHS.productionMacIconPng).toMatch(/^assets\/prod\/sovereign-/);
     expect(BRAND_ASSET_PATHS.productionMacRasterIconPng).toBe(
       "assets/prod/sovereign-logo/macos-1024.png",
     );
+  });
+
+  it("keeps Expo runtime icons inside the mobile project root", () => {
+    expect(
+      [
+        BRAND_ASSET_PATHS.developmentMobileIosIconPng,
+        BRAND_ASSET_PATHS.nightlyMobileIosIconPng,
+        BRAND_ASSET_PATHS.productionMobileIosIconPng,
+        BRAND_ASSET_PATHS.mobileMonochromeMarkPng,
+        BRAND_ASSET_PATHS.mobileNotificationMarkPng,
+      ].every((path) => path.startsWith("apps/mobile/assets/")),
+    ).toBe(true);
+  });
+
+  it("mirrors production icons into the marketing public directory", () => {
+    expect(MARKETING_PUBLIC_ICON_OVERRIDES).toContainEqual({
+      sourceRelativePath: BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
+      targetRelativePath: "apps/marketing/public/apple-touch-icon.png",
+    });
   });
 });

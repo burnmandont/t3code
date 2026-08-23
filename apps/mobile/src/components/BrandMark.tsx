@@ -11,7 +11,7 @@ const appVariant = Constants.expoConfig?.extra?.appVariant;
 // unstable relative-path query that expo-image resolves as /apps/mobile/dev.
 // The app icon remains variant-specific through app.config.ts; this in-app
 // mark deliberately uses the portable monochrome asset and theme colors.
-const BRAND_MARK_SOURCE = require("../../assets/android-icon-mark.png");
+const BRAND_MARK_SOURCE = require("../../assets/sovereign-mark.png");
 const DEFAULT_STAGE_LABEL =
   appVariant === "development" ? "Dev" : appVariant === "preview" ? "Preview" : "Alpha";
 

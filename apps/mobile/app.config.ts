@@ -34,17 +34,30 @@ const sovereignIosBundleIdentifier =
     : APP_VARIANT === "preview"
       ? repoEnv.T3CODE_IOS_BUNDLE_ID_PREVIEW?.trim()
       : repoEnv.T3CODE_IOS_BUNDLE_ID_PRODUCTION?.trim();
+const sovereignAndroidPackage =
+  (APP_VARIANT === "development"
+    ? repoEnv.T3CODE_ANDROID_PACKAGE_DEVELOPMENT?.trim()
+    : APP_VARIANT === "preview"
+      ? repoEnv.T3CODE_ANDROID_PACKAGE_PREVIEW?.trim()
+      : repoEnv.T3CODE_ANDROID_PACKAGE_PRODUCTION?.trim()) ?? sovereignIosBundleIdentifier;
 const iosBuildNumber = repoEnv.T3CODE_IOS_BUILD_NUMBER?.trim() ?? "1";
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
-const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const MOBILE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 
-const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
+const fromMobileRoot = (repoRelativePath: string) => {
+  const prefix = "apps/mobile/";
+  if (!repoRelativePath.startsWith(prefix)) {
+    throw new Error(`Mobile asset path must live below ${prefix}: ${repoRelativePath}`);
+  }
+  return `./${repoRelativePath.slice(prefix.length)}`;
+};
+const mobileMonochromeMark = fromMobileRoot(BRAND_ASSET_PATHS.mobileMonochromeMarkPng);
+const mobileNotificationMark = fromMobileRoot(BRAND_ASSET_PATHS.mobileNotificationMarkPng);
 
 if (
   isIosPersonalTeamBuild &&
-  (!personalTeamBundleIdentifier ||
-    !IOS_BUNDLE_IDENTIFIER_PATTERN.test(personalTeamBundleIdentifier))
+  (!personalTeamBundleIdentifier || !MOBILE_IDENTIFIER_PATTERN.test(personalTeamBundleIdentifier))
 ) {
   throw new Error(
     "T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when T3CODE_IOS_PERSONAL_TEAM=1.",
@@ -53,11 +66,19 @@ if (
 
 if (
   isSovereignBuild &&
-  (!sovereignIosBundleIdentifier ||
-    !IOS_BUNDLE_IDENTIFIER_PATTERN.test(sovereignIosBundleIdentifier))
+  (!sovereignIosBundleIdentifier || !MOBILE_IDENTIFIER_PATTERN.test(sovereignIosBundleIdentifier))
 ) {
   throw new Error(
     `T3CODE_IOS_BUNDLE_ID_${APP_VARIANT.toUpperCase()} must be a reverse-DNS identifier for sovereign ${APP_VARIANT} builds.`,
+  );
+}
+
+if (
+  isSovereignBuild &&
+  (!sovereignAndroidPackage || !MOBILE_IDENTIFIER_PATTERN.test(sovereignAndroidPackage))
+) {
+  throw new Error(
+    `T3CODE_ANDROID_PACKAGE_${APP_VARIANT.toUpperCase()} must be a reverse-DNS identifier for sovereign ${APP_VARIANT} builds. It defaults to the matching iOS bundle identifier when unset.`,
   );
 }
 
@@ -66,35 +87,36 @@ if (!/^\d+$/.test(iosBuildNumber) || Number(iosBuildNumber) < 1) {
 }
 
 const DEVELOPMENT_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
-  androidAdaptiveForeground: fromRepoRoot(BRAND_ASSET_PATHS.developmentUniversalIconPng),
-  androidAdaptiveBackgroundColor: "#00639B",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
-  androidNotificationColor: "#00639B",
+  appIcon: fromMobileRoot(BRAND_ASSET_PATHS.developmentMobileIosIconPng),
+  iosIcon: fromMobileRoot(BRAND_ASSET_PATHS.developmentMobileIosIconPng),
+  splashIcon: fromMobileRoot(BRAND_ASSET_PATHS.developmentMobileIosIconPng),
+  androidAdaptiveForeground: fromMobileRoot(BRAND_ASSET_PATHS.developmentMobileUniversalIconPng),
+  androidAdaptiveBackgroundColor: "#0B0F0C",
+  androidMonochromeIcon: mobileMonochromeMark,
+  androidNotificationIcon: mobileNotificationMark,
+  androidNotificationColor: "#D6B252",
 } as const;
 
 const PREVIEW_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
-  androidAdaptiveForeground: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
-  androidAdaptiveBackgroundColor: "#111533",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
-  androidNotificationColor: "#7565C7",
+  appIcon: fromMobileRoot(BRAND_ASSET_PATHS.nightlyMobileIosIconPng),
+  iosIcon: fromMobileRoot(BRAND_ASSET_PATHS.nightlyMobileIosIconPng),
+  splashIcon: fromMobileRoot(BRAND_ASSET_PATHS.nightlyMobileIosIconPng),
+  androidAdaptiveForeground: fromMobileRoot(BRAND_ASSET_PATHS.nightlyMobileUniversalIconPng),
+  androidAdaptiveBackgroundColor: "#0D462F",
+  androidMonochromeIcon: mobileMonochromeMark,
+  androidNotificationIcon: mobileNotificationMark,
+  androidNotificationColor: "#D6B252",
 } as const;
 
 const RELEASE_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  androidAdaptiveForeground: fromRepoRoot(BRAND_ASSET_PATHS.productionLinuxIconPng),
+  appIcon: fromMobileRoot(BRAND_ASSET_PATHS.productionMobileIosIconPng),
+  iosIcon: fromMobileRoot(BRAND_ASSET_PATHS.productionMobileIosIconPng),
+  splashIcon: fromMobileRoot(BRAND_ASSET_PATHS.productionMobileIosIconPng),
+  androidAdaptiveForeground: fromMobileRoot(BRAND_ASSET_PATHS.productionMobileUniversalIconPng),
   androidAdaptiveBackgroundColor: "#000000",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
-  androidNotificationColor: "#FFFFFF",
+  androidMonochromeIcon: mobileMonochromeMark,
+  androidNotificationIcon: mobileNotificationMark,
+  androidNotificationColor: "#D6B252",
 } as const;
 
 const VARIANT_CONFIG = {
@@ -141,6 +163,7 @@ const iosBundleIdentifier = isIosPersonalTeamBuild
   : isSovereignBuild
     ? sovereignIosBundleIdentifier!
     : variant.iosBundleIdentifier;
+const androidPackage = isSovereignBuild ? sovereignAndroidPackage! : variant.androidPackage;
 const sovereignUpdatesUrl = repoEnv.T3CODE_EXPO_UPDATES_URL?.trim();
 const appUpdatesEnabled = !isSovereignBuild || Boolean(sovereignUpdatesUrl);
 
@@ -228,7 +251,7 @@ const personalTeamPlugins: ReadonlyArray<ExpoPlugin> = isIosPersonalTeamBuild
 
 const config: ExpoConfig = {
   name: variant.appName,
-  slug: "t3-code",
+  slug: isSovereignBuild ? "sovereign" : "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
   version: "1.0.4",
@@ -298,7 +321,7 @@ const config: ExpoConfig = {
   },
   android: {
     icon: variant.assets.appIcon,
-    package: variant.androidPackage,
+    package: androidPackage,
     adaptiveIcon: {
       backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
       foregroundImage: variant.assets.androidAdaptiveForeground,

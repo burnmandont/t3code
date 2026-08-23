@@ -64,6 +64,12 @@ const lightEnvironment = {
 } as const;
 
 describe("AgentActivity widget layout", () => {
+  it("renders the Sovereign widget mark", () => {
+    const layout = JSON.stringify(AgentActivity(props, environment as never));
+    expect(layout).toContain("SovereignMark");
+    expect(layout).not.toContain("T3Mark");
+  });
+
   it("tints each row by its own phase using the web sidebar's dark palette", () => {
     const layout = AgentActivity(
       {
