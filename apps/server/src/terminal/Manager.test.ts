@@ -430,9 +430,6 @@ it.layer(
       fs.makeDirectory(filePath, { recursive: true }),
     );
 
-  const chmod = (filePath: string, mode: number) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.chmod(filePath, mode));
-
   const pathExists = (filePath: string) =>
     Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.exists(filePath));
 
@@ -479,19 +476,30 @@ it.layer(
 
   it.effect("preserves non-notFound cwd stat failures", () =>
     Effect.gen(function* () {
-      if ((yield* HostProcessPlatform) === "win32") return;
-
+      const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-
-      const { manager, baseDir } = yield* createManager();
+      const statFailure = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "stat",
+        pathOrDescriptor: "blocked-root/cwd",
+        description: "Test PermissionDenied stat failure.",
+      });
+      const failingFileSystem = FileSystem.FileSystem.of({
+        ...fileSystem,
+        stat: (filePath) =>
+          String(filePath).endsWith("/blocked-root/cwd")
+            ? Effect.fail(statFailure)
+            : fileSystem.stat(filePath),
+      });
+      const { manager, baseDir } = yield* createManager().pipe(
+        Effect.provideService(FileSystem.FileSystem, failingFileSystem),
+      );
       const blockedRoot = path.join(baseDir, "blocked-root");
       const blockedCwd = path.join(blockedRoot, "cwd");
       yield* makeDirectory(blockedCwd);
-      yield* chmod(blockedRoot, 0o000);
 
-      const error = yield* Effect.flip(manager.open(openInput({ cwd: blockedCwd }))).pipe(
-        Effect.ensuring(chmod(blockedRoot, 0o755).pipe(Effect.ignore)),
-      );
+      const error = yield* Effect.flip(manager.open(openInput({ cwd: blockedCwd })));
 
       expect(error).toMatchObject({
         _tag: "TerminalCwdStatError",

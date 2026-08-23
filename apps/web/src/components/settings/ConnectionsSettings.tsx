@@ -33,6 +33,7 @@ import {
   connectionRouteId,
   connectionStatusText,
 } from "@t3tools/client-runtime/connection";
+import type { Discovery } from "@t3tools/client-runtime/relay";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -128,12 +129,16 @@ import {
   type EnvironmentPresentation,
   useEnvironments,
   usePrimaryEnvironment,
+  useRelayEnvironmentDiscovery,
 } from "~/state/environments";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "~/state/server";
 import { ConnectionStatusDot } from "../ConnectionStatusDot";
 import { ServerUpdateAction, ServerUpdateProgress } from "../ServerUpdateAction";
-import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
+import {
+  CloudEnvironmentConnectRows,
+  CloudEnvironmentRevocationAction,
+} from "../cloud/CloudEnvironmentConnectList";
 import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "./itemRows";
 
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
@@ -1356,6 +1361,7 @@ function NetworkAccessDescription({
 type SavedBackendListRowProps = {
   environment: EnvironmentPresentation;
   routes: ReadonlyArray<ConnectionCatalogEntry>;
+  relayEnvironment: Discovery.RelayDiscoveredEnvironment | null;
   removingEnvironmentId: EnvironmentId | null;
   switchingRouteEnvironmentIds: ReadonlySet<EnvironmentId>;
   onConnect: (environmentId: EnvironmentId) => void;
@@ -1381,6 +1387,7 @@ function connectionRouteLabel(entry: ConnectionCatalogEntry): string {
 function SavedBackendListRow({
   environment,
   routes,
+  relayEnvironment,
   removingEnvironmentId,
   switchingRouteEnvironmentIds,
   onConnect,
@@ -1592,6 +1599,14 @@ function SavedBackendListRow({
                     ? "Connecting…"
                     : "Connect"}
               </Button>
+              {relayEnvironment ? (
+                <CloudEnvironmentRevocationAction
+                  environment={relayEnvironment.environment}
+                  availability={relayEnvironment.availability}
+                  disabled={removingEnvironmentId === environmentId}
+                  onRevoked={() => onRemove(environmentId)}
+                />
+              ) : null}
             </>
           )}
         </div>
@@ -1809,6 +1824,7 @@ function CloudRemoteEnvironmentRows({
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
   const { environments } = useEnvironments();
+  const relayEnvironmentDiscoveryState = useRelayEnvironmentDiscovery();
   const primaryEnvironment = usePrimaryEnvironment();
   const connectPairing = useAtomCommand(connectPairingAtom, { reportFailure: false });
   const connectSshEnvironment = useAtomCommand(connectSshEnvironmentAtom, {
@@ -3548,6 +3564,9 @@ export function ConnectionsSettings() {
             key={environment.environmentId}
             environment={environment}
             routes={desktopBridge ? (environmentRoutes.get(environment.environmentId) ?? []) : []}
+            relayEnvironment={
+              relayEnvironmentDiscoveryState.environments.get(environment.environmentId) ?? null
+            }
             removingEnvironmentId={removingSavedEnvironmentId}
             switchingRouteEnvironmentIds={switchingRouteEnvironmentIds}
             onConnect={handleConnectSavedBackend}

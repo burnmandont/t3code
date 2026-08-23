@@ -70,6 +70,23 @@ Record the linked environment's ID, hostname, a durable thread ID, and the
 current container creation times. The WebSocket probe timing out after a 101
 upgrade is expected; a 502 or 503 is a failure.
 
+Before selecting the remote target, require that it is active rather than
+retired and that both its CLI wrapper and user service use the Node executable
+pinned by the current signed installer:
+
+```bash
+t3 --version
+t3 connect status --json
+grep '^exec ' "$HOME/.local/bin/t3"
+systemctl --user cat t3code.service
+```
+
+An interactive shell can load an NVM function while the POSIX CLI wrapper sees
+an older `/usr/bin/node`. Treat that as a failed baseline, update through the
+signed installer, and start the exercise again. Do not use a retired
+environment merely because an old allocation hostname still appears in its
+logs.
+
 ## Exercise order
 
 ### 1. FRPS restart
@@ -146,7 +163,28 @@ Account and relay requests may fail while PostgreSQL is unavailable. Both
 services must reconnect without being redeployed. Verify the account, linked
 environment, allocation hostname, and recorded thread after recovery.
 
-### 7. Deployment replacement
+Before replacing the complete control stack, exercise each trusted proxy tier
+independently. These restarts can affect unrelated virtual hosts, so syntax
+validation is mandatory.
+
+### 7. Second-proxy restart
+
+```bash
+nginx -t
+systemctl restart nginx
+systemctl is-active nginx
+```
+
+Pass when all three control-plane health checks recover, the exact FRP upgrade
+returns 101, and the existing environment route is not 502/503.
+
+### 8. Public-edge restart
+
+Repeat the Nginx sequence on the public edge. In addition to the previous
+checks, an HTTPS request with an unexpected `Host` header must still return 421. Certificate paths, trusted-upstream verification, rate limits, and the
+strict default server must survive the restart.
+
+### 9. Deployment replacement
 
 Deploy `t3-control` normally. Account, relay, and FRPS must all be present
 after replacement. The production split manifest deliberately starts FRPS
@@ -186,9 +224,19 @@ retained for 30 days and then removed by this periodic pass.
 
 ## Production validation
 
-Last completed on 2026-08-08. FRPS, the remote T3 user service, relay,
-account/OIDC, hosted web, PostgreSQL, and a complete Coolify replacement all
-recovered without relinking or changing the environment ID or managed
-hostname. The first hosted-web attempt overlapped a queued deployment and was
-discarded; the repeated isolated attempt passed and led to the deployment-lock
-precondition above.
+Last component-restart pass completed on 2026-08-10. The active remote was
+first upgraded through the signed installer after the baseline exposed an old
+CLI wrapper resolving `/usr/bin/node` instead of its service's pinned Node 24.
+After re-establishing the baseline, FRPS, the remote T3 user service, relay,
+account/OIDC, hosted web, PostgreSQL, the second proxy, and the public edge all
+recovered independently. The environment ID, managed hostname, two recorded
+thread IDs, and stored provider/terminal log counts remained unchanged; no
+component required relinking or a new account login. PostgreSQL performed an
+orderly fast shutdown and reported no crash recovery or corruption. The
+follow-up documentation deployment is the complete Coolify replacement test
+for this pass.
+
+The prior complete pass on 2026-08-08 also included a Coolify replacement. Its
+first hosted-web attempt overlapped a queued deployment and was discarded; the
+repeated isolated attempt passed and led to the deployment-lock precondition
+above.

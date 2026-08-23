@@ -142,6 +142,31 @@ export function compareExactServiceVersions(left: string, right: string): number
   return 0;
 }
 
+const SOVEREIGN_BUILD_VERSION = new RegExp(
+  `^(${SEMVER_NUMBER}\\.${SEMVER_NUMBER}\\.${SEMVER_NUMBER})\\+sovereign\\.g[a-f0-9]{7,64}$`,
+);
+
+/** Normal SemVer updates must move forward. Sovereign releases are immutable,
+    signed builds of one compatible upstream version, and their Git hashes do
+    not encode chronology. Once both sides use the build-metadata format, any
+    distinct build of the same core version is therefore a valid operator-
+    selected transition; the staged artifact signature and preflight remain
+    authoritative. */
+export function isServiceUpdateTargetAllowed(
+  targetVersion: string,
+  currentVersion: string,
+): boolean {
+  if (targetVersion === currentVersion) return false;
+  if (compareExactServiceVersions(targetVersion, currentVersion) > 0) return true;
+  const targetSovereign = targetVersion.match(SOVEREIGN_BUILD_VERSION);
+  const currentSovereign = currentVersion.match(SOVEREIGN_BUILD_VERSION);
+  return (
+    targetSovereign !== null &&
+    currentSovereign !== null &&
+    targetSovereign[1] === currentSovereign[1]
+  );
+}
+
 export function decodeServiceState(value: unknown): ServiceState | undefined {
   if (!isRecord(value)) return undefined;
   const update = value.update === undefined ? undefined : decodeServiceUpdate(value.update);
@@ -151,7 +176,7 @@ export function decodeServiceState(value: unknown): ServiceState | undefined {
     !isExactServiceVersion(value.activeVersion) ||
     (value.update !== undefined && update === undefined) ||
     (update !== undefined &&
-      compareExactServiceVersions(update.targetVersion, update.fromVersion) <= 0) ||
+      !isServiceUpdateTargetAllowed(update.targetVersion, update.fromVersion)) ||
     (update?.status === "pending" && update.fromVersion !== value.activeVersion) ||
     (update?.status === "committed" && update.targetVersion !== value.activeVersion) ||
     ((update?.status === "rolled-back" || update?.status === "failed") &&

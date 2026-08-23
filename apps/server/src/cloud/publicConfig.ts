@@ -1,7 +1,6 @@
 import {
   connectLoopbackRedirectUri,
   CONNECT_OAUTH_SCOPES,
-  DEFAULT_HOSTED_APP_URL,
   SOVEREIGN_CONNECT_OAUTH_SCOPES,
 } from "@t3tools/shared/connectAuth";
 import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
@@ -131,7 +130,7 @@ export const relayUrlConfig = makeRelayUrlConfig();
  * machines. Overridable so staging/nightly builds can point their CLIs at a
  * matching hosted deployment.
  */
-export function makeHostedAppUrlConfig(fallback = buildTimeHostedAppUrl || DEFAULT_HOSTED_APP_URL) {
+export function makeHostedAppUrlConfig(fallback = buildTimeHostedAppUrl) {
   return makePublicValueConfig("T3CODE_HOSTED_APP_URL", fallback).pipe(
     Config.mapOrFail(validateHostedAppUrl),
   );

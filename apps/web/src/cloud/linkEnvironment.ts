@@ -144,6 +144,8 @@ function relayProtectedErrorMessage(error: RelayProtectedErrorType): string {
       return "Relay rejected an expired environment link proof.";
     case "RelayEnvironmentLinkProofInvalidError":
       return `Relay rejected the environment link proof (${error.reason}).`;
+    case "RelayEnvironmentRetiredError":
+      return "This environment identity was remotely revoked. Reset its T3 environment identity before linking it again.";
     case "RelayEnvironmentConnectNotAuthorizedError":
       // "Not authorized" covers non-auth causes too; surface the reason so a
       // missing link doesn't read as a credential problem.

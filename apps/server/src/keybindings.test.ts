@@ -8,6 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -511,11 +512,23 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
-      const { dirname } = yield* Path.Path;
       yield* writeKeybindingsConfig(keybindingsConfigPath, [
         { key: "mod+j", command: "terminal.toggle" },
       ]);
-      yield* fs.chmod(dirname(keybindingsConfigPath), 0o500);
+      const writeFailure = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "writeFileString",
+        pathOrDescriptor: keybindingsConfigPath,
+        description: "Test PermissionDenied write failure.",
+      });
+      const failingFileSystem = FileSystem.FileSystem.of({
+        ...fs,
+        writeFileString: (filePath, contents, options) =>
+          String(filePath).endsWith("/contents.tmp")
+            ? Effect.fail(writeFailure)
+            : fs.writeFileString(filePath, contents, options),
+      });
 
       const result = yield* Effect.gen(function* () {
         const keybindings = yield* Keybindings.Keybindings;
@@ -523,15 +536,19 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           key: "mod+shift+r",
           command: "script.run-tests.run",
         });
-      }).pipe(toDetailResult);
+      }).pipe(
+        toDetailResult,
+        Effect.provide(makeKeybindingsLayer()),
+        Effect.provideService(FileSystem.FileSystem, failingFileSystem),
+      );
       assertFailure(result, "failed to write keybindings config");
-
-      yield* fs.chmod(dirname(keybindingsConfigPath), 0o700);
 
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
       const persistedView = persisted.map(({ key, command }) => ({ key, command }));
       assert.deepEqual(persistedView, [{ key: "mod+j", command: "terminal.toggle" }]);
-    }).pipe(Effect.provide(makeKeybindingsLayer())),
+    }).pipe(
+      Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3code-keybindings-test-" })),
+    ),
   );
 
   it.effect("caches loaded resolved config across repeated reads", () =>

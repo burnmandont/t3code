@@ -138,6 +138,12 @@ services:
     expose:
       - "7000"
       - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 7000 && nc -z -w 2 127.0.0.1 8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
     labels:
       - traefik.enable=true
       - traefik.http.routers.t3-sovereign-control-frps-vhost.entryPoints=https
@@ -181,4 +187,4 @@ services:
       relay:
         condition: service_healthy
       frps:
-        condition: service_started
+        condition: service_healthy

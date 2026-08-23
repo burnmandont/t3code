@@ -1,5 +1,6 @@
 import type {
   RelayClientEnvironmentRecord,
+  RelayEnvironmentRevocationResponse,
   RelayEnvironmentStatusResponse,
 } from "@t3tools/contracts/relay";
 import { decodeRelayJwt } from "@t3tools/shared/relayJwt";
@@ -44,6 +45,9 @@ export class RelayEnvironmentDiscovery extends Context.Service<
   {
     readonly state: SubscriptionRef.SubscriptionRef<RelayEnvironmentDiscoveryState>;
     readonly refresh: Effect.Effect<void>;
+    readonly revoke: (
+      environmentId: RelayClientEnvironmentRecord["environmentId"],
+    ) => Effect.Effect<RelayEnvironmentRevocationResponse, ConnectionAttemptError>;
   }
 >()("@t3tools/client-runtime/relay/discovery/RelayEnvironmentDiscovery") {}
 
@@ -309,6 +313,27 @@ export const make = Effect.fn("RelayEnvironmentDiscovery.make")(function* () {
     ),
   );
 
+  const revoke = Effect.fn("RelayEnvironmentDiscovery.revoke")(function* (
+    environmentId: RelayClientEnvironmentRecord["environmentId"],
+  ) {
+    const generation = yield* Ref.get(accountGeneration);
+    const clerkToken = yield* session.clerkToken;
+    const result = yield* relay
+      .revokeEnvironment({ clerkToken, environmentId })
+      .pipe(Effect.mapError(mapManagedRelayError));
+    if ((yield* Ref.get(accountGeneration)) === generation) {
+      yield* SubscriptionRef.update(state, (current) => {
+        if (!current.environments.has(environmentId)) {
+          return current;
+        }
+        const environments = new Map(current.environments);
+        environments.delete(environmentId);
+        return { ...current, environments };
+      });
+    }
+    return result;
+  });
+
   yield* connectivity.changes.pipe(
     Stream.changes,
     Stream.runForEach((networkStatus) =>
@@ -343,7 +368,7 @@ export const make = Effect.fn("RelayEnvironmentDiscovery.make")(function* () {
     Effect.forkScoped,
   );
 
-  return RelayEnvironmentDiscovery.of({ state, refresh });
+  return RelayEnvironmentDiscovery.of({ state, refresh, revoke });
 });
 
 export const layer = Layer.effect(RelayEnvironmentDiscovery, make());

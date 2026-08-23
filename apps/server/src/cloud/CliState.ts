@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -14,6 +15,7 @@ import {
 
 export const CLOUD_CLI_DESIRED_LINK_SECRET = "cloud-cli-desired-link";
 export const CLOUD_CLI_TRANSFER_LINK_SECRET = "cloud-cli-transfer-link";
+export const CLOUD_CLI_RETIRED_LINK_SECRET = "cloud-cli-retired-link";
 
 // "managed" provisions a Cloudflare tunnel (default, legacy value "true").
 // "publish_only" links the environment to the relay purely to publish agent
@@ -45,6 +47,12 @@ export const readCliDesiredLinkMode = Effect.gen(function* () {
 export const readCliDesiredLinkTransfer = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   return Option.isSome(yield* secrets.get(CLOUD_CLI_TRANSFER_LINK_SECRET));
+});
+
+export const readCliRetiredCloudLink = Effect.gen(function* () {
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  const value = yield* secrets.get(CLOUD_CLI_RETIRED_LINK_SECRET);
+  return Option.isSome(value) ? new TextDecoder().decode(value.value) : null;
 });
 
 export const setCliDesiredCloudLink = Effect.fn("cloud.cli_state.set_desired")(function* (
@@ -93,4 +101,14 @@ export const clearPersistedCloudLink = Effect.gen(function* () {
     ],
     { concurrency: "unbounded" },
   );
+});
+
+export const markCliEnvironmentRetired = Effect.gen(function* () {
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  const retiredAt = DateTime.formatIso(yield* DateTime.now);
+  // Persist the terminal marker before removing live configuration so a crash
+  // cannot leave the connector disabled without explaining why.
+  yield* secrets.set(CLOUD_CLI_RETIRED_LINK_SECRET, new TextEncoder().encode(retiredAt));
+  yield* clearPersistedCloudLink;
+  return retiredAt;
 });

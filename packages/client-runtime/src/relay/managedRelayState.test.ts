@@ -71,6 +71,7 @@ function createClient(overrides?: Partial<ManagedRelay.ManagedRelayClient["Servi
     createEnvironmentLinkChallenge: () => Effect.die("unused"),
     linkEnvironment: () => Effect.die("unused"),
     unlinkEnvironment: () => Effect.die("unused"),
+    revokeEnvironment: () => Effect.die("unused"),
     getEnvironmentStatus: () =>
       Effect.succeed({
         environmentId: environment.environmentId,

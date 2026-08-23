@@ -27,7 +27,7 @@ import {
   type ServiceUpdateRecord,
 } from "./serviceProtocol.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import { CLOUD_CLI_DESIRED_LINK_SECRET } from "./CliState.ts";
+import { CLOUD_CLI_DESIRED_LINK_SECRET, CLOUD_CLI_RETIRED_LINK_SECRET } from "./CliState.ts";
 import * as CliTokenManager from "./CliTokenManager.ts";
 import type { RelayLinkProofRequest } from "@t3tools/contracts/relay";
 import { CLOUD_ENDPOINT_RUNTIME_CONFIG, RELAY_URL_SECRET } from "./config.ts";
@@ -35,8 +35,10 @@ import {
   consumeCloudReplayGuards,
   isSupportedLinkProviderKind,
   linkProofScopes,
+  markCloudLinkRemotelyRetired,
   pendingServiceUpdateExists,
   reconcileDesiredCloudLink,
+  relayEnvironmentLinkRequest,
   releaseManagedTunnelOnShutdown,
 } from "./http.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
@@ -185,6 +187,38 @@ describe("relay request tracing", () => {
 });
 
 describe("reconcileDesiredCloudLink", () => {
+  it.effect("decodes relay retirement conflicts as a terminal local lifecycle error", () =>
+    Effect.gen(function* () {
+      const client = HttpClient.make((request) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            Response.json(
+              {
+                _tag: "RelayEnvironmentRetiredError",
+                code: "environment_retired",
+                traceId: "trace-retired-1",
+              },
+              { status: 409 },
+            ),
+          ),
+        ),
+      );
+      const error = yield* Effect.flip(
+        relayEnvironmentLinkRequest(client, {
+          url: "https://relay.example.test/v1/client/environment-links",
+          token: "account-token",
+          payload: {},
+        }),
+      );
+
+      expect(error).toMatchObject({
+        _tag: "EnvironmentCloudRemotelyRetired",
+        traceId: "trace-retired-1",
+      });
+    }),
+  );
+
   it.effect("requires stored CLI authorization without exposing an HTTP endpoint", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(reconcileDesiredCloudLink("http://127.0.0.1:3774"));
@@ -209,6 +243,7 @@ describe("reconcileDesiredCloudLink", () => {
         ManagedEndpointRuntime.CloudManagedEndpointRuntime,
         ManagedEndpointRuntime.CloudManagedEndpointRuntime.of({
           applyConfig: unusedSecretStoreOperation,
+          takeAuthorizationRejection: Effect.never,
         } satisfies ManagedEndpointRuntime.CloudManagedEndpointRuntime["Service"]),
       ),
       Effect.provideService(
@@ -307,6 +342,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
                   status: "disabled",
                 } satisfies ManagedEndpointRuntime.CloudManagedEndpointRuntimeStatus;
               }),
+            takeAuthorizationRejection: Effect.never,
           }),
         ),
         Effect.provideService(
@@ -351,6 +387,24 @@ describe("releaseManagedTunnelOnShutdown", () => {
     [RELAY_URL_SECRET, "https://relay.example.test"],
     [CLOUD_CLI_DESIRED_LINK_SECRET, "managed"],
   ] as const;
+
+  it.effect("stops the connector and durably retires a remotely revoked identity", () => {
+    const { store, values } = makeMemorySecretStore(managedLinkSecrets);
+    const applyConfigCalls: Array<unknown> = [];
+    const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+
+    return Effect.gen(function* () {
+      const retiredAt = yield* markCloudLinkRemotelyRetired();
+
+      expect(Date.parse(retiredAt)).not.toBeNaN();
+      expect(applyConfigCalls).toEqual([null]);
+      expect(requests).toEqual([]);
+      expect(values.has(CLOUD_CLI_RETIRED_LINK_SECRET)).toBe(true);
+      expect(values.has(CLOUD_CLI_DESIRED_LINK_SECRET)).toBe(false);
+      expect(values.has(CLOUD_ENDPOINT_RUNTIME_CONFIG)).toBe(false);
+      expect(values.has(RELAY_URL_SECRET)).toBe(false);
+    }).pipe(provideReleaseHarness({ store, applyConfigCalls, requests }));
+  });
 
   it.effect("stops the connector, releases the relay tunnel, and drops the dead token", () => {
     const { store, values } = makeMemorySecretStore(managedLinkSecrets);

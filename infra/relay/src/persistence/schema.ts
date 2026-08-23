@@ -76,6 +76,7 @@ export const relayEnvironmentLinks = pgTable(
     managedTunnelsEnabled: boolean("managed_tunnels_enabled").notNull().default(false),
     createdByDeviceId: varchar("created_by_device_id", { length: 191 }),
     revokedAt: varchar("revoked_at", { length: 64 }),
+    retiredAt: varchar("retired_at", { length: 64 }),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     updatedAt: varchar("updated_at", { length: 64 }).notNull(),
   },

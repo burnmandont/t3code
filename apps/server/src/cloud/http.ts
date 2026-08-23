@@ -22,6 +22,7 @@ import {
   RelayEnvironmentConfigRequest,
   RelayEnvironmentLinkChallengeResponse,
   RelayEnvironmentLinkResponse,
+  RelayEnvironmentRetiredError,
   RelayEnvironmentMintResponseProofPayload,
   type RelayEnvironmentMintResponse as RelayEnvironmentMintResponseShape,
   RelayEnvironmentLinkProof,
@@ -81,6 +82,7 @@ import {
   readCliDesiredCloudLink,
   readCliDesiredLinkMode,
   readCliDesiredLinkTransfer,
+  markCliEnvironmentRetired,
   setCliDesiredCloudLink,
 } from "./CliState.ts";
 import * as CliTokenManager from "./CliTokenManager.ts";
@@ -103,6 +105,17 @@ const appendCloudCredentialResponseHeaders = HttpEffect.appendPreResponseHandler
   (_request, response) =>
     Effect.succeed(HttpServerResponse.setHeaders(response, CLOUD_CREDENTIAL_RESPONSE_HEADERS)),
 );
+
+export class EnvironmentCloudRemotelyRetired extends Schema.TaggedErrorClass<EnvironmentCloudRemotelyRetired>()(
+  "EnvironmentCloudRemotelyRetired",
+  {
+    traceId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return "This environment identity was remotely revoked and cannot relink.";
+  }
+}
 
 const failEnvironmentCloudInternalError =
   (message: string) =>
@@ -538,6 +551,46 @@ const relayClientRequest = <A>(
     withRelayClientTracing,
   );
 
+export const relayEnvironmentLinkRequest = (
+  httpClient: HttpClient.HttpClient,
+  input: {
+    readonly url: string;
+    readonly token: string;
+    readonly payload: unknown;
+  },
+) =>
+  HttpClientRequest.post(input.url).pipe(
+    HttpClientRequest.bearerToken(input.token),
+    HttpClientRequest.bodyJson(input.payload),
+    Effect.flatMap(httpClient.execute),
+    Effect.flatMap((response) =>
+      response.status === 409
+        ? response.pipe(
+            HttpClientResponse.schemaBodyJson(RelayEnvironmentRetiredError),
+            Effect.mapError(
+              (cause) =>
+                new EnvironmentHttpInternalServerError({
+                  message: `T3 Connect relay returned an unreadable conflict response: ${String(cause)}`,
+                }),
+            ),
+            Effect.flatMap((error) =>
+              Effect.fail(new EnvironmentCloudRemotelyRetired({ traceId: error.traceId })),
+            ),
+          )
+        : response.pipe(
+            HttpClientResponse.filterStatusOk,
+            Effect.flatMap(HttpClientResponse.schemaBodyJson(RelayEnvironmentLinkResponse)),
+            Effect.mapError(
+              (cause) =>
+                new EnvironmentHttpInternalServerError({
+                  message: `T3 Connect relay request failed: ${String(cause)}`,
+                }),
+            ),
+          ),
+    ),
+    withRelayClientTracing,
+  );
+
 const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesiredLinkWith")(
   function* (dependencies: CloudHttpDependencies, localOrigin: string) {
     const localUrl = yield* Effect.try({
@@ -598,7 +651,7 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
       },
       localOrigin,
     );
-    const link = yield* relayClientRequest(dependencies, {
+    const link = yield* relayEnvironmentLinkRequest(dependencies.httpClient, {
       url: `${relayUrl}/v1/client/environment-links`,
       token: token.accessToken,
       payload: {
@@ -608,7 +661,6 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
         managedTunnelsEnabled,
         transferExistingLinks,
       },
-      schema: RelayEnvironmentLinkResponse,
     });
     yield* setCliDesiredCloudLink(true, mode);
     return yield* applyCloudRelayConfig(dependencies, {
@@ -636,6 +688,16 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
 export const reconcileDesiredCloudLink = Effect.fn("environment.cloud.reconcileDesiredLink")(
   function* (localOrigin: string) {
     return yield* reconcileDesiredCloudLinkWith(yield* cloudHttpDependencies, localOrigin);
+  },
+);
+
+export const markCloudLinkRemotelyRetired = Effect.fn("environment.cloud.markRemotelyRetired")(
+  function* () {
+    const dependencies = yield* cloudHttpDependencies;
+    yield* dependencies.endpointRuntime.applyConfig(null);
+    const retiredAt = yield* markCliEnvironmentRetired;
+    yield* Effect.logWarning("T3 Connect environment identity retired locally", { retiredAt });
+    return retiredAt;
   },
 );
 

@@ -20,6 +20,12 @@ The split control manifest expects complete `T3_ACCOUNT_DATABASE_URL` and
 The web manifest has no database or private-network dependency and can be
 deployed without interrupting remote environments.
 
+Enable **Include Source Commit in Build** in the Coolify Advanced settings for
+`t3-web`. The web Dockerfile requires Coolify's `SOURCE_COMMIT` build argument
+and derives the same exact commit-addressed version used by the signed remote
+runtime. A missing source commit fails the image build instead of silently
+shipping an upstream `0.0.x` client that would request a nonexistent runtime.
+
 FRPS has no profile gate in the split control manifest. Once the controlled
 domain cutover is complete, every `t3-control` deployment must replace the
 relay and FRPS together so a missing Coolify environment variable cannot take
@@ -136,6 +142,20 @@ deregistration using the departing account's captured access token. The pass
 also retries deprovisioning allocations that have no active managed link.
 Orphan reconciliation waits 15 minutes and then uses the allocation generation
 as a compare-and-swap guard against concurrent relinking.
+
+Account-side **Remove from T3 Connect** is a durable identity retirement, not
+the reversible local `t3 connect unlink` operation. Retirement commits before
+FRP allocation teardown, revokes the environment credential, and prevents the
+same user/environment ID row from being reactivated. If immediate teardown
+fails, the API reports cleanup pending and the orphan sweep finishes it without
+restoring access.
+
+The environment-side FRP supervisor also treats `connector not authorized` as
+an event instead of an indefinite retry condition. It stops FRP, confirms the
+account-side state through normal link reconciliation, and persists a terminal
+local retirement marker only when the relay returns `environment_retired`.
+That confirmation distinguishes permanent remote revocation from a stale
+allocation that should simply receive replacement connector configuration.
 
 Normal linking can intentionally share an environment across accounts. Use
 `t3 connect link --headless --transfer` for an explicit account transfer. The
@@ -280,6 +300,9 @@ documented in
 Logical dump validation, retention boundaries, and the separate remote T3 home
 backup requirement are documented in
 [`../../docs/operations/sovereign-backup-restore.md`](../../docs/operations/sovereign-backup-restore.md).
+The credential-free public-boundary matrix and the most recent production
+result are documented in
+[`../../docs/operations/sovereign-adversarial-security.md`](../../docs/operations/sovereign-adversarial-security.md).
 
 The source tree retains upstream Clerk adapters for shallow-fork compatibility.
 They are dormant when the complete sovereign OAuth configuration is present;
@@ -290,15 +313,29 @@ falling back to Clerk.
 ## Continuous deployment
 
 `.gitea/workflows/sovereign-ci-deploy.yml` validates the sovereign services,
-typechecks and builds the desktop sovereign client,
+typechecks and tests the remote server, builds the desktop sovereign client,
+builds and Ed25519-signs a complete commit-addressed Linux runtime (including
+the pinned FRP client), publishes it to the self-hosted Gitea Generic Package
+Registry,
 requests both application deployments with `POST /api/v1/deploy`, polls each
 deployment UUID until Coolify reports `finished`, and then verifies the live
 health, OAuth/JWKS, relay authentication boundary, hostile-origin CORS,
 disabled documentation routes, strict Host handling, fail-closed Connect apex
-paths, edge security headers, and Connect WebSocket upgrade. A failed,
-cancelled, unknown, or 20-minute-stalled deployment fails the workflow.
+paths, edge security headers, and the exact-origin Connect WebSocket upgrade.
+It also requires the hosted discovery document to advertise the exact signed
+runtime version for the deployed source commit, preventing client/server update
+targets from drifting independently.
+A failed,
+cancelled, unknown, or 20-minute-stalled deployment fails the workflow. A
+terminal `failed` deployment receives one delayed retry for only the affected
+resource; operator cancellations, polling ambiguity, and timeouts are never
+retried because doing so could overlap an active deployment.
 
 The repository requires `COOLIFY_URL`, `COOLIFY_CONTROL_UUID`, and
 `COOLIFY_WEB_UUID` Actions variables. `COOLIFY_TOKEN` must be an Actions secret
 whose Coolify API token has only the `deploy` and `read` abilities needed to
 queue deployments and read their completion status. It does not need `write`.
+
+Runtime package variables, signing and package-token secrets, the fail-closed
+remote installer, canary procedure, rollback boundary, and deferred Rust
+supervisor decision are documented in [`runtime/`](runtime/).

@@ -9,6 +9,7 @@ import {
   compareExactServiceVersions,
   decodeServiceState,
   isExactServiceVersion,
+  isServiceUpdateTargetAllowed,
   SERVICE_LAUNCHER_PROTOCOL,
   SERVICE_STOP_MARKER_FILE,
 } from "./cloud/serviceProtocol.ts";
@@ -30,6 +31,34 @@ it("orders exact semantic versions without treating build metadata as precedence
   assert.equal(compareExactServiceVersions("2.0.0-alpha-beta", "2.0.0-alpha-alpha"), 1);
   assert.equal(compareExactServiceVersions("2.0.0", "2.0.0-rc.1"), 1);
   assert.equal(compareExactServiceVersions("2.0.0+one", "2.0.0+two"), 0);
+});
+
+it("permits distinct signed sovereign builds without pretending hashes are ordered", () => {
+  assert.isTrue(
+    isServiceUpdateTargetAllowed(
+      "0.0.32+sovereign.g111111111111",
+      "0.0.32+sovereign.gffffffffffff",
+    ),
+  );
+  assert.isTrue(
+    isServiceUpdateTargetAllowed(
+      "0.0.32+sovereign.gffffffffffff",
+      "0.0.32-sovereign.gffffffffffff",
+    ),
+  );
+  assert.isFalse(
+    isServiceUpdateTargetAllowed(
+      "0.0.31+sovereign.gffffffffffff",
+      "0.0.32+sovereign.g111111111111",
+    ),
+  );
+  assert.isFalse(
+    isServiceUpdateTargetAllowed(
+      "0.0.32+sovereign.g111111111111",
+      "0.0.32+sovereign.g111111111111",
+    ),
+  );
+  assert.isFalse(isServiceUpdateTargetAllowed("1.2.3+one", "1.2.3+two"));
 });
 
 it("rejects contradictory service state", () => {

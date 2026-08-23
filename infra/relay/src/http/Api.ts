@@ -43,6 +43,7 @@ import {
   RelayEnvironmentLinkProofInvalidError,
   RelayEnvironmentLinkUnavailableError,
   RelayEnvironmentLinkLimitExceededError,
+  RelayEnvironmentRetiredError,
   RelayEnvironmentPrincipal,
   type RelayEnvironmentConnectRequest,
   type RelayDpopAccessTokenScope,
@@ -474,6 +475,43 @@ export const unlinkEnvironmentRecord = Effect.fn("relay.api.client.unlinkEnviron
   },
 );
 
+export const retireEnvironmentRecord = Effect.fn("relay.api.client.retireEnvironmentRecord")(
+  function* (input: { readonly userId: string; readonly environmentId: string }) {
+    const transactions = yield* RelayDb.RelayTransactions;
+    const links = yield* EnvironmentLinks.EnvironmentLinks;
+    const credentials = yield* EnvironmentCredentials.EnvironmentCredentials;
+    const managedEndpointProvider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
+
+    const retired = yield* transactions.withTransaction(
+      Effect.gen(function* () {
+        const environmentPublicKey = yield* links.retireForUser(input);
+        if (environmentPublicKey === null) {
+          return false;
+        }
+        yield* credentials.revokeForEnvironmentPublicKey({
+          environmentId: input.environmentId,
+          environmentPublicKey,
+        });
+        return true;
+      }),
+    );
+
+    // Retirement is durable before teardown begins. Removing the current
+    // allocation without a stale generation snapshot is correct here: unlike
+    // voluntary unlink, this identity is no longer allowed to win a relink
+    // race. A failed teardown is reported separately and the maintenance sweep
+    // will retry the now-orphaned allocation.
+    const cleanup = yield* Effect.result(managedEndpointProvider.deprovision(input));
+    if (cleanup._tag === "Failure") {
+      yield* Effect.logWarning("Retired environment tunnel cleanup deferred", {
+        environmentId: input.environmentId,
+        errorTag: cleanup.failure._tag,
+      });
+    }
+    return { ok: retired, cleanupPending: cleanup._tag === "Failure" };
+  },
+);
+
 export const mobileApi = HttpApiBuilder.group(
   RelayApi,
   "mobile",
@@ -625,6 +663,11 @@ export const clientApi = HttpApiBuilder.group(
                 reason: "link_persistence_failed",
                 traceId,
               }),
+            EnvironmentLinkRetired: (_error, traceId) =>
+              new RelayEnvironmentRetiredError({
+                code: "environment_retired",
+                traceId,
+              }),
             EnvironmentCredentialCreatePersistenceError: (_error, traceId) =>
               new RelayEnvironmentLinkFailedError({
                 code: "environment_link_failed",
@@ -679,6 +722,16 @@ export const clientApi = HttpApiBuilder.group(
             }),
           );
           return { ok: unlinked };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "revokeEnvironment",
+        Effect.fn("relay.api.client.revokeEnvironment")(function* (args) {
+          const { userId } = yield* RelayClientPrincipal;
+          return yield* retireEnvironmentRecord({
+            userId,
+            environmentId: args.params.environmentId,
+          }).pipe(Effect.catchTag("SqlError", () => relayInternalErrorResponse("internal_error")));
         }, mapRelayCommonApiErrors("not_authorized")),
       )
       .handle(
@@ -1030,6 +1083,7 @@ const RelayCommonPersistenceError = Schema.Union([
   EnvironmentLinks.EnvironmentLinkListPersistenceError,
   EnvironmentLinks.EnvironmentLinkLookupPersistenceError,
   EnvironmentLinks.EnvironmentLinkRevokePersistenceError,
+  EnvironmentLinks.EnvironmentLinkRetirePersistenceError,
   ManagedEndpointAllocations.ManagedEndpointAllocationPersistenceError,
   EnvironmentCredentials.EnvironmentCredentialAuthenticatePersistenceError,
   EnvironmentCredentials.EnvironmentCredentialRevokePersistenceError,

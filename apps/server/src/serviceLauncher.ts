@@ -18,15 +18,16 @@ import type {
   ServiceUpdateRecord,
 } from "./cloud/serviceProtocol.ts";
 import {
-  compareExactServiceVersions,
   decodeServiceLauncherChildMessage,
   isExactServiceVersion,
+  isServiceUpdateTargetAllowed,
   parseServiceState,
   SERVICE_LAUNCHER_CONTEXT_ENV,
   SERVICE_LAUNCHER_PROTOCOL,
   SERVICE_STATE_FILE,
   SERVICE_STOP_MARKER_FILE,
 } from "./cloud/serviceProtocol.ts";
+import { controlPlaneEnvironment, readControlPlaneProfile } from "./cloud/runtimeProfile.ts";
 
 const HANDOFF_DELAY_MS = 2_000;
 const PREPARED_TIMEOUT_MS = 120_000;
@@ -401,8 +402,13 @@ export class Launcher {
       childVersion: version,
       ...(update === undefined ? {} : { update }),
     };
+    const controlPlane = await readControlPlaneProfile(this.#baseDir);
     const child = NodeChildProcess.spawn(process.execPath, [paths.entryPath, "serve"], {
-      env: { ...process.env, [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify(context) },
+      env: {
+        ...process.env,
+        ...controlPlaneEnvironment(controlPlane),
+        [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify(context),
+      },
       stdio: ["inherit", "inherit", "inherit", "ipc"],
     });
     await new Promise<void>((resolve, reject) => {
@@ -472,7 +478,7 @@ export class Launcher {
       await reject("The requested target is not an exact version.");
       return;
     }
-    if (compareExactServiceVersions(message.targetVersion, child.version) <= 0) {
+    if (!isServiceUpdateTargetAllowed(message.targetVersion, child.version)) {
       await reject("Remote updates must select a newer server version.");
       return;
     }

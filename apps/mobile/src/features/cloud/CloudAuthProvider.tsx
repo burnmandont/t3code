@@ -39,9 +39,12 @@ export interface MobileCloudAuthSession {
   readonly isSignedIn: boolean;
   readonly userId: string | null;
   readonly accountLabel: string | null;
+  readonly accountEmail: string | null;
+  readonly accountName: string | null;
+  readonly accountManagementUrl: string | null;
   readonly getToken: () => Promise<string | null>;
   readonly signIn: () => Promise<void>;
-  readonly signOut: () => Promise<void>;
+  readonly signOut: () => Promise<{ readonly revoked: boolean }>;
 }
 
 const disabledCloudAuthSession: MobileCloudAuthSession = {
@@ -50,9 +53,12 @@ const disabledCloudAuthSession: MobileCloudAuthSession = {
   isSignedIn: false,
   userId: null,
   accountLabel: null,
+  accountEmail: null,
+  accountName: null,
+  accountManagementUrl: null,
   getToken: async () => null,
   signIn: async () => undefined,
-  signOut: async () => undefined,
+  signOut: async () => ({ revoked: true }),
 };
 
 const MobileCloudAuthContext = createContext<MobileCloudAuthSession>(disabledCloudAuthSession);
@@ -69,9 +75,13 @@ function resetManagedRelayTokenCache() {
   );
 }
 
-type SovereignMobileAuthClient = Pick<
+type SovereignMobileSignInClient = Pick<
   ReturnType<typeof makeSovereignMobileAuthClient>,
-  "clear" | "getToken" | "signIn" | "snapshot"
+  "getToken" | "signIn" | "snapshot"
+>;
+type SovereignMobileSignOutClient = Pick<
+  ReturnType<typeof makeSovereignMobileAuthClient>,
+  "getToken" | "signOut" | "snapshot"
 >;
 
 interface SovereignAccountDeparture {
@@ -84,7 +94,7 @@ interface SovereignAccountDeparture {
  * A cancelled sign-in leaves the current account untouched and emits no cleanup.
  */
 export async function signInSovereignMobileAccount(
-  client: SovereignMobileAuthClient,
+  client: SovereignMobileSignInClient,
   onAccountDeparture: (departure: SovereignAccountDeparture) => void,
 ) {
   const previous = client.snapshot();
@@ -96,18 +106,18 @@ export async function signInSovereignMobileAccount(
   return next;
 }
 
-/** Clears local authorization first, then schedules best-effort server teardown. */
+/** Revokes and clears authorization, then schedules best-effort server teardown. */
 export async function signOutSovereignMobileAccount(
-  client: SovereignMobileAuthClient,
+  client: SovereignMobileSignOutClient,
   onAccountDeparture: (departure: SovereignAccountDeparture) => void,
 ) {
   const previous = client.snapshot();
   const previousAccessToken = previous.userId ? await client.getToken() : null;
-  await client.clear();
+  const result = await client.signOut();
   if (previous.userId && previousAccessToken) {
     onAccountDeparture({ userId: previous.userId, accessToken: previousAccessToken });
   }
-  return client.snapshot();
+  return result;
 }
 
 function queueAgentAwarenessDeviceUnregistration(departure: SovereignAccountDeparture): void {
@@ -240,12 +250,19 @@ function SovereignCloudAuthSessionProvider({
     isLoaded: false,
     isSignedIn: false,
     userId: null as string | null,
+    email: null as string | null,
+    name: null as string | null,
   });
 
   useEffect(() => {
     let cancelled = false;
     void client.initialize().then(async () => {
       await client.getToken();
+      try {
+        await client.getUserInfo();
+      } catch (cause) {
+        console.warn("[t3-connect] Could not refresh sovereign mobile account identity", cause);
+      }
       if (!cancelled) setSession({ isLoaded: true, ...client.snapshot() });
     });
     return () => {
@@ -270,18 +287,23 @@ function SovereignCloudAuthSessionProvider({
       client,
       queueAgentAwarenessDeviceUnregistration,
     );
-    setSession({ isLoaded: true, ...next });
+    const { revoked, ...snapshot } = next;
+    setSession({ isLoaded: true, ...snapshot });
+    return { revoked };
   }, [client]);
   const value = useMemo<MobileCloudAuthSession>(
     () => ({
       provider: "sovereign",
       ...session,
-      accountLabel: session.isSignedIn ? "Signed in" : null,
+      accountLabel: session.email ?? session.name ?? (session.isSignedIn ? "Signed in" : null),
+      accountEmail: session.email,
+      accountName: session.name,
+      accountManagementUrl: new URL("/sign-in", config.issuer).toString(),
       getToken,
       signIn,
       signOut,
     }),
-    [getToken, session, signIn, signOut],
+    [config.issuer, getToken, session, signIn, signOut],
   );
   return <MobileCloudAuthContext value={value}>{children}</MobileCloudAuthContext>;
 }

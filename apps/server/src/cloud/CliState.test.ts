@@ -94,4 +94,23 @@ it.layer(NodeServices.layer)("CliState", (it) => {
       assert.isFalse(yield* CliState.readCliDesiredLinkTransfer);
     }).pipe(Effect.provide(makeTestLayer())),
   );
+
+  it.effect("persists remote retirement while clearing all retryable link state", () =>
+    Effect.gen(function* () {
+      const secrets = yield* ServerSecretStore.ServerSecretStore;
+      yield* CliState.setCliDesiredCloudLink(true, "managed");
+      for (const name of persistedCloudLinkSecrets) {
+        yield* secrets.set(name, new TextEncoder().encode(name));
+      }
+
+      const retiredAt = yield* CliState.markCliEnvironmentRetired;
+
+      assert.equal(yield* CliState.readCliRetiredCloudLink, retiredAt);
+      assert.isFalse(yield* CliState.readCliDesiredCloudLink);
+      assert.isFalse(yield* CliState.readCliDesiredLinkTransfer);
+      for (const name of persistedCloudLinkSecrets) {
+        assert.isTrue(Option.isNone(yield* secrets.get(name)));
+      }
+    }).pipe(Effect.provide(makeTestLayer())),
+  );
 });

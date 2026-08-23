@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { RelayClientEnvironmentRecord } from "@t3tools/contracts/relay";
+import { EllipsisIcon, ShieldOffIcon } from "lucide-react";
 import * as Option from "effect/Option";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 
@@ -21,6 +22,17 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { ConnectionStatusDot } from "../ConnectionStatusDot";
 import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "../settings/itemRows";
 import { Button } from "../ui/button";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Spinner } from "../ui/spinner";
 import { Skeleton } from "../ui/skeleton";
 import { toastManager } from "../ui/toast";
 import { presentSavedCloudEnvironmentConnection } from "./cloudEnvironmentConnectionPresentation";
@@ -41,6 +53,163 @@ export function RemoteEnvironmentRowsSkeleton() {
         <Skeleton className="h-7 w-16 rounded-md" />
       </div>
     </div>
+  );
+}
+
+function abbreviatedEnvironmentId(environmentId: string): string {
+  return environmentId.length > 16
+    ? `${environmentId.slice(0, 8)}…${environmentId.slice(-4)}`
+    : environmentId;
+}
+
+function endpointHostname(environment: RelayClientEnvironmentRecord): string {
+  try {
+    return new URL(environment.endpoint.httpBaseUrl).hostname;
+  } catch {
+    return environment.endpoint.httpBaseUrl;
+  }
+}
+
+function revocationAvailabilityText(
+  availability: "checking" | "online" | "offline" | "error",
+): string {
+  switch (availability) {
+    case "online":
+      return "online";
+    case "offline":
+      return "offline";
+    case "checking":
+      return "being checked";
+    case "error":
+      return "not currently reachable";
+  }
+}
+
+export function CloudEnvironmentRevocationAction({
+  environment,
+  availability,
+  disabled = false,
+  onRevoked,
+}: {
+  readonly environment: RelayClientEnvironmentRecord;
+  readonly availability: "checking" | "online" | "offline" | "error";
+  readonly disabled?: boolean;
+  readonly onRevoked?: () => void | Promise<void>;
+}) {
+  const revokeEnvironment = useAtomCommand(relayEnvironmentDiscovery.revoke, {
+    reportFailure: false,
+  });
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+
+  const confirmRevocation = async () => {
+    setRevoking(true);
+    const result = await revokeEnvironment(environment.environmentId);
+    if (result._tag === "Success") {
+      setConfirmationOpen(false);
+      await onRevoked?.();
+      toastManager.add({
+        type: result.value.cleanupPending ? "warning" : "success",
+        title: result.value.cleanupPending
+          ? "Access revoked; cleanup queued"
+          : "Environment access revoked",
+        description: result.value.cleanupPending
+          ? "This identity cannot relink. Tunnel cleanup will be retried automatically."
+          : `${environment.label} can no longer connect with this environment identity.`,
+      });
+      setRevoking(false);
+      return;
+    }
+    setRevoking(false);
+    if (isAtomCommandInterrupted(result)) {
+      return;
+    }
+    const cause = squashAtomCommandFailure(result);
+    const message = cause instanceof Error ? cause.message : "Could not revoke the environment.";
+    const traceId = findErrorTraceId(cause);
+    toastManager.add({
+      type: "error",
+      title: "Could not revoke environment access",
+      description: message,
+      data: traceId
+        ? {
+            secondaryActionProps: {
+              children: "Copy trace ID",
+              onClick: () => void navigator.clipboard?.writeText(traceId),
+            },
+          }
+        : undefined,
+    });
+  };
+
+  return (
+    <>
+      <Menu>
+        <MenuTrigger
+          disabled={disabled || revoking}
+          render={
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label={`Actions for ${environment.label}`}
+            />
+          }
+        >
+          {revoking ? <Spinner className="size-3.5" /> : <EllipsisIcon className="size-3.5" />}
+        </MenuTrigger>
+        <MenuPopup align="end" className="min-w-52">
+          <MenuItem variant="destructive" onClick={() => setConfirmationOpen(true)}>
+            <ShieldOffIcon />
+            Remove from T3 Connect…
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
+      <AlertDialog
+        open={confirmationOpen}
+        onOpenChange={(open) => {
+          if (!revoking) setConfirmationOpen(open);
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke “{environment.label}”?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <span className="block">
+                This environment is currently {revocationAvailabilityText(availability)}. Its relay
+                credential and tunnel will be revoked, and the same immutable identity cannot
+                relink—even if its server is still running.
+              </span>
+              <span className="block rounded-md border border-border/60 bg-muted/30 p-2 font-mono text-xs">
+                ID {abbreviatedEnvironmentId(environment.environmentId)} ·{" "}
+                {endpointHostname(environment)}
+              </span>
+              <span className="block">
+                Files, projects, and agent history on the remote machine are not deleted. Connecting
+                it again requires resetting or reinstalling its T3 environment identity.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              disabled={revoking}
+              render={<Button variant="outline" disabled={revoking} />}
+            >
+              Cancel
+            </AlertDialogClose>
+            <Button variant="destructive" disabled={revoking} onClick={confirmRevocation}>
+              {revoking ? (
+                <>
+                  <Spinner className="size-3.5" />
+                  Revoking…
+                </>
+              ) : (
+                "Revoke access"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -240,19 +409,26 @@ export function CloudEnvironmentConnectRows({
               {statusText}
             </p>
           </div>
-          {savedConnection ? (
-            <Button size="sm" variant="outline" disabled>
-              {savedConnection.buttonLabel}
-            </Button>
-          ) : (
-            <Button
-              size="sm"
+          <div className="flex items-center gap-1">
+            {savedConnection ? (
+              <Button size="sm" variant="outline" disabled>
+                {savedConnection.buttonLabel}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                disabled={connectingEnvironmentId !== null}
+                onClick={() => void connectEnvironment(environment)}
+              >
+                {connectingEnvironmentId === environment.environmentId ? "Connecting…" : "Connect"}
+              </Button>
+            )}
+            <CloudEnvironmentRevocationAction
+              environment={environment}
+              availability={availability}
               disabled={connectingEnvironmentId !== null}
-              onClick={() => void connectEnvironment(environment)}
-            >
-              {connectingEnvironmentId === environment.environmentId ? "Connecting…" : "Connect"}
-            </Button>
-          )}
+            />
+          </div>
         </div>
       </div>
     );

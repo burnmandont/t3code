@@ -22,6 +22,7 @@ import * as EnvironmentCredentials from "./EnvironmentCredentials.ts";
 import * as EnvironmentLinks from "./EnvironmentLinks.ts";
 import * as ManagedEndpointProvider from "./ManagedEndpointProviderService.ts";
 import * as RelayConfiguration from "../Config.ts";
+import * as RelayDb from "../RelayDbService.ts";
 
 export class EnvironmentLinkProofExpired extends Schema.TaggedErrorClass<EnvironmentLinkProofExpired>()(
   "EnvironmentLinkProofExpired",
@@ -67,6 +68,8 @@ export type EnvironmentLinkError =
   | EnvironmentLinkProofExpired
   | EnvironmentLinkProofInvalid
   | DpopProofs.DpopProofReplayPersistenceError
+  | EnvironmentLinks.EnvironmentLinkRetired
+  | EnvironmentLinks.EnvironmentLinkLookupPersistenceError
   | EnvironmentLinks.EnvironmentLinkUpsertPersistenceError
   | EnvironmentLinks.EnvironmentLinkTransferPersistenceError
   | EnvironmentCredentials.EnvironmentCredentialCreatePersistenceError
@@ -150,6 +153,7 @@ const make = Effect.gen(function* () {
   const proofReplay = yield* DpopProofs.DpopProofReplay;
   const relayTokens = yield* RelayTokens.RelayTokens;
   const config = yield* RelayConfiguration.RelayConfiguration;
+  const transactions = yield* RelayDb.RelayTransactions;
 
   return EnvironmentLinker.of({
     link: Effect.fn("relay.environment_linker.link")(function* (input) {
@@ -297,6 +301,14 @@ const make = Effect.gen(function* () {
           stage: "validate_origin",
         });
       }
+      // A user-initiated remote revocation retires the immutable environment
+      // identity. Check before provisioning to avoid resource churn from a
+      // still-running retired process; the conditional upsert below repeats
+      // this guarantee atomically against a concurrent revocation.
+      yield* links.ensureRelinkAllowed({
+        userId: input.userId,
+        environmentId: verified.environmentId,
+      });
       // Downgrading a managed link to publish-only must release the tunnel and
       // DNS that were provisioned for it — nothing else cleans them up until a
       // full unlink. Best effort: a cleanup failure must not block the link
@@ -338,11 +350,46 @@ const make = Effect.gen(function* () {
           stage: "validate_endpoint",
         });
       }
-      yield* links.upsert({ ...input, proof: verified, endpoint });
-      const environmentCredential = yield* credentials.create({
-        environmentId: verified.environmentId,
-        environmentPublicKey: verified.environmentPublicKey,
-      });
+      const environmentCredential = yield* transactions
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* links.upsert({ ...input, proof: verified, endpoint });
+            return yield* credentials.create({
+              environmentId: verified.environmentId,
+              environmentPublicKey: verified.environmentPublicKey,
+            });
+          }),
+        )
+        .pipe(
+          Effect.catchTag(
+            "SqlError",
+            (cause) =>
+              new EnvironmentLinks.EnvironmentLinkUpsertPersistenceError({
+                userId: input.userId,
+                environmentId: verified.environmentId,
+                cause,
+              }),
+          ),
+          Effect.catchTag("EnvironmentLinkRetired", (error) =>
+            provisioned === null
+              ? Effect.fail(error)
+              : managedEndpointProvider
+                  .deprovision({
+                    userId: input.userId,
+                    environmentId: verified.environmentId,
+                  })
+                  .pipe(
+                    Effect.tapError((cleanupError) =>
+                      Effect.logWarning("Retired environment allocation cleanup failed", {
+                        environmentId: verified.environmentId,
+                        errorTag: cleanupError._tag,
+                      }),
+                    ),
+                    Effect.ignore,
+                    Effect.andThen(Effect.fail(error)),
+                  ),
+          ),
+        );
       if (input.request.transferExistingLinks) {
         const revokedUserIds = yield* links.revokeOtherUsersForEnvironmentKey({
           userId: input.userId,

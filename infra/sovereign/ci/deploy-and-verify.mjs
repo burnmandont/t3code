@@ -1,10 +1,12 @@
-import { createHash, randomBytes } from "node:crypto";
-import { request as httpsRequest } from "node:https";
-import { pathToFileURL } from "node:url";
+import * as NodeCrypto from "node:crypto";
+import * as NodeHttps from "node:https";
+import * as NodeURL from "node:url";
 
 const COOLIFY_POLL_INTERVAL_MS = 15_000;
 const COOLIFY_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_DEPLOY_TIMEOUT_MS = 20 * 60_000;
+const DEFAULT_DEPLOY_MAX_ATTEMPTS = 2;
+const DEFAULT_DEPLOY_RETRY_DELAY_MS = 10_000;
 const HEALTH_ATTEMPTS = 12;
 const HEALTH_RETRY_INTERVAL_MS = 5_000;
 const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -38,6 +40,16 @@ export const classifyDeploymentStatus = (status) => {
       throw new Error(`Coolify returned an unknown deployment status: ${String(status)}`);
   }
 };
+
+export class CoolifyDeploymentTerminalError extends Error {
+  constructor({ deploymentUuid, resourceUuid, status }) {
+    super(`Coolify deployment ${deploymentUuid} for ${resourceUuid} ended with ${status}`);
+    this.name = "CoolifyDeploymentTerminalError";
+    this.deploymentUuid = deploymentUuid;
+    this.resourceUuid = resourceUuid;
+    this.status = status;
+  }
+}
 
 class CoolifyResponseError extends Error {
   constructor(status, body) {
@@ -93,15 +105,16 @@ export const waitForDeployment = async ({
         return deployment;
       }
       if (classification === "failure") {
-        throw new Error(
-          `Coolify deployment ${deploymentUuid} for ${resourceUuid} ended with ${status}`,
-        );
+        throw new CoolifyDeploymentTerminalError({
+          deploymentUuid,
+          resourceUuid,
+          status,
+        });
       }
     } catch (error) {
       if (
-        error instanceof Error &&
-        (error.message.includes("ended with") ||
-          error.message.includes("unknown deployment status"))
+        error instanceof CoolifyDeploymentTerminalError ||
+        (error instanceof Error && error.message.includes("unknown deployment status"))
       ) {
         throw error;
       }
@@ -121,6 +134,87 @@ export const waitForDeployment = async ({
   throw new Error(
     `Timed out after ${Math.round(timeoutMs / 60_000)} minutes waiting for Coolify deployment ${deploymentUuid} (${resourceUuid})`,
   );
+};
+
+const validateQueuedDeployments = (resourceUuids, deployments) => {
+  if (!Array.isArray(deployments)) {
+    throw new Error("Coolify deployment response did not contain a deployments array");
+  }
+  const requested = new Set(resourceUuids);
+  const byResource = new Map();
+  for (const deployment of deployments) {
+    const deploymentUuid = deployment?.deployment_uuid;
+    const resourceUuid = deployment?.resource_uuid;
+    if (typeof deploymentUuid !== "string" || typeof resourceUuid !== "string") {
+      throw new Error("Coolify returned a deployment without string UUIDs");
+    }
+    if (!requested.has(resourceUuid)) {
+      throw new Error(`Coolify returned an unexpected resource: ${resourceUuid}`);
+    }
+    if (byResource.has(resourceUuid)) {
+      throw new Error(`Coolify returned duplicate deployments for resource: ${resourceUuid}`);
+    }
+    byResource.set(resourceUuid, deployment);
+  }
+  const missing = resourceUuids.filter((uuid) => !byResource.has(uuid));
+  if (missing.length > 0) {
+    throw new Error(`Coolify did not accept every resource: ${missing.join(", ")}`);
+  }
+  return resourceUuids.map((uuid) => byResource.get(uuid));
+};
+
+const errorMessage = (error) => (error instanceof Error ? error.message : String(error));
+
+export const deployResourcesWithRetry = async ({
+  resourceUuids,
+  queueDeployments,
+  waitForQueuedDeployment,
+  maxAttempts = DEFAULT_DEPLOY_MAX_ATTEMPTS,
+  retryDelayMs = DEFAULT_DEPLOY_RETRY_DELAY_MS,
+  sleepFn = sleep,
+  onRetry = () => {},
+}) => {
+  let pendingResourceUuids = [...resourceUuids];
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const deployments = validateQueuedDeployments(
+      pendingResourceUuids,
+      await queueDeployments(pendingResourceUuids),
+    );
+    const results = await Promise.allSettled(
+      deployments.map((deployment) => waitForQueuedDeployment(deployment, attempt)),
+    );
+    const retryable = [];
+    const terminal = [];
+
+    for (const [index, result] of results.entries()) {
+      if (result.status === "fulfilled") continue;
+      const resourceUuid = deployments[index].resource_uuid;
+      if (
+        attempt < maxAttempts &&
+        result.reason instanceof CoolifyDeploymentTerminalError &&
+        result.reason.status === "failed"
+      ) {
+        retryable.push(resourceUuid);
+        continue;
+      }
+      terminal.push({ resourceUuid, error: result.reason });
+    }
+
+    if (terminal.length > 0) {
+      throw new Error(
+        `Coolify deployment failed: ${terminal
+          .map(({ resourceUuid, error }) => `${resourceUuid}: ${errorMessage(error)}`)
+          .join("; ")}`,
+        { cause: terminal[0].error },
+      );
+    }
+    if (retryable.length === 0) return;
+
+    pendingResourceUuids = retryable;
+    onRetry({ attempt: attempt + 1, maxAttempts, resourceUuids: retryable });
+    await sleepFn(retryDelayMs);
+  }
 };
 
 export const validateEdgeSecurityHeaders = (headers, label) => {
@@ -201,6 +295,34 @@ const checkOauthMetadata = async () => {
     throw new Error("OAuth JWKS is unavailable, empty, or exposes private key material");
   }
   validateEdgeSecurityHeaders(jwks.response.headers, "OAuth JWKS");
+};
+
+const checkControlPlaneDiscovery = async () => {
+  const runtimeVersion = requiredEnvironmentValue("SOVEREIGN_RUNTIME_VERSION");
+  const { response, body } = await fetchJson(
+    "https://code.moondiner.com/.well-known/t3-sovereign.json",
+    { headers: { Accept: "application/json", "Cache-Control": "no-cache" } },
+  );
+  const expected = {
+    schemaVersion: 1,
+    runtimeVersion,
+    origin: "https://code.moondiner.com",
+    hostedAppUrl: "https://code.moondiner.com",
+    oauthIssuer: "https://auth.moondiner.com/api/auth",
+    oauthClientId: "t3-code",
+    oauthResource: "https://relay.moondiner.com",
+    relayUrl: "https://relay.moondiner.com",
+  };
+  if (
+    response.status !== 200 ||
+    typeof body !== "object" ||
+    body === null ||
+    Object.keys(body).length !== Object.keys(expected).length ||
+    !Object.entries(expected).every(([key, value]) => body[key] === value)
+  ) {
+    throw new Error("Hosted control-plane discovery does not match the deployed sovereign stack");
+  }
+  validateEdgeSecurityHeaders(response.headers, "Control-plane discovery");
 };
 
 const checkRelayRejectsInvalidBearer = async () => {
@@ -305,7 +427,7 @@ export const unexpectedHostRequestOptions = () => ({
 
 const checkUnexpectedHostRejected = () =>
   new Promise((resolve, reject) => {
-    const request = httpsRequest(unexpectedHostRequestOptions());
+    const request = NodeHttps.request(unexpectedHostRequestOptions());
     request.once("response", (response) => {
       response.resume();
       if (response.statusCode !== 421) {
@@ -320,12 +442,12 @@ const checkUnexpectedHostRejected = () =>
   });
 
 export const expectedWebSocketAccept = (key) =>
-  createHash("sha1").update(`${key}${WEBSOCKET_GUID}`).digest("base64");
+  NodeCrypto.createHash("sha1").update(`${key}${WEBSOCKET_GUID}`).digest("base64");
 
 const checkConnectWebSocket = () =>
   new Promise((resolve, reject) => {
-    const key = randomBytes(16).toString("base64");
-    const request = httpsRequest({
+    const key = NodeCrypto.randomBytes(16).toString("base64");
+    const request = NodeHttps.request({
       hostname: "connect.moondiner.com",
       port: 443,
       path: "/~!frp",
@@ -366,19 +488,61 @@ const checkConnectWebSocket = () =>
     request.end();
   });
 
+const checkConnectRejectsUnexpectedOrigin = () =>
+  new Promise((resolve, reject) => {
+    const key = NodeCrypto.randomBytes(16).toString("base64");
+    const request = NodeHttps.request({
+      hostname: "connect.moondiner.com",
+      port: 443,
+      path: "/~!frp",
+      method: "GET",
+      headers: {
+        Connection: "Upgrade",
+        Upgrade: "websocket",
+        Origin: "https://connect.moondiner.com.attacker.invalid",
+        "Sec-WebSocket-Version": "13",
+        "Sec-WebSocket-Key": key,
+      },
+      timeout: COOLIFY_REQUEST_TIMEOUT_MS,
+    });
+
+    request.once("upgrade", (_response, socket) => {
+      socket.destroy();
+      reject(new Error("Connect upgraded a WebSocket from an unexpected Origin"));
+    });
+    request.once("response", (response) => {
+      response.resume();
+      if (response.statusCode !== 403) {
+        reject(new Error(`Connect unexpected-Origin request returned ${response.statusCode}`));
+        return;
+      }
+      validateEdgeSecurityHeaders(new Headers(response.headers), "Connect Origin boundary");
+      resolve();
+    });
+    request.once("timeout", () =>
+      request.destroy(new Error("Connect Origin-boundary request timed out")),
+    );
+    request.once("error", reject);
+    request.end();
+  });
+
 export const verifyProduction = async () => {
   let lastError;
   for (let attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt += 1) {
     try {
       await Promise.all([
-        checkHealthEndpoint("https://code.moondiner.com/health", { validateWebPolicy: true }),
+        checkHealthEndpoint("https://code.moondiner.com/health", {
+          validateWebPolicy: true,
+        }),
         checkHealthEndpoint("https://auth.moondiner.com/health"),
         checkHealthEndpoint("https://relay.moondiner.com/health"),
         checkOauthMetadata(),
+        checkControlPlaneDiscovery(),
         checkRelayRejectsInvalidBearer(),
         checkPublicRouteBoundary(),
         checkUnexpectedHostRejected(),
         checkConnectWebSocket(),
+        checkConnectRejectsUnexpectedOrigin(),
       ]);
       console.log(
         "Production health, authentication, CORS, route boundaries, TLS headers, and Connect WSS passed",
@@ -396,7 +560,9 @@ export const verifyProduction = async () => {
       await sleep(HEALTH_RETRY_INTERVAL_MS);
     }
   }
-  throw new Error("Production verification did not become healthy", { cause: lastError });
+  throw new Error("Production verification did not become healthy", {
+    cause: lastError,
+  });
 };
 
 const main = async () => {
@@ -410,29 +576,37 @@ const main = async () => {
     throw new Error("Coolify control and web resource UUIDs must be different");
   }
 
-  const deployUrl = new URL(`${baseUrl}/api/v1/deploy`);
-  deployUrl.searchParams.set("uuid", resourceUuids.join(","));
-  const body = await coolifyJson(deployUrl, token, { method: "POST" });
-  const deployments = Array.isArray(body.deployments) ? body.deployments : [];
-  const accepted = new Set(deployments.map((deployment) => deployment.resource_uuid));
-  const missing = resourceUuids.filter((uuid) => !accepted.has(uuid));
-  if (missing.length > 0) {
-    throw new Error(`Coolify did not accept every resource: ${missing.join(", ")}`);
-  }
-
   const timeoutMs = Number(process.env.COOLIFY_DEPLOY_TIMEOUT_MS ?? DEFAULT_DEPLOY_TIMEOUT_MS);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 60_000) {
     throw new Error("COOLIFY_DEPLOY_TIMEOUT_MS must be an integer of at least 60000");
   }
+  const maxAttempts = Number(
+    process.env.COOLIFY_DEPLOY_MAX_ATTEMPTS ?? DEFAULT_DEPLOY_MAX_ATTEMPTS,
+  );
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 3) {
+    throw new Error("COOLIFY_DEPLOY_MAX_ATTEMPTS must be an integer between 1 and 3");
+  }
+  const retryDelayMs = Number(
+    process.env.COOLIFY_DEPLOY_RETRY_DELAY_MS ?? DEFAULT_DEPLOY_RETRY_DELAY_MS,
+  );
+  if (!Number.isSafeInteger(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > 60_000) {
+    throw new Error("COOLIFY_DEPLOY_RETRY_DELAY_MS must be an integer between 0 and 60000");
+  }
 
-  await Promise.all(
-    deployments.map(async (deployment) => {
+  await deployResourcesWithRetry({
+    resourceUuids,
+    maxAttempts,
+    retryDelayMs,
+    queueDeployments: async (uuids) => {
+      const deployUrl = new URL(`${baseUrl}/api/v1/deploy`);
+      deployUrl.searchParams.set("uuid", uuids.join(","));
+      const body = await coolifyJson(deployUrl, token, { method: "POST" });
+      return body.deployments;
+    },
+    waitForQueuedDeployment: async (deployment, attempt) => {
       const deploymentUuid = deployment.deployment_uuid;
       const resourceUuid = deployment.resource_uuid;
-      if (typeof deploymentUuid !== "string" || typeof resourceUuid !== "string") {
-        throw new Error("Coolify returned a deployment without string UUIDs");
-      }
-      console.log(`Queued ${resourceUuid}: ${deploymentUuid}`);
+      console.log(`Queued ${resourceUuid}: ${deploymentUuid} (attempt ${attempt}/${maxAttempts})`);
       await waitForDeployment({
         deploymentUuid,
         resourceUuid,
@@ -441,14 +615,18 @@ const main = async () => {
           coolifyJson(`${baseUrl}/api/v1/deployments/${encodeURIComponent(uuid)}`, token),
         onStatus: (status) => console.log(`${resourceUuid} (${deploymentUuid}): ${status}`),
       });
-    }),
-  );
+    },
+    onRetry: ({ attempt, maxAttempts: attempts, resourceUuids: retryUuids }) =>
+      console.log(
+        `Retrying failed Coolify resources after ${retryDelayMs}ms (attempt ${attempt}/${attempts}): ${retryUuids.join(", ")}`,
+      ),
+  });
 
   await verifyProduction();
 };
 
 const invokedPath = process.argv[1];
-if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
+if (invokedPath && import.meta.url === NodeURL.pathToFileURL(invokedPath).href) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     if (error instanceof Error && error.cause instanceof Error) {

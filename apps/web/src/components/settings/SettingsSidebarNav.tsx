@@ -17,6 +17,7 @@ import {
   PaletteIcon,
   SearchIcon,
   Settings2Icon,
+  UserRoundIcon,
   XIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -46,6 +47,7 @@ import {
 const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
+  "/settings/profile": UserRoundIcon,
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
   "/settings/keybindings": KeyboardIcon,

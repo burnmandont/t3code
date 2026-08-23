@@ -78,6 +78,7 @@ export class DesktopSovereignAuthError extends Schema.TaggedErrorClass<DesktopSo
     return `Desktop sovereign authentication failed during ${this.operation}.`;
   }
 }
+const isDesktopSovereignAuthError = Schema.is(DesktopSovereignAuthError);
 
 function memoryStorage(values: Map<string, string>): Storage {
   return {
@@ -144,6 +145,8 @@ export const makeWithConfiguration = (config: DesktopSovereignAuthConfiguration)
         appHost: ElectronProtocol.DESKTOP_HOST,
         authorizationEndpoint: `${normalizedIssuer}/oauth2/authorize`,
         tokenEndpoint: `${normalizedIssuer}/oauth2/token`,
+        userInfoEndpoint: `${normalizedIssuer}/oauth2/userinfo`,
+        revocationEndpoint: `${normalizedIssuer}/oauth2/revoke`,
         clientId: config.oauthClientId,
         redirectUri,
         resource: config.oauthResource,
@@ -285,9 +288,22 @@ export const makeWithConfiguration = (config: DesktopSovereignAuthConfiguration)
     });
 
     const initialize = operationMutex.withPermit(load);
+    const hydrateUserInfo = Effect.tryPromise({
+      try: () => client.getUserInfo(),
+      catch: (cause) => new DesktopSovereignAuthError({ operation: "get-user-info", cause }),
+    }).pipe(
+      Effect.tap(() => persist),
+      Effect.catch((error) =>
+        Effect.logWarning("Could not refresh sovereign desktop account identity.", { error }),
+      ),
+    );
     const snapshot = operationMutex.withPermit(
       Effect.gen(function* () {
         yield* load;
+        const current = client.snapshot();
+        if (current.isSignedIn && current.email === null && current.name === null) {
+          yield* hydrateUserInfo;
+        }
         return client.snapshot();
       }),
     );
@@ -307,6 +323,7 @@ export const makeWithConfiguration = (config: DesktopSovereignAuthConfiguration)
               catch: (cause) =>
                 new DesktopSovereignAuthError({ operation: "complete-sign-in", cause }),
             });
+            yield* hydrateUserInfo;
             yield* persist;
           }),
         )
@@ -388,12 +405,15 @@ export const makeWithConfiguration = (config: DesktopSovereignAuthConfiguration)
           );
         }
       }).pipe(Effect.withSpan("desktop.sovereignAuth.ready"), Effect.orDie),
-      beginSovereignSignIn: (returnUrl) =>
+      beginSovereignSignIn: (input) =>
         operationMutex.withPermit(
           Effect.gen(function* () {
             yield* load;
             const authorizationUrl = yield* Effect.tryPromise({
-              try: () => client.beginSignIn(returnUrl),
+              try: () =>
+                input.prompt === undefined
+                  ? client.beginSignIn(input.returnUrl)
+                  : client.beginSignIn(input.returnUrl, { prompt: input.prompt }),
               catch: (cause) =>
                 new DesktopSovereignAuthError({ operation: "begin-sign-in", cause }),
             });
@@ -417,18 +437,19 @@ export const makeWithConfiguration = (config: DesktopSovereignAuthConfiguration)
         .withPermit(
           Effect.gen(function* () {
             yield* load;
-            client.clear();
+            const result = yield* Effect.promise(() => client.signOut());
             yield* persist;
+            return result;
           }),
         )
-        .pipe(Effect.andThen(notify)),
+        .pipe(Effect.tap(() => notify)),
     });
   });
 
 export const make = Effect.try({
   try: requireConfiguration,
   catch: (cause) =>
-    Schema.is(DesktopSovereignAuthError)(cause)
+    isDesktopSovereignAuthError(cause)
       ? cause
       : new DesktopSovereignAuthError({ operation: "validate-configuration", cause }),
 }).pipe(Effect.flatMap(makeWithConfiguration));

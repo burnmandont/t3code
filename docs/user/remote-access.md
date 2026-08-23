@@ -265,6 +265,22 @@ Hosted pairing does not proxy traffic through T3 Code. The browser still connect
 
 ## Managing Access Later
 
+For a T3 Connect environment, open **Settings → Connections**, open the environment's actions menu,
+and choose **Remove from T3 Connect** to revoke it remotely. This works whether the environment is
+online or offline. It revokes the relay credential and tunnel and permanently retires that
+environment identity for your account, so a still-running background service cannot silently add
+itself again.
+
+This action does not delete files, projects, repositories, or agent history from the remote machine.
+To connect that machine again later, reset or reinstall its T3 environment identity and link the new
+identity to your account.
+
+If the removed environment is running, it stops its relay connector after the relay rejects the old
+allocation. `t3 connect status` then reports **remotely revoked** with the recorded time. Its local T3
+server may continue running for local use, but it no longer retries T3 Connect. Stored account login
+is retained; the immutable environment identity, rather than the entire account, is what was
+revoked.
+
 Use `t3 auth` to manage access after the initial pairing flow.
 
 Typical uses:

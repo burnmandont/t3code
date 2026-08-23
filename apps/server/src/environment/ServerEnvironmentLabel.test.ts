@@ -61,6 +61,27 @@ afterEach(() => {
 });
 
 describe("resolveServerEnvironmentLabel", () => {
+  it.effect("prefers the persisted label over operating-system host metadata", () => {
+    const configuredLayer = Layer.merge(
+      ProcessRunnerTest,
+      FileSystem.layerNoop({
+        readFileString: (path) =>
+          path === "/runtime/environment-label"
+            ? Effect.succeed("  Atlas worker  \n")
+            : Effect.succeed(""),
+      }),
+    );
+    return Effect.gen(function* () {
+      const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({
+        cwdBaseName: "projects",
+        configuredLabelPath: "/runtime/environment-label",
+      }).pipe(Effect.provide(withHostPlatform(configuredLayer, "linux", "localhost.localdomain")));
+
+      expect(result).toBe("Atlas worker");
+      expect(runMock).not.toHaveBeenCalled();
+    });
+  });
+
   it.effect("uses hostname fallback regardless of launch mode", () =>
     Effect.gen(function* () {
       const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({

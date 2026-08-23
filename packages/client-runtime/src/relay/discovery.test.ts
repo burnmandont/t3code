@@ -59,6 +59,7 @@ const makeHarness = Effect.fn("RelayDiscoveryTest.makeHarness")(function* () {
   const networkStatus = yield* SubscriptionRef.make<NetworkStatus>("online");
   const listCalls = yield* Ref.make(0);
   const listFailure = yield* Ref.make<ManagedRelay.ManagedRelayClientError | null>(null);
+  const revokeCalls = yield* Ref.make<Array<string>>([]);
   const secondListCall = yield* Deferred.make<void>();
   const clerkToken = yield* Ref.make<string | null>("clerk-token");
   const wakeups = yield* SubscriptionRef.make<{
@@ -108,6 +109,10 @@ const makeHarness = Effect.fn("RelayDiscoveryTest.makeHarness")(function* () {
     createEnvironmentLinkChallenge: () => Effect.die("unused"),
     linkEnvironment: () => Effect.die("unused"),
     unlinkEnvironment: () => Effect.die("unused"),
+    revokeEnvironment: ({ environmentId }) =>
+      Ref.update(revokeCalls, (calls) => [...calls, environmentId]).pipe(
+        Effect.as({ ok: true, cleanupPending: false }),
+      ),
     connectEnvironment: () => Effect.die("unused"),
     registerDevice: () => Effect.die("unused"),
     unregisterDevice: () => Effect.die("unused"),
@@ -158,6 +163,7 @@ const makeHarness = Effect.fn("RelayDiscoveryTest.makeHarness")(function* () {
     layer,
     listCalls,
     listFailure,
+    revokeCalls,
     clerkToken,
     networkStatus,
     secondListCall,
@@ -171,6 +177,34 @@ const makeHarness = Effect.fn("RelayDiscoveryTest.makeHarness")(function* () {
 });
 
 describe("RelayEnvironmentDiscovery", () => {
+  it.effect("removes a remotely revoked environment from discovery immediately", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      yield* Effect.gen(function* () {
+        const discovery = yield* RelayEnvironmentDiscovery.RelayEnvironmentDiscovery;
+        const requests = yield* Ref.get(harness.statusRequests);
+        for (const environment of environments) {
+          yield* Deferred.succeed(
+            requests.get(environment.environmentId)!,
+            status(environment, "online"),
+          );
+        }
+        yield* discovery.refresh;
+
+        expect(yield* discovery.revoke(environments[0]!.environmentId)).toEqual({
+          ok: true,
+          cleanupPending: false,
+        });
+        expect(yield* Ref.get(harness.revokeCalls)).toEqual([environments[0]!.environmentId]);
+        expect(
+          (yield* SubscriptionRef.get(discovery.state)).environments.has(
+            environments[0]!.environmentId,
+          ),
+        ).toBe(false);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
   it.effect("publishes each environment status as soon as that lookup completes", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
@@ -270,6 +304,7 @@ describe("RelayEnvironmentDiscovery", () => {
         createEnvironmentLinkChallenge: () => Effect.die("unused"),
         linkEnvironment: () => Effect.die("unused"),
         unlinkEnvironment: () => Effect.die("unused"),
+        revokeEnvironment: () => Effect.die("unused"),
         connectEnvironment: () => Effect.die("unused"),
         registerDevice: () => Effect.die("unused"),
         unregisterDevice: () => Effect.die("unused"),

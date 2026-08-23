@@ -511,6 +511,19 @@ export class RelayEnvironmentLinkLimitExceededError extends Schema.TaggedErrorCl
   }
 }
 
+export class RelayEnvironmentRetiredError extends Schema.TaggedErrorClass<RelayEnvironmentRetiredError>()(
+  "RelayEnvironmentRetiredError",
+  {
+    code: Schema.Literal("environment_retired"),
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 409 },
+) {
+  override get message(): string {
+    return "This environment identity was remotely revoked and cannot relink";
+  }
+}
+
 export class RelayAgentActivityPublishProofExpiredError extends Schema.TaggedErrorClass<RelayAgentActivityPublishProofExpiredError>()(
   "RelayAgentActivityPublishProofExpiredError",
   {
@@ -562,6 +575,7 @@ export const RelayProtectedError = Schema.Union([
   RelayEnvironmentLinkFailedError,
   RelayEnvironmentLinkUnavailableError,
   RelayEnvironmentLinkLimitExceededError,
+  RelayEnvironmentRetiredError,
   RelayAgentActivityPublishProofExpiredError,
   RelayAgentActivityPublishProofInvalidError,
   RelayInternalError,
@@ -576,6 +590,7 @@ const RelayEnvironmentLinkErrors = [
   RelayEnvironmentLinkProofInvalidError,
   RelayEnvironmentLinkUnavailableError,
   RelayEnvironmentLinkLimitExceededError,
+  RelayEnvironmentRetiredError,
   RelayEnvironmentLinkFailedError,
   RelayInternalError,
 ] as const;
@@ -893,6 +908,17 @@ export const RelayOkResponse = Schema.Struct({
 });
 export type RelayOkResponse = typeof RelayOkResponse.Type;
 
+export const RelayEnvironmentRevocationResponse = Schema.Struct({
+  ok: Schema.Boolean.annotate({
+    description: "Whether this request newly retired the environment identity.",
+  }),
+  cleanupPending: Schema.Boolean.annotate({
+    description:
+      "Whether durable revocation succeeded but external tunnel teardown must be retried.",
+  }),
+});
+export type RelayEnvironmentRevocationResponse = typeof RelayEnvironmentRevocationResponse.Type;
+
 export const RelayPublishResponse = Schema.Struct({
   ok: Schema.Boolean,
   deliveries: Schema.Array(RelayDeliveryResult),
@@ -1020,6 +1046,21 @@ export const RelayClientGroup = HttpApiGroup.make("client")
       success: RelayOkResponse,
       error: RelayAuthAndInternalErrors,
     }).annotate(OpenApi.Summary, "Unlink an environment"),
+    HttpApiEndpoint.post(
+      "revokeEnvironment",
+      "/v1/client/environment-links/:environmentId/revoke",
+      {
+        headers: RelayBearerRequestHeaders,
+        params: RelayEnvironmentUnlinkParams,
+        success: RelayEnvironmentRevocationResponse,
+        error: RelayAuthAndInternalErrors,
+      },
+    )
+      .annotate(OpenApi.Summary, "Remotely revoke an environment identity")
+      .annotate(
+        OpenApi.Description,
+        "Permanently retires this environment identity for the authenticated account, revokes its relay credential, and tears down its managed tunnel. The same identity cannot silently relink.",
+      ),
     HttpApiEndpoint.delete(
       "releaseEnvironmentTunnel",
       "/v1/client/environment-links/:environmentId/tunnel",

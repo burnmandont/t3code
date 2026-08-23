@@ -8,6 +8,80 @@ import { relayEnvironmentLinks } from "../persistence/schema.ts";
 import * as EnvironmentLinks from "./EnvironmentLinks.ts";
 
 describe("EnvironmentLinks", () => {
+  it.effect("blocks relinking when the account retired the immutable identity", () => {
+    const fakeDb = {
+      select: () => ({
+        from: (table: unknown) => {
+          expect(table).toBe(relayEnvironmentLinks);
+          return {
+            where: () => ({
+              limit: () => Effect.succeed([{ retiredAt: "2026-08-09T00:00:00.000Z" }]),
+            }),
+          };
+        },
+      }),
+    } as unknown as RelayDb.RelayDb["Service"];
+
+    return Effect.gen(function* () {
+      const links = yield* EnvironmentLinks.EnvironmentLinks;
+      const error = yield* Effect.flip(
+        links.ensureRelinkAllowed({ userId: "user-1", environmentId: "env-1" }),
+      );
+      expect(error).toMatchObject({
+        _tag: "EnvironmentLinkRetired",
+        userId: "user-1",
+        environmentId: "env-1",
+      });
+    }).pipe(
+      Effect.provide(
+        EnvironmentLinks.layer.pipe(Layer.provide(Layer.succeed(RelayDb.RelayDb, fakeDb))),
+      ),
+    );
+  });
+
+  it.effect("durably retires a link even if a local unlink already revoked it", () => {
+    const updateValues: Array<Record<string, unknown>> = [];
+    const whereConditions: Array<unknown> = [];
+    const fakeDb = {
+      update: (table: unknown) => {
+        expect(table).toBe(relayEnvironmentLinks);
+        return {
+          set: (values: Record<string, unknown>) => {
+            updateValues.push(values);
+            return {
+              where: (condition: unknown) => {
+                whereConditions.push(condition);
+                return {
+                  returning: () =>
+                    Effect.succeed([{ environmentPublicKey: "environment-public-key" }]),
+                };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as RelayDb.RelayDb["Service"];
+
+    return Effect.gen(function* () {
+      const links = yield* EnvironmentLinks.EnvironmentLinks;
+      expect(yield* links.retireForUser({ userId: "user-1", environmentId: "env-1" })).toBe(
+        "environment-public-key",
+      );
+      expect(updateValues[0]?.retiredAt).toEqual(updateValues[0]?.revokedAt);
+      expect(updateValues[0]?.updatedAt).toEqual(updateValues[0]?.retiredAt);
+
+      const query = new PgDialect().sqlToQuery(whereConditions[0] as never);
+      expect(query.sql).toContain('"relay_environment_links"."user_id" = $1');
+      expect(query.sql).toContain('"relay_environment_links"."environment_id" = $2');
+      expect(query.sql).toContain('"relay_environment_links"."retired_at" is null');
+      expect(query.sql).not.toContain('"relay_environment_links"."revoked_at" is null');
+    }).pipe(
+      Effect.provide(
+        EnvironmentLinks.layer.pipe(Layer.provide(Layer.succeed(RelayDb.RelayDb, fakeDb))),
+      ),
+    );
+  });
+
   it.effect("scopes environment listings to the authenticated user", () => {
     const whereConditions: Array<unknown> = [];
     const fakeDb = {

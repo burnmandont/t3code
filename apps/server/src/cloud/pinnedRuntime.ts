@@ -7,13 +7,19 @@ import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ProcessRunner from "../processRunner.ts";
+import {
+  hasRuntimeArtifactProvenance,
+  installRuntimeArtifact,
+  loadRuntimeArtifactSource,
+  type RuntimeArtifactSource,
+} from "./runtimeArtifact.ts";
 
 /**
- * A pinned runtime is an exact `t3@<version>` npm-installed into
- * <baseDir>/runtime/versions/<version>. The boot service points its unit or
- * launch agent here, and server self-update installs the target version here before
- * switching over, never `npx t3`, whose cache is ephemeral and whose
- * registry fetch at boot would make startup depend on the network.
+ * A pinned runtime is an exact, immutable t3 version installed into
+ * <baseDir>/runtime/versions/<version>. Sovereign installations use a signed
+ * complete artifact; upstream-compatible installations without an artifact
+ * source retain the npm path. The boot service and self-update protocol never
+ * use npx or an ephemeral cache.
  */
 
 const PINNED_RUNTIME_DIR = "runtime";
@@ -86,6 +92,10 @@ interface PinnedRuntimeInstallInput {
   readonly validate: (
     paths: PinnedRuntimePaths,
   ) => Effect.Effect<void, PinnedRuntimeInstallError | PinnedRuntimePreflightBlockedError>;
+  readonly artifactInstaller?: (input: {
+    readonly source: RuntimeArtifactSource;
+    readonly stagingDir: string;
+  }) => Effect.Effect<void, PinnedRuntimeInstallError>;
 }
 
 const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(function* (
@@ -93,6 +103,19 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
 ) {
   const { fs, runner } = input;
   const paths = pinnedRuntimePaths(input.path, input.baseDir, input.version);
+  const artifactSource = yield* loadRuntimeArtifactSource({
+    baseDir: input.baseDir,
+    fs,
+    path: input.path,
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new PinnedRuntimeInstallError({
+          step: "loading the sovereign runtime artifact source",
+          cause,
+        }),
+    ),
+  );
   const [versionDirExists, entryExists, sentinel] = yield* Effect.all([
     fs.exists(paths.versionDir),
     fs.exists(paths.entryPath),
@@ -102,8 +125,19 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
       (cause) => new PinnedRuntimeInstallError({ step: "checking the pinned runtime", cause }),
     ),
   );
+  const hasArtifactProvenance = Option.isNone(artifactSource)
+    ? true
+    : yield* hasRuntimeArtifactProvenance({
+        versionDir: paths.versionDir,
+        version: input.version,
+        fs,
+        path: input.path,
+      });
   const alreadyPinned =
-    entryExists && Option.isSome(sentinel) && sentinel.value.trim() === input.version;
+    hasArtifactProvenance &&
+    entryExists &&
+    Option.isSome(sentinel) &&
+    sentinel.value.trim() === input.version;
   if (alreadyPinned) {
     yield* input.validate(paths);
     return paths;
@@ -151,27 +185,58 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
   };
 
   return yield* Effect.gen(function* () {
-    const installStep = "installing the pinned t3 runtime (this can take a few minutes)";
-    yield* runner
-      .run({
-        command: "npm",
-        args: ["install", "--prefix", stagingDir, "--no-fund", "--no-audit", `t3@${input.version}`],
-        // Native dependencies may compile from source on slower machines.
-        timeout: PINNED_RUNTIME_INSTALL_TIMEOUT,
-      })
-      .pipe(
-        Effect.mapError((cause) => new PinnedRuntimeInstallError({ step: installStep, cause })),
-        Effect.filterOrFail(
-          (result) => result.code === 0,
-          (result) =>
-            new PinnedRuntimeInstallError({
-              step: installStep,
-              exitCode: Number(result.code),
-              stdoutLength: result.stdout.length,
-              stderrLength: result.stderr.length,
-            }),
-        ),
-      );
+    if (Option.isSome(artifactSource)) {
+      if (input.artifactInstaller === undefined) {
+        yield* installRuntimeArtifact({
+          source: artifactSource.value,
+          baseDir: input.baseDir,
+          version: input.version,
+          stagingDir,
+          fs,
+          path: input.path,
+          runner,
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new PinnedRuntimeInstallError({
+                step: "installing the signed sovereign runtime artifact",
+                cause,
+              }),
+          ),
+        );
+      } else {
+        yield* input.artifactInstaller({ source: artifactSource.value, stagingDir });
+      }
+    } else {
+      const installStep = "installing the pinned t3 runtime (this can take a few minutes)";
+      yield* runner
+        .run({
+          command: "npm",
+          args: [
+            "install",
+            "--prefix",
+            stagingDir,
+            "--no-fund",
+            "--no-audit",
+            `t3@${input.version}`,
+          ],
+          // Native dependencies may compile from source on slower machines.
+          timeout: PINNED_RUNTIME_INSTALL_TIMEOUT,
+        })
+        .pipe(
+          Effect.mapError((cause) => new PinnedRuntimeInstallError({ step: installStep, cause })),
+          Effect.filterOrFail(
+            (result) => result.code === 0,
+            (result) =>
+              new PinnedRuntimeInstallError({
+                step: installStep,
+                exitCode: Number(result.code),
+                stdoutLength: result.stdout.length,
+                stderrLength: result.stderr.length,
+              }),
+          ),
+        );
+    }
 
     yield* input.validate(stagingPaths);
     yield* fs

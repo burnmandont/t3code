@@ -1,0 +1,6 @@
+# This gitlink is part of the vendored alchemy-effect reference subtree. Keep
+# it uninitialized: CI and normal development do not need its ~900 MB checkout.
+[submodule ".repos/alchemy-effect/.vendor/alchemy"]
+	path = .repos/alchemy-effect/.vendor/alchemy
+	url = https://github.com/alchemy-run/alchemy.git
+	update = none

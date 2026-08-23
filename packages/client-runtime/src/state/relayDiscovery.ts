@@ -32,10 +32,21 @@ export function createRelayEnvironmentDiscoveryAtoms<R, E>(
         Effect.flatMap((discovery) => discovery.refresh),
       ),
   });
+  const revoke = createRuntimeCommand(runtime, {
+    label: "relay-environment-discovery:revoke",
+    concurrency: { mode: "singleFlight", key: (environmentId) => environmentId },
+    execute: (
+      environmentId: RelayEnvironmentDiscovery.RelayDiscoveredEnvironment["environment"]["environmentId"],
+    ) =>
+      RelayEnvironmentDiscovery.RelayEnvironmentDiscovery.pipe(
+        Effect.flatMap((discovery) => discovery.revoke(environmentId)),
+      ),
+  });
 
   return {
     stateAtom,
     stateValueAtom,
     refresh,
+    revoke,
   };
 }

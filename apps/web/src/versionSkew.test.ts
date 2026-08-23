@@ -10,6 +10,7 @@ import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   resolveVersionMismatch,
+  manualServerUpdateCommand,
   serverUpdateGuidance,
 } from "./versionSkew";
 
@@ -106,5 +107,12 @@ describe("versionSkew", () => {
     expect(serverUpdateGuidance(null, "Local server")).toBe(
       "Relaunch the Local server with the copied command to sync them.",
     );
+  });
+
+  it("uses the signed installer rather than npm for a sovereign runtime", () => {
+    expect(manualServerUpdateCommand("0.0.32+sovereign.gabcdef012345")).toBe(
+      "curl -fsSL https://get.moondiner.com/install | sh -s -- serve --version 0.0.32+sovereign.gabcdef012345",
+    );
+    expect(manualServerUpdateCommand("0.0.33")).toBe("npx t3@0.0.33");
   });
 });

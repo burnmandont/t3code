@@ -24,10 +24,14 @@ export interface CloudAuthSession {
   readonly isSignedIn: boolean;
   readonly userId: string | null;
   readonly accountLabel: string | null;
+  readonly accountEmail: string | null;
+  readonly accountName: string | null;
+  readonly accountManagementUrl: string | null;
   readonly authorizationUrl: string | null;
   readonly getToken: () => Promise<string | null>;
   readonly signIn: (returnUrl?: string) => void;
-  readonly signOut: () => Promise<void>;
+  readonly switchAccount: (returnUrl?: string) => void;
+  readonly signOut: () => Promise<{ readonly revoked: boolean }>;
 }
 
 const disabledCloudAuthSession: CloudAuthSession = {
@@ -36,10 +40,14 @@ const disabledCloudAuthSession: CloudAuthSession = {
   isSignedIn: false,
   userId: null,
   accountLabel: null,
+  accountEmail: null,
+  accountName: null,
+  accountManagementUrl: null,
   authorizationUrl: null,
   getToken: async () => null,
   signIn: () => undefined,
-  signOut: async () => undefined,
+  switchAccount: () => undefined,
+  signOut: async () => ({ revoked: true }),
 };
 
 const CloudAuthContext = createContext<CloudAuthSession>(disabledCloudAuthSession);
@@ -71,7 +79,16 @@ export function ClerkCloudAuthProvider({ children }: { readonly children: ReactN
   );
   const signOut = useCallback(async () => {
     await clerk.signOut();
+    return { revoked: true };
   }, [clerk]);
+  const switchAccount = useCallback(
+    (returnUrl = window.location.href) => {
+      void clerk
+        .signOut()
+        .then(() => clerk.openSignIn(resolveClerkSignInProps(returnUrl, isElectron)));
+    },
+    [clerk],
+  );
   const value = useMemo<CloudAuthSession>(
     () => ({
       provider: "clerk",
@@ -79,12 +96,16 @@ export function ClerkCloudAuthProvider({ children }: { readonly children: ReactN
       isSignedIn: Boolean(isSignedIn),
       userId: userId ?? null,
       accountLabel: user?.primaryEmailAddress?.emailAddress ?? user?.username ?? null,
+      accountEmail: user?.primaryEmailAddress?.emailAddress ?? null,
+      accountName: user?.fullName ?? user?.username ?? null,
+      accountManagementUrl: null,
       authorizationUrl: null,
       getToken,
       signIn,
+      switchAccount,
       signOut,
     }),
-    [getToken, isLoaded, isSignedIn, signIn, signOut, user, userId],
+    [getToken, isLoaded, isSignedIn, signIn, signOut, switchAccount, user, userId],
   );
 
   return <CloudAuthContext.Provider value={value}>{children}</CloudAuthContext.Provider>;
@@ -108,6 +129,8 @@ function BrowserSovereignCloudAuthProvider({
           appHost: window.location.host,
           authorizationEndpoint: `${config.issuer}/oauth2/authorize`,
           tokenEndpoint: `${config.issuer}/oauth2/token`,
+          userInfoEndpoint: `${config.issuer}/oauth2/userinfo`,
+          revocationEndpoint: `${config.issuer}/oauth2/revoke`,
           clientId: config.clientId,
           redirectUri,
           resource: config.resource,
@@ -142,6 +165,11 @@ function BrowserSovereignCloudAuthProvider({
         }
       } else {
         await client.getToken();
+        try {
+          await client.getUserInfo();
+        } catch (cause) {
+          console.warn("[t3-connect] Could not refresh sovereign account identity", cause);
+        }
       }
       if (!cancelled) setSession({ isLoaded: true, ...client.snapshot() });
     })();
@@ -170,45 +198,72 @@ function BrowserSovereignCloudAuthProvider({
     [client],
   );
   const signOut = useCallback(async () => {
-    client.clear();
+    const result = await client.signOut();
     setAuthorizationUrl(null);
     setSession({ isLoaded: true, ...client.snapshot() });
+    return result;
   }, [client]);
+  const switchAccount = useCallback(
+    (returnUrl = window.location.href) => {
+      void client.signOut().then(() =>
+        client.beginSignIn(returnUrl, { prompt: "login" }).then((url) => {
+          setAuthorizationUrl(url);
+          window.location.assign(url);
+        }),
+      );
+    },
+    [client],
+  );
+  const accountManagementUrl = new URL("/sign-in", config.issuer).toString();
   const value = useMemo<CloudAuthSession>(
     () => ({
       provider: "sovereign",
       ...session,
-      accountLabel: session.userId,
+      accountLabel: session.email ?? session.name ?? session.userId,
+      accountEmail: session.email,
+      accountName: session.name,
+      accountManagementUrl,
       authorizationUrl,
       getToken,
       signIn,
+      switchAccount,
       signOut,
     }),
-    [authorizationUrl, getToken, session, signIn, signOut],
+    [accountManagementUrl, authorizationUrl, getToken, session, signIn, signOut, switchAccount],
   );
 
   if (!session.isLoaded) return null;
   return <CloudAuthContext.Provider value={value}>{children}</CloudAuthContext.Provider>;
 }
 
-function DesktopSovereignCloudAuthProvider({ children }: { readonly children: ReactNode }) {
+function DesktopSovereignCloudAuthProvider({
+  config,
+  children,
+}: {
+  readonly config: Extract<CloudIdentityConfig, { readonly provider: "sovereign" }>;
+  readonly children: ReactNode;
+}) {
   const bridge = window.desktopBridge?.sovereignAuth;
   const [session, setSession] = useState({
     isLoaded: false,
     isSignedIn: false,
     userId: null as string | null,
+    email: null as string | null,
+    name: null as string | null,
   });
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!bridge) {
-      setSession({ isLoaded: true, isSignedIn: false, userId: null });
+      setSession({ isLoaded: true, isSignedIn: false, userId: null, email: null, name: null });
       return;
     }
     let cancelled = false;
     const applySnapshot = (snapshot: {
       readonly isSignedIn: boolean;
       readonly userId: string | null;
+      readonly email: string | null;
+      readonly name: string | null;
     }) => {
       if (!cancelled) setSession({ isLoaded: true, ...snapshot });
     };
@@ -218,7 +273,7 @@ function DesktopSovereignCloudAuthProvider({ children }: { readonly children: Re
       .then(applySnapshot)
       .catch((cause: unknown) => {
         console.error("[t3-connect] Could not load sovereign desktop session", cause);
-        applySnapshot({ isSignedIn: false, userId: null });
+        applySnapshot({ isSignedIn: false, userId: null, email: null, name: null });
       });
     return () => {
       cancelled = true;
@@ -229,14 +284,15 @@ function DesktopSovereignCloudAuthProvider({ children }: { readonly children: Re
   const getToken = useCallback(async () => {
     if (!bridge) return null;
     const token = await bridge.getToken();
-    if (!token) setSession({ isLoaded: true, isSignedIn: false, userId: null });
+    if (!token)
+      setSession({ isLoaded: true, isSignedIn: false, userId: null, email: null, name: null });
     return token;
   }, [bridge]);
   const signIn = useCallback(
     (returnUrl = window.location.href) => {
       if (!bridge) return;
       void bridge
-        .beginSignIn(returnUrl)
+        .beginSignIn({ returnUrl })
         .then(async (authorizationUrl) => {
           setAuthorizationUrl(authorizationUrl);
           const opened = await window.desktopBridge?.openExternal(authorizationUrl);
@@ -249,22 +305,39 @@ function DesktopSovereignCloudAuthProvider({ children }: { readonly children: Re
     [bridge],
   );
   const signOut = useCallback(async () => {
-    if (!bridge) return;
-    await bridge.signOut();
+    if (!bridge) return { revoked: true };
+    const result = await bridge.signOut();
     setAuthorizationUrl(null);
-    setSession({ isLoaded: true, isSignedIn: false, userId: null });
+    setSession({ isLoaded: true, isSignedIn: false, userId: null, email: null, name: null });
+    return result;
   }, [bridge]);
+  const switchAccount = useCallback(
+    (returnUrl = window.location.href) => {
+      if (!bridge) return;
+      void bridge.signOut().then(() =>
+        bridge.beginSignIn({ returnUrl, prompt: "login" }).then(async (url) => {
+          setAuthorizationUrl(url);
+          await window.desktopBridge?.openExternal(url);
+        }),
+      );
+    },
+    [bridge],
+  );
   const value = useMemo<CloudAuthSession>(
     () => ({
       provider: "sovereign",
       ...session,
-      accountLabel: session.userId,
+      accountLabel: session.email ?? session.name ?? session.userId,
+      accountEmail: session.email,
+      accountName: session.name,
+      accountManagementUrl: new URL("/sign-in", config.issuer).toString(),
       authorizationUrl,
       getToken,
       signIn,
+      switchAccount,
       signOut,
     }),
-    [authorizationUrl, getToken, session, signIn, signOut],
+    [authorizationUrl, config.issuer, getToken, session, signIn, signOut, switchAccount],
   );
 
   if (!session.isLoaded) return null;
@@ -279,7 +352,9 @@ export function SovereignCloudAuthProvider({
   readonly children: ReactNode;
 }) {
   return isElectron ? (
-    <DesktopSovereignCloudAuthProvider>{children}</DesktopSovereignCloudAuthProvider>
+    <DesktopSovereignCloudAuthProvider config={config}>
+      {children}
+    </DesktopSovereignCloudAuthProvider>
   ) : (
     <BrowserSovereignCloudAuthProvider config={config}>
       {children}

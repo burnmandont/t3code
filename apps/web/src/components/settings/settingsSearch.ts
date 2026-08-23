@@ -1,6 +1,7 @@
 import { isElectron } from "~/env";
 
 export type SettingsPath =
+  | "/settings/profile"
   | "/settings/general"
   | "/settings/appearance"
   | "/settings/keybindings"
@@ -25,6 +26,7 @@ export interface SettingsSearchItem {
  * subtitles both render from this record, so each label exists once.
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
+  "/settings/profile": "Account",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
@@ -42,6 +44,23 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
  * here once instead of separately in the panel and the index.
  */
 export const SETTINGS_SEARCH_ITEMS = [
+  {
+    id: "account",
+    title: "Account",
+    to: "/settings/profile",
+  },
+  {
+    id: "switch-account",
+    title: "Switch account",
+    to: "/settings/profile",
+    targetId: "account",
+  },
+  {
+    id: "sign-out",
+    title: "Sign out",
+    to: "/settings/profile",
+    targetId: "account",
+  },
   {
     id: "color-scheme",
     title: "Color scheme",

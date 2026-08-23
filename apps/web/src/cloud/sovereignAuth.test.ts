@@ -32,6 +32,8 @@ const config = {
   appHost: "code.example.test",
   authorizationEndpoint: "https://auth.example.test/api/auth/oauth2/authorize",
   tokenEndpoint: "https://auth.example.test/api/auth/oauth2/token",
+  userInfoEndpoint: "https://auth.example.test/api/auth/oauth2/userinfo",
+  revocationEndpoint: "https://auth.example.test/api/auth/oauth2/revoke",
   clientId: "t3-code",
   redirectUri: `https://code.example.test${SOVEREIGN_APP_CALLBACK_PATH}`,
   resource: "urn:t3:relay",
@@ -75,7 +77,12 @@ describe("sovereign browser OAuth", () => {
     expect(returnUrl).toBe("https://code.example.test/settings/connections");
     expect(repeatedReturnUrl).toBe(returnUrl);
     expect(await client.getToken()).toBe(accessToken("account-1"));
-    expect(client.snapshot()).toEqual({ isSignedIn: true, userId: "account-1" });
+    expect(client.snapshot()).toEqual({
+      isSignedIn: true,
+      userId: "account-1",
+      email: null,
+      name: null,
+    });
     expect(fetch).toHaveBeenCalledOnce();
   });
 
@@ -127,5 +134,92 @@ describe("sovereign browser OAuth", () => {
     expect(first).toBe(accessToken("account-2"));
     expect(second).toBe(first);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads account identity, requires account choice, and revokes on sign-out", async () => {
+    const tokenStorage = memoryStorage();
+    const transactionStorage = memoryStorage();
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === config.userInfoEndpoint) {
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          `Bearer ${accessToken("account-1")}`,
+        );
+        return Response.json({
+          sub: "account-1",
+          email: "sam@example.test",
+          name: "Sam",
+        });
+      }
+      if (url === config.revocationEndpoint) {
+        const body = new URLSearchParams(init?.body as string);
+        expect(body.get("client_id")).toBe("t3-code");
+        expect(body.get("token")).toBe("refresh-1");
+        expect(body.get("token_type_hint")).toBe("refresh_token");
+        return new Response(null, { status: 200 });
+      }
+      return Response.json({
+        access_token: accessToken("account-1"),
+        refresh_token: "refresh-1",
+        expires_in: 900,
+      });
+    });
+    const client = makeSovereignAuthClient(config, {
+      tokenStorage,
+      transactionStorage,
+      fetch: fetch as typeof globalThis.fetch,
+      crypto,
+    });
+    const authorizeUrl = new URL(
+      await client.beginSignIn("https://code.example.test/settings/profile", { prompt: "login" }),
+    );
+    expect(authorizeUrl.searchParams.get("prompt")).toBe("login");
+    await client.completeSignIn(
+      `https://code.example.test${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=${authorizeUrl.searchParams.get("state")}`,
+    );
+
+    expect(await client.getUserInfo()).toEqual({
+      userId: "account-1",
+      email: "sam@example.test",
+      name: "Sam",
+    });
+    expect(client.snapshot()).toEqual({
+      isSignedIn: true,
+      userId: "account-1",
+      email: "sam@example.test",
+      name: "Sam",
+    });
+    await expect(client.signOut()).resolves.toEqual({ revoked: true });
+    expect(client.snapshot()).toEqual({
+      isSignedIn: false,
+      userId: null,
+      email: null,
+      name: null,
+    });
+  });
+
+  it("clears the local session when revocation is unavailable", async () => {
+    const tokenStorage = memoryStorage();
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      if (input.toString() === config.revocationEndpoint) throw new Error("offline");
+      return Response.json({
+        access_token: accessToken("account-1"),
+        refresh_token: "refresh-1",
+        expires_in: 900,
+      });
+    });
+    const client = makeSovereignAuthClient(config, {
+      tokenStorage,
+      transactionStorage: memoryStorage(),
+      fetch: fetch as typeof globalThis.fetch,
+      crypto,
+    });
+    const authorization = new URL(await client.beginSignIn("https://code.example.test/"));
+    await client.completeSignIn(
+      `https://code.example.test${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=${authorization.searchParams.get("state")}`,
+    );
+
+    await expect(client.signOut()).resolves.toEqual({ revoked: false });
+    expect(client.snapshot().isSignedIn).toBe(false);
   });
 });

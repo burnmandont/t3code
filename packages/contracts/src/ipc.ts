@@ -1067,14 +1067,27 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 export const DesktopSovereignAuthSnapshotSchema = Schema.Struct({
   isSignedIn: Schema.Boolean,
   userId: Schema.NullOr(Schema.String),
+  email: Schema.NullOr(Schema.String),
+  name: Schema.NullOr(Schema.String),
 });
 export type DesktopSovereignAuthSnapshot = typeof DesktopSovereignAuthSnapshotSchema.Type;
 
+export const DesktopSovereignAuthBeginInputSchema = Schema.Struct({
+  returnUrl: Schema.String,
+  prompt: Schema.optional(Schema.Literal("login")),
+});
+export type DesktopSovereignAuthBeginInput = typeof DesktopSovereignAuthBeginInputSchema.Type;
+
+export const DesktopSovereignAuthSignOutResultSchema = Schema.Struct({
+  revoked: Schema.Boolean,
+});
+export type DesktopSovereignAuthSignOutResult = typeof DesktopSovereignAuthSignOutResultSchema.Type;
+
 export interface DesktopSovereignAuthBridge {
-  beginSignIn: (returnUrl: string) => Promise<string>;
+  beginSignIn: (input: DesktopSovereignAuthBeginInput) => Promise<string>;
   getSnapshot: () => Promise<DesktopSovereignAuthSnapshot>;
   getToken: () => Promise<string | null>;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<DesktopSovereignAuthSignOutResult>;
   onStateChange: (listener: (snapshot: DesktopSovereignAuthSnapshot) => void) => () => void;
 }
 

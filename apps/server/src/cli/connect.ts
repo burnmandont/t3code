@@ -155,10 +155,12 @@ export function isPublishAgentActivityEnabledValue(value: string | null): boolea
   return isAgentActivityPublishingEnabledValue(value);
 }
 
-interface CloudCliStatus {
+export interface CloudCliStatus {
   readonly desired: boolean;
   readonly authenticated: boolean;
   readonly linked: boolean;
+  readonly retired: boolean;
+  readonly retiredAt: string | null;
   readonly cloudUserId: string | null;
   readonly relayUrl: string | null;
   readonly publishAgentActivity: boolean;
@@ -190,29 +192,37 @@ function formatRelayClientStatus(executable: RelayClient.RelayClientStatus): Rea
   }
 }
 
-function formatCloudStatus(status: CloudCliStatus, options?: { readonly json?: boolean }): string {
+export function formatCloudStatus(
+  status: CloudCliStatus,
+  options?: { readonly json?: boolean },
+): string {
   if (options?.json) {
     return JSON.stringify(status, null, 2);
   }
 
-  const provisioned = status.linked
-    ? "provisioned"
-    : status.desired && status.authenticated
-      ? "pending server startup"
-      : "not provisioned";
-  const nextStep = !status.authenticated
-    ? "Run `t3 connect link` to authorize and enable T3 Connect."
-    : !status.desired
-      ? "Run `t3 connect link` to enable T3 Connect."
-      : !status.linked
-        ? "Start T3 to provision the environment link and launch its managed tunnel."
-        : undefined;
+  const provisioned = status.retired
+    ? "remotely revoked"
+    : status.linked
+      ? "provisioned"
+      : status.desired && status.authenticated
+        ? "pending server startup"
+        : "not provisioned";
+  const nextStep = status.retired
+    ? "This immutable environment identity cannot reconnect. Reinstall into a fresh T3 home to create a new identity."
+    : !status.authenticated
+      ? "Run `t3 connect link` to authorize and enable T3 Connect."
+      : !status.desired
+        ? "Run `t3 connect link` to enable T3 Connect."
+        : !status.linked
+          ? "Start T3 to provision the environment link and launch its managed tunnel."
+          : undefined;
 
   return [
     "T3 Connect",
     `  Exposure: ${status.desired ? "enabled" : "disabled"}`,
     `  Authorization: ${status.authenticated ? "stored credential" : "missing"}`,
     `  Environment link: ${provisioned}`,
+    ...(status.retired ? [`  Remotely revoked: ${status.retiredAt ?? "recorded"}`] : []),
     `  Relay: ${status.relayUrl ?? "not provisioned"}`,
     `  Publish agent activity: ${status.publishAgentActivity ? "enabled" : "disabled"}`,
     ...formatRelayClientStatus(status.relayClient),
@@ -399,7 +409,7 @@ export const reportCloudDisconnectResults = Effect.fn("cloud.cli.report_disconne
   },
 );
 
-const disconnectCloud = Effect.fn("cloud.cli.disconnect")(function* (options: {
+export const disconnectCloud = Effect.fn("cloud.cli.disconnect")(function* (options: {
   readonly clearAuthorization: boolean;
 }) {
   yield* CliState.setCliDesiredCloudLink(false);
@@ -425,7 +435,7 @@ const disconnectCloud = Effect.fn("cloud.cli.disconnect")(function* (options: {
   }
 });
 
-const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function* <A, E>(
+export const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function* <A, E>(
   flags: { readonly baseDir: Option.Option<string> },
   run: Effect.Effect<
     A,
@@ -479,6 +489,12 @@ const linkEnvironmentForConnect = Effect.fn("cloud.cli.link_environment")(functi
   readonly publishOnly?: boolean;
   readonly transfer?: boolean;
 }) {
+  if ((yield* CliState.readCliRetiredCloudLink) !== null) {
+    yield* Console.warn(
+      "This environment identity was remotely revoked and cannot relink. Reinstall into a fresh T3 home to create a new identity.",
+    );
+    return null;
+  }
   const publishOnly = options.publishOnly ?? false;
   if (!publishOnly) {
     const relayClient = yield* FrpcClient.FrpcClient;
@@ -567,22 +583,32 @@ const connectStatusCommand = Command.make("status", {
         const secrets = yield* ServerSecretStore.ServerSecretStore;
         const relayClient = yield* FrpcClient.FrpcClient;
         const tokens = yield* CliTokenManager.CloudCliTokenManager;
-        const [desired, authenticated, cloudUserId, relayUrl, publishAgentActivity, executable] =
-          yield* Effect.all(
-            [
-              CliState.readCliDesiredCloudLink,
-              tokens.hasCredential,
-              secrets.get(CLOUD_LINKED_USER_ID),
-              secrets.get(RELAY_URL_SECRET),
-              secrets.get(PUBLISH_AGENT_ACTIVITY_SECRET),
-              relayClient.resolve,
-            ],
-            { concurrency: "unbounded" },
-          );
+        const [
+          desired,
+          authenticated,
+          cloudUserId,
+          relayUrl,
+          publishAgentActivity,
+          retiredAt,
+          executable,
+        ] = yield* Effect.all(
+          [
+            CliState.readCliDesiredCloudLink,
+            tokens.hasCredential,
+            secrets.get(CLOUD_LINKED_USER_ID),
+            secrets.get(RELAY_URL_SECRET),
+            secrets.get(PUBLISH_AGENT_ACTIVITY_SECRET),
+            CliState.readCliRetiredCloudLink,
+            relayClient.resolve,
+          ],
+          { concurrency: "unbounded" },
+        );
         const status: CloudCliStatus = {
           desired,
           authenticated,
           linked: Option.isSome(cloudUserId),
+          retired: retiredAt !== null,
+          retiredAt,
           cloudUserId: Option.isSome(cloudUserId) ? bytesToString(cloudUserId.value) : null,
           relayUrl: Option.isSome(relayUrl) ? bytesToString(relayUrl.value) : null,
           publishAgentActivity: isPublishAgentActivityEnabledValue(

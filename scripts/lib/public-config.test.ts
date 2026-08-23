@@ -81,6 +81,32 @@ describe("loadRepoEnv", () => {
     });
   });
 
+  it("ignores every repository and process cloud endpoint for a neutral public build", () => {
+    const repoRoot = makeTemporaryDirectory();
+    NodeFS.writeFileSync(
+      NodePath.join(repoRoot, ".env"),
+      "T3CODE_OAUTH_ISSUER=https://auth.private.test\nT3CODE_RELAY_URL=https://relay.private.test\n",
+    );
+
+    const env = loadRepoEnv({
+      baseEnv: {
+        T3CODE_BUILD_NEUTRAL_PUBLIC_RUNTIME: "1",
+        T3CODE_HOSTED_APP_URL: "https://code.private.test",
+        T3CODE_RELAY_URL: "https://relay.process.test",
+        VITE_T3CODE_OAUTH_ISSUER: "https://auth.process.test",
+      },
+      repoRoot,
+    });
+
+    expect(env.T3CODE_BUILD_NEUTRAL_PUBLIC_RUNTIME).toBe("1");
+    expect(env.T3CODE_HOSTED_APP_URL).toBeUndefined();
+    expect(env.VITE_HOSTED_APP_URL).toBeUndefined();
+    expect(env.T3CODE_RELAY_URL).toBeUndefined();
+    expect(env.VITE_T3CODE_RELAY_URL).toBeUndefined();
+    expect(env.T3CODE_OAUTH_ISSUER).toBeUndefined();
+    expect(env.VITE_T3CODE_OAUTH_ISSUER).toBeUndefined();
+  });
+
   it("accepts legacy framework aliases as root overrides", () => {
     expect(
       resolvePublicConfig({

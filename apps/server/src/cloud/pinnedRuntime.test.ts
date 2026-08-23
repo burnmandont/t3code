@@ -13,6 +13,7 @@ import {
   pinnedRuntimePaths,
   PinnedRuntimeInstallError,
 } from "./pinnedRuntime.ts";
+import { runtimeArtifactSourcePath } from "./runtimeArtifact.ts";
 
 const successfulRunner = (fs: FileSystem.FileSystem, path: Path.Path) =>
   ProcessRunner.ProcessRunner.of({
@@ -171,6 +172,88 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       yield* Fiber.interrupt(install);
       const versionsDir = path.join(baseDir, "runtime", "versions");
       assert.deepEqual(yield* fs.readDirectory(versionsDir), []);
+    }),
+  );
+
+  it.effect("uses a configured sovereign artifact without invoking npm", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-artifact-runtime-test-" });
+      const sourcePath = runtimeArtifactSourcePath(path, baseDir);
+      const finalPaths = pinnedRuntimePaths(path, baseDir, "1.2.3-sovereign.gabc1234");
+      yield* fs.makeDirectory(path.dirname(sourcePath), { recursive: true });
+      yield* fs.writeFileString(
+        sourcePath,
+        // @effect-diagnostics-next-line preferSchemaOverJson:off - test fixture for the persisted source document.
+        `${JSON.stringify({
+          schemaVersion: 1,
+          baseUrl: "https://source.example.test/api/packages/t3/generic/runtime",
+          publicKeySpkiB64: Buffer.from("test-public-key").toString("base64"),
+        })}\n`,
+      );
+      yield* fs.makeDirectory(path.dirname(finalPaths.entryPath), { recursive: true });
+      yield* fs.writeFileString(finalPaths.entryPath, "npm runtime\n");
+      yield* fs.writeFileString(finalPaths.sentinelPath, "1.2.3-sovereign.gabc1234\n");
+      let npmRuns = 0;
+      let artifactInstalls = 0;
+      const runner = ProcessRunner.ProcessRunner.of({
+        run: () => {
+          npmRuns += 1;
+          return Effect.die("npm must not run when sovereign artifacts are configured");
+        },
+      });
+
+      const installed = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version: "1.2.3-sovereign.gabc1234",
+        fs,
+        path,
+        runner,
+        artifactInstaller: ({ stagingDir }) =>
+          Effect.gen(function* () {
+            artifactInstalls += 1;
+            const entry = path.join(stagingDir, "node_modules", "t3", "dist", "bin.mjs");
+            yield* fs.makeDirectory(path.dirname(entry), { recursive: true }).pipe(Effect.orDie);
+            yield* fs.writeFileString(entry, "artifact runtime\n").pipe(Effect.orDie);
+          }).pipe(Effect.orDie),
+        validate: () => Effect.void,
+      });
+
+      assert.equal(artifactInstalls, 1);
+      assert.equal(npmRuns, 0);
+      assert.isTrue(yield* fs.exists(installed.entryPath));
+      assert.equal(yield* fs.readFileString(installed.entryPath), "artifact runtime\n");
+    }),
+  );
+
+  it.effect("fails closed when sovereign artifact configuration is invalid", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-artifact-runtime-test-" });
+      const sourcePath = runtimeArtifactSourcePath(path, baseDir);
+      yield* fs.makeDirectory(path.dirname(sourcePath), { recursive: true });
+      yield* fs.writeFileString(sourcePath, '{"schemaVersion":1,"baseUrl":"http://unsafe"}\n');
+      let runnerCalls = 0;
+      const runner = ProcessRunner.ProcessRunner.of({
+        run: () => {
+          runnerCalls += 1;
+          return Effect.die("npm fallback must stay disabled");
+        },
+      });
+
+      const error = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version: "1.2.3-sovereign.gabc1234",
+        fs,
+        path,
+        runner,
+        validate: () => Effect.void,
+      }).pipe(Effect.flip);
+
+      assert.equal(error._tag, "PinnedRuntimeInstallError");
+      assert.equal(runnerCalls, 0);
     }),
   );
 });

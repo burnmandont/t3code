@@ -26,6 +26,48 @@ const REPO_ROOT = NodePath.dirname(
   NodePath.dirname(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url))),
 );
 
+const PUBLIC_CONFIG_ENV_NAMES = [
+  "T3CODE_HOSTED_APP_URL",
+  "VITE_HOSTED_APP_URL",
+  "T3CODE_CLERK_PUBLISHABLE_KEY",
+  "VITE_CLERK_PUBLISHABLE_KEY",
+  "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY",
+  "T3CODE_CLERK_JWT_TEMPLATE",
+  "VITE_CLERK_JWT_TEMPLATE",
+  "EXPO_PUBLIC_CLERK_JWT_TEMPLATE",
+  "T3CODE_CLERK_CLI_OAUTH_CLIENT_ID",
+  "VITE_CLERK_CLI_OAUTH_CLIENT_ID",
+  "T3CODE_OAUTH_ISSUER",
+  "VITE_T3CODE_OAUTH_ISSUER",
+  "EXPO_PUBLIC_T3CODE_OAUTH_ISSUER",
+  "T3CODE_OAUTH_CLIENT_ID",
+  "VITE_T3CODE_OAUTH_CLIENT_ID",
+  "EXPO_PUBLIC_T3CODE_OAUTH_CLIENT_ID",
+  "T3CODE_OAUTH_RESOURCE",
+  "VITE_T3CODE_OAUTH_RESOURCE",
+  "EXPO_PUBLIC_T3CODE_OAUTH_RESOURCE",
+  "T3CODE_RELAY_URL",
+  "VITE_T3CODE_RELAY_URL",
+  "T3CODE_MOBILE_OTLP_TRACES_URL",
+  "EXPO_PUBLIC_OTLP_TRACES_URL",
+  "T3CODE_MOBILE_OTLP_TRACES_DATASET",
+  "EXPO_PUBLIC_OTLP_TRACES_DATASET",
+  "T3CODE_MOBILE_OTLP_TRACES_TOKEN",
+  "EXPO_PUBLIC_OTLP_TRACES_TOKEN",
+  "T3CODE_RELAY_CLIENT_OTLP_TRACES_URL",
+  "VITE_RELAY_OTLP_TRACES_URL",
+  "T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET",
+  "VITE_RELAY_OTLP_TRACES_DATASET",
+  "T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN",
+  "VITE_RELAY_OTLP_TRACES_TOKEN",
+] as const;
+
+function neutralPublicBuildEnvironment(baseEnv: Environment): Record<string, string | undefined> {
+  const neutral = { ...baseEnv };
+  for (const name of PUBLIC_CONFIG_ENV_NAMES) neutral[name] = undefined;
+  return neutral;
+}
+
 export function loadRepoEnv({
   baseEnv = process.env,
   repoRoot = REPO_ROOT,
@@ -33,14 +75,16 @@ export function loadRepoEnv({
   readonly baseEnv?: Environment;
   readonly repoRoot?: string;
 } = {}): Record<string, string | undefined> {
-  const rootEnv = readEnvFile(NodePath.join(repoRoot, ".env"));
-  const localEnv = readEnvFile(NodePath.join(repoRoot, ".env.local"));
-  const config = resolvePublicConfig(baseEnv, localEnv, rootEnv);
+  const neutralPublicRuntime = baseEnv.T3CODE_BUILD_NEUTRAL_PUBLIC_RUNTIME?.trim() === "1";
+  const effectiveBaseEnv = neutralPublicRuntime ? neutralPublicBuildEnvironment(baseEnv) : baseEnv;
+  const rootEnv = neutralPublicRuntime ? {} : readEnvFile(NodePath.join(repoRoot, ".env"));
+  const localEnv = neutralPublicRuntime ? {} : readEnvFile(NodePath.join(repoRoot, ".env.local"));
+  const config = resolvePublicConfig(effectiveBaseEnv, localEnv, rootEnv);
 
   return {
     ...rootEnv,
     ...localEnv,
-    ...baseEnv,
+    ...effectiveBaseEnv,
     ...(config.clerkPublishableKey
       ? {
           T3CODE_CLERK_PUBLISHABLE_KEY: config.clerkPublishableKey,

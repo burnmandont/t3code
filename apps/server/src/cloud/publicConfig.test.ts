@@ -76,6 +76,10 @@ it.effect("uses the statically injected hosted app URL when no runtime override 
   }),
 );
 
+it.effect("requires a hosted app URL when the server bundle has no injected value", () =>
+  makeHostedAppUrlConfig("").pipe(provideEnv({}), Effect.flip),
+);
+
 it.effect("prefers a runtime hosted app URL over the statically injected value", () =>
   Effect.gen(function* () {
     const hostedAppUrl = yield* makeHostedAppUrlConfig("https://code.example.test").pipe(

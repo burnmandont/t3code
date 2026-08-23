@@ -91,6 +91,7 @@ import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import {
   connectHttpApiLayer,
+  markCloudLinkRemotelyRetired,
   pendingServiceUpdateExists,
   reconcileDesiredCloudLink,
   releaseManagedTunnelOnShutdown,
@@ -635,30 +636,64 @@ export const makeServerLayer = Layer.unwrap(
             const server = yield* HttpServer.HttpServer;
             const address = server.address;
             if (typeof address === "string" || !("port" in address)) return;
+            const localOrigin = `http://127.0.0.1:${address.port}`;
+            const runtime = yield* CloudManagedEndpointRuntime.CloudManagedEndpointRuntime;
+            const reconcileLink = (trigger: "startup" | "connector_authorization_rejected") => {
+              const retrySchedule = Schedule.exponential("1 second").pipe(
+                Schedule.modifyDelay(({ duration }) =>
+                  Effect.succeed(Duration.min(duration, Duration.seconds(30))),
+                ),
+              );
+              return reconcileDesiredCloudLink(localOrigin).pipe(
+                Effect.retry({
+                  while: (error) =>
+                    error._tag !== "EnvironmentHttpBadRequestError" &&
+                    error._tag !== "EnvironmentHttpUnauthorizedError" &&
+                    error._tag !== "EnvironmentHttpConflictError" &&
+                    error._tag !== "EnvironmentCloudRemotelyRetired",
+                  schedule:
+                    trigger === "startup"
+                      ? retrySchedule.pipe(Schedule.upTo({ duration: "10 minutes" }))
+                      : retrySchedule,
+                }),
+                Effect.tap(() => Effect.logInfo("T3 Connect desired link reconciled", { trigger })),
+                Effect.catchTag("EnvironmentCloudRemotelyRetired", (error) =>
+                  markCloudLinkRemotelyRetired().pipe(
+                    Effect.tap(() =>
+                      Effect.logWarning(
+                        "T3 Connect environment was remotely revoked; connector disabled",
+                        { trigger, traceId: error.traceId },
+                      ),
+                    ),
+                  ),
+                ),
+                Effect.catch((cause) =>
+                  Effect.logWarning("Failed to reconcile T3 Connect desired link", {
+                    cause,
+                    trigger,
+                  }),
+                ),
+              );
+            };
             // No settling delay before the first attempt: routes are already
             // serving by the time activation opens this gate (the startup
             // sequence awaits routesReady), and the retry schedule below
             // covers anything this sleep used to hedge against. Every
             // millisecond here is dead time on the path to remote
             // reachability after a restart.
-            yield* reconcileDesiredCloudLink(`http://127.0.0.1:${address.port}`).pipe(
-              Effect.retry({
-                while: (error) =>
-                  error._tag !== "EnvironmentHttpBadRequestError" &&
-                  error._tag !== "EnvironmentHttpUnauthorizedError" &&
-                  error._tag !== "EnvironmentHttpConflictError",
-                schedule: Schedule.exponential("1 second").pipe(
-                  Schedule.modifyDelay(({ duration }) =>
-                    Effect.succeed(Duration.min(duration, Duration.seconds(30))),
-                  ),
-                  Schedule.upTo({ duration: "10 minutes" }),
+            yield* reconcileLink("startup");
+            return yield* Effect.forever(
+              runtime.takeAuthorizationRejection.pipe(
+                Effect.tap((event) =>
+                  Effect.logWarning("Reconciling rejected T3 Connect authorization", event),
                 ),
-              }),
-              Effect.tap(() => Effect.logInfo("T3 Connect desired link reconciled on startup")),
-              Effect.catch((cause) =>
-                Effect.logWarning("Failed to reconcile T3 Connect desired link on startup", {
-                  cause,
-                }),
+                Effect.flatMap(() =>
+                  CloudCliState.readCliDesiredCloudLink.pipe(
+                    Effect.flatMap((desired) =>
+                      desired ? reconcileLink("connector_authorization_rejected") : Effect.void,
+                    ),
+                  ),
+                ),
               ),
             );
           }),

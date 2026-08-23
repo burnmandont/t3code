@@ -38,6 +38,18 @@ export class EnvironmentLinkUpsertPersistenceError extends Schema.TaggedErrorCla
   }
 }
 
+export class EnvironmentLinkRetired extends Schema.TaggedErrorClass<EnvironmentLinkRetired>()(
+  "EnvironmentLinkRetired",
+  {
+    userId: Schema.String,
+    environmentId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Environment '${this.environmentId}' has been retired for user '${this.userId}'`;
+  }
+}
+
 export class EnvironmentLinkUserListPersistenceError extends Schema.TaggedErrorClass<EnvironmentLinkUserListPersistenceError>()(
   "EnvironmentLinkUserListPersistenceError",
   {
@@ -101,6 +113,19 @@ export class EnvironmentLinkRevokePersistenceError extends Schema.TaggedErrorCla
   }
 }
 
+export class EnvironmentLinkRetirePersistenceError extends Schema.TaggedErrorClass<EnvironmentLinkRetirePersistenceError>()(
+  "EnvironmentLinkRetirePersistenceError",
+  {
+    userId: Schema.String,
+    environmentId: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to retire environment link for user '${this.userId}', environment '${this.environmentId}'`;
+  }
+}
+
 export class EnvironmentLinkTransferPersistenceError extends Schema.TaggedErrorClass<EnvironmentLinkTransferPersistenceError>()(
   "EnvironmentLinkTransferPersistenceError",
   {
@@ -122,7 +147,11 @@ export class EnvironmentLinks extends Context.Service<
       readonly request: RelayEnvironmentLinkRequest;
       readonly proof: RelayEnvironmentLinkProofPayload;
       readonly endpoint: RelayManagedEndpoint;
-    }) => Effect.Effect<void, EnvironmentLinkUpsertPersistenceError>;
+    }) => Effect.Effect<void, EnvironmentLinkUpsertPersistenceError | EnvironmentLinkRetired>;
+    readonly ensureRelinkAllowed: (input: {
+      readonly userId: string;
+      readonly environmentId: string;
+    }) => Effect.Effect<void, EnvironmentLinkLookupPersistenceError | EnvironmentLinkRetired>;
     readonly listUsersForEnvironment: (input: {
       readonly environmentId: string;
     }) => Effect.Effect<ReadonlyArray<string>, EnvironmentLinkUserListPersistenceError>;
@@ -150,6 +179,10 @@ export class EnvironmentLinks extends Context.Service<
       readonly userId: string;
       readonly environmentId: string;
     }) => Effect.Effect<boolean, EnvironmentLinkRevokePersistenceError>;
+    readonly retireForUser: (input: {
+      readonly userId: string;
+      readonly environmentId: string;
+    }) => Effect.Effect<string | null, EnvironmentLinkRetirePersistenceError>;
     readonly revokeOtherUsersForEnvironmentKey: (input: {
       readonly userId: string;
       readonly environmentId: string;
@@ -191,7 +224,7 @@ const make = Effect.gen(function* () {
       const { request, proof } = input;
       const environmentId = proof.environmentId;
       const { endpoint } = input;
-      yield* db
+      const rows = yield* db
         .insert(relayEnvironmentLinks)
         .values({
           userId: input.userId,
@@ -206,6 +239,7 @@ const make = Effect.gen(function* () {
           managedTunnelsEnabled: request.managedTunnelsEnabled,
           createdByDeviceId: request.deviceId ?? null,
           revokedAt: null,
+          retiredAt: null,
           createdAt: now,
           updatedAt: now,
         })
@@ -224,7 +258,9 @@ const make = Effect.gen(function* () {
             revokedAt: null,
             updatedAt: now,
           },
+          setWhere: isNull(relayEnvironmentLinks.retiredAt),
         })
+        .returning({ environmentId: relayEnvironmentLinks.environmentId })
         .pipe(
           Effect.mapError(
             (cause) =>
@@ -236,7 +272,44 @@ const make = Effect.gen(function* () {
               }),
           ),
         );
+      if (rows.length === 0) {
+        return yield* new EnvironmentLinkRetired({
+          userId: input.userId,
+          environmentId,
+        });
+      }
     }),
+
+    ensureRelinkAllowed: Effect.fn("relay.environment_links.ensure_relink_allowed")(
+      function* (input) {
+        yield* Effect.annotateCurrentSpan({
+          "relay.environment_id": input.environmentId,
+        });
+        const rows = yield* db
+          .select({ retiredAt: relayEnvironmentLinks.retiredAt })
+          .from(relayEnvironmentLinks)
+          .where(
+            and(
+              eq(relayEnvironmentLinks.userId, input.userId),
+              eq(relayEnvironmentLinks.environmentId, input.environmentId),
+            ),
+          )
+          .limit(1)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new EnvironmentLinkLookupPersistenceError({
+                  userId: input.userId,
+                  environmentId: input.environmentId,
+                  cause,
+                }),
+            ),
+          );
+        if (rows[0]?.retiredAt) {
+          return yield* new EnvironmentLinkRetired(input);
+        }
+      },
+    ),
 
     listUsersForEnvironment: Effect.fn("relay.environment_links.list_users_for_environment")(
       function* (input) {
@@ -444,6 +517,39 @@ const make = Effect.gen(function* () {
           ),
         );
       return rows.length > 0;
+    }),
+
+    retireForUser: Effect.fn("relay.environment_links.retire_for_user")(function* (input) {
+      yield* Effect.annotateCurrentSpan({
+        "relay.environment_id": input.environmentId,
+      });
+      const retiredAt = DateTime.formatIso(yield* DateTime.now);
+      const rows = yield* db
+        .update(relayEnvironmentLinks)
+        .set({
+          revokedAt: retiredAt,
+          retiredAt,
+          updatedAt: retiredAt,
+        })
+        .where(
+          and(
+            eq(relayEnvironmentLinks.userId, input.userId),
+            eq(relayEnvironmentLinks.environmentId, input.environmentId),
+            isNull(relayEnvironmentLinks.retiredAt),
+          ),
+        )
+        .returning({ environmentPublicKey: relayEnvironmentLinks.environmentPublicKey })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new EnvironmentLinkRetirePersistenceError({
+                userId: input.userId,
+                environmentId: input.environmentId,
+                cause,
+              }),
+          ),
+        );
+      return rows[0]?.environmentPublicKey ?? null;
     }),
 
     revokeOtherUsersForEnvironmentKey: Effect.fn(

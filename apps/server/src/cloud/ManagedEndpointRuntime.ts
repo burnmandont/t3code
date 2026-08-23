@@ -6,6 +6,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
@@ -20,6 +21,7 @@ import { CLOUD_ENDPOINT_RUNTIME_CONFIG, decodeRuntimeConfig } from "./config.ts"
 import { renderFrpcConfig } from "./frpcConfig.ts";
 import {
   ManagedEndpointRuntime,
+  type ManagedEndpointAuthorizationRejection,
   type ManagedEndpointRuntimeStatus,
 } from "./ManagedEndpointRuntimeService.ts";
 
@@ -61,13 +63,16 @@ interface ActiveConnector {
 export function classifyRelayClientOutput(
   line: string,
   providerKind: ManagedConnectorConfig["providerKind"] = "cloudflare_tunnel",
-): "connected" | "warning" | "debug" {
+): "connected" | "authorization_rejected" | "warning" | "debug" {
   if (
     providerKind === "cloudflare_tunnel"
       ? /\bRegistered tunnel connection\b/iu.test(line)
       : /\bstart proxy success\b/iu.test(line)
   ) {
     return "connected";
+  }
+  if (providerKind === "t3_relay" && /\bconnector not authorized\b/iu.test(line)) {
+    return "authorization_rejected";
   }
   // cloudflared uses zerolog level tokens. FTL (fatal) and PNC (panic) are more
   // severe than ERR, so they must surface at least as loudly — without them a
@@ -117,6 +122,7 @@ export const make = Effect.gen(function* () {
   const activeRef = yield* Ref.make<ActiveConnector | null>(null);
   const desiredConfigRef = yield* Ref.make<RelayManagedEndpointRuntimeConfig | null>(null);
   const restartStateRef = yield* Ref.make({ configKey: "", attempts: 0 });
+  const authorizationRejections = yield* Queue.unbounded<ManagedEndpointAuthorizationRejection>();
   const reconcileSemaphore = yield* Semaphore.make(1);
   let reconcileConfig: ManagedEndpointRuntime["Service"]["applyConfig"];
 
@@ -219,6 +225,44 @@ export const make = Effect.gen(function* () {
                 Effect.logInfo("Relay client tunnel connection registered", attributes),
               ),
             );
+          case "authorization_rejected":
+            return Effect.gen(function* () {
+              if (connector.config.providerKind !== "t3_relay") {
+                return;
+              }
+              const desiredConfig = yield* Ref.get(desiredConfigRef);
+              if (
+                !desiredConfig ||
+                desiredConfig.providerKind !== "t3_relay" ||
+                runtimeConfigKey(desiredConfig) !== connector.configKey
+              ) {
+                return;
+              }
+              // Stop retries immediately, but let the cloud lifecycle confirm
+              // whether this is permanent account-side retirement or merely a
+              // stale allocation that can be reconciled with fresh config.
+              yield* Ref.set(desiredConfigRef, null);
+              yield* Ref.update(activeRef, (active) =>
+                active?.child.pid === connector.child.pid &&
+                active.configKey === connector.configKey
+                  ? null
+                  : active,
+              );
+              yield* Queue.offer(authorizationRejections, {
+                providerKind: "t3_relay",
+                connectorId: connector.config.connectorId,
+                proxyName: connector.config.proxyName,
+                hostname: connector.config.hostname,
+              });
+              yield* Effect.logWarning(
+                "Relay client authorization rejected; stopping connector pending reconciliation",
+                attributes,
+              );
+              // Stop this exact rejected connector. Reconciliation may already
+              // be installing a replacement by the time cleanup runs, so a
+              // generic stopActive here could tear down the fresh allocation.
+              yield* Effect.forkIn(stopConnector(connector), runtimeScope);
+            });
           case "warning":
             return Effect.logWarning("Relay client reported a transport warning", attributes);
           case "debug":
@@ -445,6 +489,7 @@ export const make = Effect.gen(function* () {
 
   const runtime = ManagedEndpointRuntime.of({
     applyConfig,
+    takeAuthorizationRejection: Queue.take(authorizationRejections),
   });
 
   const initialConfig = yield* readRuntimeConfig.pipe(

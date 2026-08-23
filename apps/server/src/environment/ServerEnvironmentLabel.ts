@@ -8,6 +8,7 @@ import * as ProcessRunner from "../processRunner.ts";
 
 interface ResolveServerEnvironmentLabelInput {
   readonly cwdBaseName: string;
+  readonly configuredLabelPath?: string;
 }
 
 const ServerEnvironmentLabelCommandProbe = Schema.Literals([
@@ -182,6 +183,17 @@ const resolveFriendlyHostLabel = Effect.fn("resolveFriendlyHostLabel")(function*
 export const resolveServerEnvironmentLabel = Effect.fn("resolveServerEnvironmentLabel")(function* (
   input: ResolveServerEnvironmentLabelInput,
 ) {
+  if (input.configuredLabelPath) {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const configured = yield* fileSystem.readFileString(input.configuredLabelPath).pipe(
+      Effect.orElseSucceed(() => ""),
+      Effect.map(normalizeLabel),
+    );
+    if (configured) {
+      return configured;
+    }
+  }
+
   const friendlyHostLabel = yield* resolveFriendlyHostLabel();
   if (friendlyHostLabel) {
     return friendlyHostLabel;

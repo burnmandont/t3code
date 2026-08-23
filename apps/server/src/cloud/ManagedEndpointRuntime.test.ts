@@ -87,6 +87,7 @@ function makeHandle(input: {
   readonly onKill: () => void;
   readonly isRunning?: () => boolean;
   readonly exitCode?: Effect.Effect<ChildProcessSpawner.ExitCode>;
+  readonly all?: Stream.Stream<Uint8Array>;
 }) {
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(input.pid),
@@ -100,7 +101,7 @@ function makeHandle(input: {
     stdin: Sink.drain,
     stdout: Stream.empty,
     stderr: Stream.empty,
-    all: Stream.empty,
+    all: input.all ?? Stream.empty,
     getInputFd: () => Sink.drain,
     getOutputFd: () => Stream.empty,
   });
@@ -147,7 +148,64 @@ describe("CloudManagedEndpointRuntime", () => {
         "t3_relay",
       ),
     ).toBe("warning");
+    expect(
+      ManagedEndpointRuntime.classifyRelayClientOutput(
+        "[W] [client/service.go:322] connect to server error: connector not authorized",
+        "t3_relay",
+      ),
+    ).toBe("authorization_rejected");
   });
+
+  it.effect("stops frpc and emits one terminal event when relay authorization is rejected", () =>
+    Effect.gen(function* () {
+      const spawned: Array<number> = [];
+      const killed: Array<number> = [];
+      const spawner = ChildProcessSpawner.make(() =>
+        Effect.gen(function* () {
+          const pid = 250 + spawned.length;
+          spawned.push(pid);
+          const handle = makeHandle({
+            pid,
+            all: Stream.make(
+              new TextEncoder().encode(
+                "[W] [client/service.go:322] connect to server error: connector not authorized\n",
+              ),
+            ).pipe(Stream.concat(Stream.never)),
+            onKill: () => {
+              killed.push(pid);
+            },
+          });
+          yield* Effect.addFinalizer(() => handle.kill().pipe(Effect.ignore));
+          return handle;
+        }),
+      );
+      const runtime = yield* buildCloudManagedEndpointRuntime(spawner);
+
+      yield* runtime.applyConfig({
+        providerKind: "t3_relay",
+        connectorId: "connector-id",
+        connectorToken: "connector-token",
+        serverAddr: "connect.example.test",
+        serverPort: 443,
+        proxyName: "environment-proxy",
+        hostname: "environment.example.test",
+        localHttpHost: "127.0.0.1",
+        localHttpPort: 3773,
+      });
+      const rejection = yield* runtime.takeAuthorizationRejection;
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("2 minutes");
+
+      expect(rejection).toEqual({
+        providerKind: "t3_relay",
+        connectorId: "connector-id",
+        proxyName: "environment-proxy",
+        hostname: "environment.example.test",
+      });
+      expect(spawned).toEqual([250]);
+      expect(killed).toEqual([250]);
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
 
   it.effect("starts, deduplicates, rotates, and stops the Cloudflare connector", () =>
     Effect.gen(function* () {

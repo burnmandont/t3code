@@ -11,6 +11,7 @@ services:
         T3CODE_OAUTH_RESOURCE: ${T3_RELAY_URL:-https://relay.moondiner.com}
         T3CODE_RELAY_URL: ${T3_RELAY_URL:-https://relay.moondiner.com}
         VITE_HOSTED_APP_URL: ${T3_CODE_URL:-https://code.moondiner.com}
+        SOURCE_COMMIT: ${SOURCE_COMMIT:?Coolify must include the source commit in this build}
     image: t3-sovereign-web:${T3_IMAGE_TAG:-latest}
     restart: unless-stopped
     security_opt:

@@ -59,6 +59,9 @@ export function resolveServerSelfUpdateCapability(
 
 /** The command to hand users whose server cannot update itself. */
 export function manualServerUpdateCommand(targetVersion: string): string {
+  if (/^\d+\.\d+\.\d+\+sovereign\.g[a-f0-9]{7,64}$/u.test(targetVersion)) {
+    return `curl -fsSL https://get.moondiner.com/install | sh -s -- serve --version ${targetVersion}`;
+  }
   return `npx t3@${targetVersion}`;
 }
 

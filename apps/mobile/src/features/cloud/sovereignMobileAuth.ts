@@ -2,6 +2,8 @@ import * as AuthSession from "expo-auth-session";
 import * as SecureStore from "expo-secure-store";
 import { SOVEREIGN_CONNECT_OAUTH_SCOPES } from "@t3tools/shared/connectAuth";
 import { decodeRelayJwt } from "@t3tools/shared/relayJwt";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 const SOVEREIGN_MOBILE_TOKEN_KEY = "t3code.sovereign.oauth-token.v1";
 const TOKEN_EXPIRY_SKEW_SECONDS = 30;
@@ -11,6 +13,20 @@ interface StoredMobileToken {
   readonly refreshToken: string;
   readonly expiresIn: number;
   readonly issuedAt: number;
+  readonly userInfo?: SovereignMobileUserInfo;
+}
+
+const OAuthUserInfoResponse = Schema.Struct({
+  sub: Schema.String,
+  email: Schema.optional(Schema.NullOr(Schema.String)),
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const decodeUserInfoResponse = Schema.decodeUnknownOption(OAuthUserInfoResponse);
+
+export interface SovereignMobileUserInfo {
+  readonly userId: string;
+  readonly email: string | null;
+  readonly name: string | null;
 }
 
 export interface SovereignMobileAuthConfiguration {
@@ -30,11 +46,14 @@ export interface SovereignMobileAuthDependencies {
   readonly exchangeCode: typeof AuthSession.exchangeCodeAsync;
   readonly refresh: typeof AuthSession.refreshAsync;
   readonly nowSeconds: () => number;
+  readonly fetch: typeof globalThis.fetch;
 }
 
 export interface SovereignMobileAuthSnapshot {
   readonly isSignedIn: boolean;
   readonly userId: string | null;
+  readonly email: string | null;
+  readonly name: string | null;
 }
 
 function decodeStoredToken(value: string | null): StoredMobileToken | null {
@@ -50,11 +69,22 @@ function decodeStoredToken(value: string | null): StoredMobileToken | null {
           refreshToken: token.refreshToken,
           expiresIn: token.expiresIn,
           issuedAt: token.issuedAt,
+          ...(isMobileUserInfo(token.userInfo) ? { userInfo: token.userInfo } : {}),
         }
       : null;
   } catch {
     return null;
   }
+}
+
+function isMobileUserInfo(value: unknown): value is SovereignMobileUserInfo {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<SovereignMobileUserInfo>;
+  return (
+    typeof candidate.userId === "string" &&
+    (typeof candidate.email === "string" || candidate.email === null) &&
+    (typeof candidate.name === "string" || candidate.name === null)
+  );
 }
 
 function userIdFromAccessToken(accessToken: string): string | null {
@@ -79,6 +109,7 @@ function defaultDependencies(): SovereignMobileAuthDependencies {
     exchangeCode: AuthSession.exchangeCodeAsync,
     refresh: AuthSession.refreshAsync,
     nowSeconds: () => Math.floor(Date.now() / 1_000),
+    fetch: globalThis.fetch.bind(globalThis),
   };
 }
 
@@ -90,6 +121,7 @@ export function makeSovereignMobileAuthClient(
     authorizationEndpoint: `${config.issuer.replace(/\/+$/gu, "")}/oauth2/authorize`,
     tokenEndpoint: `${config.issuer.replace(/\/+$/gu, "")}/oauth2/token`,
   };
+  const normalizedIssuer = config.issuer.replace(/\/+$/gu, "");
   let token: StoredMobileToken | null = null;
   let initialized = false;
   let initializeInFlight: Promise<void> | null = null;
@@ -139,6 +171,7 @@ export function makeSovereignMobileAuthClient(
         refreshToken: nextToken.refreshToken ?? current.refreshToken,
         expiresIn: nextToken.expiresIn ?? current.expiresIn,
         issuedAt: nextToken.issuedAt ?? dependencies.nowSeconds(),
+        ...(current.userInfo === undefined ? {} : { userInfo: current.userInfo }),
       });
     } catch {
       await clear();
@@ -154,6 +187,26 @@ export function makeSovereignMobileAuthClient(
       refreshInFlight = null;
     });
     return (await refreshInFlight)?.accessToken ?? null;
+  };
+
+  const getUserInfo = async (): Promise<SovereignMobileUserInfo | null> => {
+    const accessToken = await getToken();
+    if (!accessToken || !token) return null;
+    const response = await dependencies.fetch(`${normalizedIssuer}/oauth2/userinfo`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) throw new Error("The sovereign account service rejected user information.");
+    const decoded = decodeUserInfoResponse(await response.json());
+    if (Option.isNone(decoded)) {
+      throw new Error("The sovereign account service returned invalid user information.");
+    }
+    const userInfo: SovereignMobileUserInfo = {
+      userId: decoded.value.sub,
+      email: decoded.value.email ?? null,
+      name: decoded.value.name ?? null,
+    };
+    await saveToken({ ...token, userInfo });
+    return userInfo;
   };
 
   const signIn = async (): Promise<SovereignMobileAuthSnapshot> => {
@@ -197,13 +250,49 @@ export function makeSovereignMobileAuthClient(
       expiresIn: exchanged.expiresIn ?? 0,
       issuedAt: exchanged.issuedAt ?? dependencies.nowSeconds(),
     });
+    try {
+      await getUserInfo();
+    } catch {
+      // Identity display is non-critical; the signed access token still
+      // establishes the account and can be refreshed on the next launch.
+    }
     return snapshot();
+  };
+
+  const signOut = async () => {
+    await initialize();
+    const current = token;
+    let revoked = current === null;
+    try {
+      if (current) {
+        const response = await dependencies.fetch(`${normalizedIssuer}/oauth2/revoke`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: config.clientId,
+            token: current.refreshToken,
+            token_type_hint: "refresh_token",
+          }).toString(),
+        });
+        revoked = response.ok;
+      }
+    } catch {
+      revoked = false;
+    } finally {
+      await clear();
+    }
+    return { ...snapshot(), revoked };
   };
 
   const snapshot = (): SovereignMobileAuthSnapshot => {
     const userId = token ? userIdFromAccessToken(token.accessToken) : null;
-    return { isSignedIn: userId !== null, userId };
+    return {
+      isSignedIn: userId !== null,
+      userId,
+      email: token?.userInfo?.email ?? null,
+      name: token?.userInfo?.name ?? null,
+    };
   };
 
-  return { clear, getToken, initialize, signIn, snapshot };
+  return { clear, getToken, getUserInfo, initialize, signIn, signOut, snapshot };
 }

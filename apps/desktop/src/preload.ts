@@ -172,8 +172,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     },
   },
   sovereignAuth: {
-    beginSignIn: (returnUrl) =>
-      ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_BEGIN_CHANNEL, returnUrl),
+    beginSignIn: (input) => ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_BEGIN_CHANNEL, input),
     getSnapshot: () => ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_GET_SNAPSHOT_CHANNEL),
     getToken: () => ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_GET_TOKEN_CHANNEL),
     signOut: () => ipcRenderer.invoke(IpcChannels.SOVEREIGN_AUTH_SIGN_OUT_CHANNEL),

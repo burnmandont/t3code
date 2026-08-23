@@ -1,4 +1,8 @@
-import { DesktopSovereignAuthSnapshotSchema } from "@t3tools/contracts";
+import {
+  DesktopSovereignAuthBeginInputSchema,
+  DesktopSovereignAuthSignOutResultSchema,
+  DesktopSovereignAuthSnapshotSchema,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -8,11 +12,11 @@ import * as IpcChannels from "../channels.ts";
 
 export const beginSovereignSignIn = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.SOVEREIGN_AUTH_BEGIN_CHANNEL,
-  payload: Schema.String,
+  payload: DesktopSovereignAuthBeginInputSchema,
   result: Schema.String,
-  handler: Effect.fn("desktop.ipc.sovereignAuth.begin")(function* (returnUrl) {
+  handler: Effect.fn("desktop.ipc.sovereignAuth.begin")(function* (input) {
     const identity = yield* DesktopIdentity.DesktopIdentity;
-    return yield* identity.beginSovereignSignIn(returnUrl);
+    return yield* identity.beginSovereignSignIn(input);
   }),
 });
 
@@ -39,9 +43,9 @@ export const getSovereignAuthToken = DesktopIpc.makeIpcMethod({
 export const signOutSovereignAuth = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.SOVEREIGN_AUTH_SIGN_OUT_CHANNEL,
   payload: Schema.Void,
-  result: Schema.Void,
+  result: DesktopSovereignAuthSignOutResultSchema,
   handler: Effect.fn("desktop.ipc.sovereignAuth.signOut")(function* () {
     const identity = yield* DesktopIdentity.DesktopIdentity;
-    yield* identity.signOutSovereign;
+    return yield* identity.signOutSovereign;
   }),
 });

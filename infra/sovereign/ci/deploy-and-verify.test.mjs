@@ -1,15 +1,21 @@
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import test from "node:test";
+import * as NodeAssert from "node:assert/strict";
+import * as NodeFS from "node:fs";
+import * as NodeTest from "node:test";
 
 import {
   classifyDeploymentStatus,
+  CoolifyDeploymentTerminalError,
+  deployResourcesWithRetry,
   expectedWebSocketAccept,
   unexpectedHostRequestOptions,
   validateEdgeSecurityHeaders,
   validateWebContentSecurityPolicy,
   waitForDeployment,
 } from "./deploy-and-verify.mjs";
+
+const assert = NodeAssert;
+const readFileSync = NodeFS.readFileSync;
+const test = NodeTest.test;
 
 const readSovereignFile = (relativePath) =>
   readFileSync(new URL(relativePath, import.meta.url), "utf8");
@@ -49,7 +55,94 @@ test("fails a completed unsuccessful deployment", async () => {
       pollIntervalMs: 0,
       sleepFn: async () => {},
     }),
-    /ended with failed/u,
+    (error) =>
+      error instanceof CoolifyDeploymentTerminalError &&
+      error.status === "failed" &&
+      error.resourceUuid === "resource-2",
+  );
+});
+
+test("retries only failed Coolify resources once", async () => {
+  const queued = [];
+  const waited = [];
+  const retries = [];
+  await deployResourcesWithRetry({
+    resourceUuids: ["control", "web"],
+    maxAttempts: 2,
+    retryDelayMs: 0,
+    sleepFn: async () => {},
+    queueDeployments: async (resourceUuids) => {
+      queued.push(resourceUuids);
+      return resourceUuids.map((resourceUuid, index) => ({
+        resource_uuid: resourceUuid,
+        deployment_uuid: `${resourceUuid}-${queued.length}-${index}`,
+      }));
+    },
+    waitForQueuedDeployment: async (deployment, attempt) => {
+      waited.push({ resourceUuid: deployment.resource_uuid, attempt });
+      if (deployment.resource_uuid === "web" && attempt === 1) {
+        throw new CoolifyDeploymentTerminalError({
+          deploymentUuid: deployment.deployment_uuid,
+          resourceUuid: deployment.resource_uuid,
+          status: "failed",
+        });
+      }
+    },
+    onRetry: (retry) => retries.push(retry),
+  });
+
+  assert.deepEqual(queued, [["control", "web"], ["web"]]);
+  assert.deepEqual(waited, [
+    { resourceUuid: "control", attempt: 1 },
+    { resourceUuid: "web", attempt: 1 },
+    { resourceUuid: "web", attempt: 2 },
+  ]);
+  assert.deepEqual(retries, [{ attempt: 2, maxAttempts: 2, resourceUuids: ["web"] }]);
+});
+
+test("does not retry a deployment cancelled by the operator", async () => {
+  let queueCount = 0;
+  await assert.rejects(
+    deployResourcesWithRetry({
+      resourceUuids: ["web"],
+      maxAttempts: 2,
+      retryDelayMs: 0,
+      sleepFn: async () => {},
+      queueDeployments: async () => {
+        queueCount += 1;
+        return [{ resource_uuid: "web", deployment_uuid: "web-1" }];
+      },
+      waitForQueuedDeployment: async (deployment) => {
+        throw new CoolifyDeploymentTerminalError({
+          deploymentUuid: deployment.deployment_uuid,
+          resourceUuid: deployment.resource_uuid,
+          status: "cancelled-by-user",
+        });
+      },
+    }),
+    /cancelled-by-user/u,
+  );
+  assert.equal(queueCount, 1);
+});
+
+test("rejects incomplete or unexpected Coolify queue responses", async () => {
+  await assert.rejects(
+    deployResourcesWithRetry({
+      resourceUuids: ["control", "web"],
+      queueDeployments: async () => [{ resource_uuid: "control", deployment_uuid: "control-1" }],
+      waitForQueuedDeployment: async () => {},
+    }),
+    /did not accept every resource: web/u,
+  );
+  await assert.rejects(
+    deployResourcesWithRetry({
+      resourceUuids: ["web"],
+      queueDeployments: async () => [
+        { resource_uuid: "attacker", deployment_uuid: "unexpected-1" },
+      ],
+      waitForQueuedDeployment: async () => {},
+    }),
+    /unexpected resource/u,
   );
 });
 
@@ -97,8 +190,14 @@ test("keeps the FRPS control listener behind the exact WebSocket route", () => {
   for (const config of [edgeApex, secondApex]) {
     assert.match(config, /location = \/~!frp/u);
     assert.match(config, /return 426;/u);
+    assert.match(config, /frp_origin_allowed = 0\) \{ return 403;/u);
     assert.match(config, /location \/ \{\s*return 404;/u);
     assert.match(config, /client_max_body_size 64k;/u);
+  }
+  for (const config of [edge, second]) {
+    assert.match(config, /"http:\/\/connect[.]moondiner[.]com"\s+1;/u);
+    assert.match(config, /"https:\/\/connect[.]moondiner[.]com"\s+1;/u);
+    assert.match(config, /api\/auth\/\(\?:browser-session\|pairing-token\|websocket-ticket\)/u);
   }
   assert.match(edge, /zone=t3_connect_handshake_rate:10m rate=5r\/s/u);
 });
@@ -110,6 +209,8 @@ test("keeps FRPS durable across every split control deployment", () => {
   assert.match(frpsService, /^  frps:\n/mu);
   assert.doesNotMatch(frpsService, /^    profiles:/mu);
   assert.match(frpsService, /restart: unless-stopped/u);
+  assert.match(frpsService, /nc -z -w 2 127[.]0[.]0[.]1 7000/u);
+  assert.match(frpsService, /nc -z -w 2 127[.]0[.]0[.]1 8080/u);
 });
 
 test("runs a private self-hosted monitor with the split control plane", () => {
@@ -119,7 +220,7 @@ test("runs a private self-hosted monitor with the split control plane", () => {
   assert.match(monitorService, /^  monitor:\n/mu);
   assert.doesNotMatch(monitorService, /^    profiles:/mu);
   assert.match(monitorService, /T3_MONITOR_ALERT_WEBHOOK_URL/u);
-  assert.match(monitorService, /condition: service_started/u);
+  assert.match(monitorService, /condition: service_healthy/u);
   assert.doesNotMatch(monitorService, /^    ports:/mu);
   assert.doesNotMatch(monitorService, /^    expose:/mu);
 });
@@ -190,11 +291,62 @@ test("keeps sovereign browser requests local unless the user opens a URL", () =>
   assert.match(webNginx, /script-src-attr 'none'/u);
 });
 
+test("binds the hosted client build to Coolify's exact source commit", () => {
+  const dockerfile = readSovereignFile("../Dockerfile.web");
+  const webCompose = readSovereignFile("../compose.web.yaml");
+  const bootstrapCompose = readSovereignFile("../compose.yaml");
+
+  assert.match(dockerfile, /^ARG SOURCE_COMMIT$/mu);
+  assert.match(dockerfile, /set-runtime-version[.]mjs --print-only/u);
+  assert.match(dockerfile, /SOVEREIGN_RUNTIME_VERSION="\$runtime_version"/u);
+  assert.match(dockerfile, /APP_VERSION="\$runtime_version" pnpm --filter @t3tools\/web build/u);
+  for (const compose of [webCompose, bootstrapCompose]) {
+    assert.match(compose, /SOURCE_COMMIT: \$\{SOURCE_COMMIT:\?Coolify must include/u);
+  }
+});
+
 test("installs dependencies for source trees included by the desktop typecheck", () => {
   const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
 
   assert.match(workflow, /--filter @t3tools\/desktop[.][.][.]/u);
+  assert.match(workflow, /--filter @t3tools\/mobile[.][.][.]/u);
   assert.match(workflow, /--filter @t3tools\/scripts[.][.][.]/u);
+});
+
+test("publishes a signed complete remote runtime before production deployment", () => {
+  const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
+  const buildIndex = workflow.indexOf("Build signed complete sovereign runtime");
+  const publishIndex = workflow.indexOf("Publish immutable sovereign runtime to Gitea");
+  const deployIndex = workflow.indexOf("Deploy t3-control and t3-web");
+
+  assert.match(workflow, /pnpm --filter t3 typecheck/u);
+  assert.match(workflow, /pnpm --filter t3 test/u);
+  assert.match(workflow, /SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64/u);
+  assert.match(workflow, /SOVEREIGN_PACKAGE_TOKEN/u);
+  assert.match(workflow, /SOVEREIGN_FRPC_ASSET_URL/u);
+  assert.match(workflow, /T3CODE_HOSTED_APP_URL: https:\/\/code[.]moondiner[.]com/u);
+  assert.match(
+    workflow,
+    /grep -Fq 'https:\/\/code[.]moondiner[.]com' apps\/server\/dist\/bin[.]mjs/u,
+  );
+  assert.ok(buildIndex > 0);
+  assert.ok(publishIndex > buildIndex);
+  assert.ok(deployIndex > publishIndex);
+});
+
+test("publishes the credentialless installer and runtime before production deployment", () => {
+  const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
+  const externalPublishIndex = workflow.indexOf(
+    "Publish credentialless sovereign runtime to GitHub",
+  );
+  const deployIndex = workflow.indexOf("Deploy t3-control and t3-web");
+
+  assert.ok(externalPublishIndex > 0);
+  assert.ok(deployIndex > externalPublishIndex);
+  assert.match(workflow, /SOVEREIGN_GITHUB_REPOSITORY/u);
+  assert.match(workflow, /SOVEREIGN_GITHUB_PAGES_ORIGIN/u);
+  assert.match(workflow, /SOVEREIGN_GITHUB_TOKEN/u);
+  assert.match(workflow, /publish-github-runtime[.]mjs/u);
 });
 
 test("allows only the hosted and exact desktop origins to call the sovereign relay", () => {
@@ -302,12 +454,12 @@ test("caps unauthenticated environment control bodies without blocking turn atta
     const config = readSovereignFile(path);
     const wildcardServer = config.slice(config.indexOf("server_name *.connect.moondiner.com;"));
     const smallControlLocation = wildcardServer.slice(
-      wildcardServer.indexOf("location ~ ^/(?:api/auth/browser-session"),
+      wildcardServer.indexOf("location ~ ^/(?:api/auth/(?:browser-session"),
       wildcardServer.indexOf("location / {"),
     );
 
     for (const route of [
-      "api/auth/browser-session",
+      "api/auth/(?:browser-session|pairing-token|websocket-ticket)",
       "oauth/token",
       "api/connect/mint-credential",
       "api/t3-connect/(?:health|mint-credential)",

@@ -1,4 +1,8 @@
 import type { DesktopSovereignAuthSnapshot } from "@t3tools/contracts";
+import type {
+  DesktopSovereignAuthBeginInput,
+  DesktopSovereignAuthSignOutResult,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Scope from "effect/Scope";
@@ -26,7 +30,7 @@ export class DesktopIdentity extends Context.Service<
     /** Completes initialization that requires Electron's ready event. */
     readonly ready: Effect.Effect<void>;
     readonly beginSovereignSignIn: (
-      returnUrl: string,
+      input: DesktopSovereignAuthBeginInput,
     ) => Effect.Effect<string, DesktopIdentityUnavailableError | Error>;
     readonly getSovereignSnapshot: Effect.Effect<
       DesktopSovereignAuthSnapshot,
@@ -36,7 +40,10 @@ export class DesktopIdentity extends Context.Service<
       string | null,
       DesktopIdentityUnavailableError | Error
     >;
-    readonly signOutSovereign: Effect.Effect<void, DesktopIdentityUnavailableError | Error>;
+    readonly signOutSovereign: Effect.Effect<
+      DesktopSovereignAuthSignOutResult,
+      DesktopIdentityUnavailableError | Error
+    >;
   }
 >()("@t3tools/desktop/app/DesktopIdentity") {}
 

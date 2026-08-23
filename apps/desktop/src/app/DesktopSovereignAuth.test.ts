@@ -91,13 +91,20 @@ describe("DesktopSovereignAuth", () => {
         })();
         vi.stubGlobal(
           "fetch",
-          vi.fn(async () =>
-            Response.json({
+          vi.fn(async (input: string | URL | Request) => {
+            if (input.toString().endsWith("/oauth2/userinfo")) {
+              return Response.json({
+                sub: "account-1",
+                email: "sam@example.test",
+                name: "Sam",
+              });
+            }
+            return Response.json({
               access_token: accessToken,
               refresh_token: "refresh-secret-1",
               expires_in: 900,
-            }),
-          ),
+            });
+          }),
         );
 
         const environment = DesktopEnvironment.DesktopEnvironment.of({
@@ -163,7 +170,9 @@ describe("DesktopSovereignAuth", () => {
             yield* identity.configure;
             yield* identity.ready;
             const authorizeUrl = new URL(
-              yield* identity.beginSovereignSignIn("t3code-dev://app/#/settings/connections"),
+              yield* identity.beginSovereignSignIn({
+                returnUrl: "t3code-dev://app/#/settings/connections",
+              }),
             );
             const callback = `t3code-dev://app${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=${authorizeUrl.searchParams.get("state")}`;
             const openUrl = listeners.get("open-url");
@@ -174,6 +183,8 @@ describe("DesktopSovereignAuth", () => {
             assert.deepEqual(yield* identity.getSovereignSnapshot, {
               isSignedIn: true,
               userId: "account-1",
+              email: "sam@example.test",
+              name: "Sam",
             });
             assert.equal(yield* identity.getSovereignToken, accessToken);
             const persisted = yield* fileSystem.readFileString(
@@ -195,6 +206,8 @@ describe("DesktopSovereignAuth", () => {
             assert.deepEqual(yield* identity.getSovereignSnapshot, {
               isSignedIn: true,
               userId: "account-1",
+              email: "sam@example.test",
+              name: "Sam",
             });
           }).pipe(
             Effect.provide(identityLayer),
@@ -212,6 +225,8 @@ describe("DesktopSovereignAuth", () => {
             assert.deepEqual(yield* identity.getSovereignSnapshot, {
               isSignedIn: false,
               userId: null,
+              email: null,
+              name: null,
             });
             assert.isFalse(yield* fileSystem.exists(authPath));
           }).pipe(

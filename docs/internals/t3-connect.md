@@ -125,6 +125,29 @@ connector, and attempts to revoke the relay-side environment record. It retains 
 authorization so `t3 connect link` can re-enable exposure without another browser flow. `t3 connect
 logout` performs the same cleanup and removes the stored CLI authorization.
 
+Account-side removal is deliberately stronger than `t3 connect unlink`. From **Settings →
+Connections**, **Remove from T3 Connect** marks the account/environment row as retired, revokes the
+environment credential, and deprovisions the managed endpoint. A retired immutable environment ID
+cannot relink to that account, even if its background service is still running with `desired: true`.
+The conditional link upsert is the authoritative race guard; a preflight check prevents a retired
+process from repeatedly provisioning temporary resources, and a lost upsert race immediately
+deprovisions the allocation it created. Reconnecting that machine requires resetting or reinstalling
+its T3 environment identity so it receives a new ID.
+
+Tunnel teardown happens after the database transaction commits. The revocation response reports
+`cleanupPending` when external teardown fails; access remains revoked, and the ordinary orphaned-
+allocation reconciliation sweep retries cleanup. This keeps a temporary FRP or provider failure from
+rolling back the security decision.
+
+An online sovereign connector treats FRP's `connector not authorized` response as an event, stops
+the connector immediately, and asks the relay to reconcile the desired link with the account's
+stored authorization. A successful reconciliation installs replacement allocation state (covering
+ordinary token rotation); an `environment_retired` conflict instead clears the desired link,
+environment credential, endpoint runtime configuration, and activity-publication state, then writes
+a durable local retirement marker. The service therefore remains available for local work without
+spinning on a connector that can never be authorized. The same reconciliation runs at startup, so an
+environment retired while offline reaches the identical terminal state when it next boots.
+
 The background service has an independent lifecycle. Connect setup may offer to install it, but
 logout leaves it running; manage it with `t3 service status`, `install`, `update`, and `uninstall`.
 

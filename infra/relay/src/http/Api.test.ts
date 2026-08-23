@@ -23,6 +23,7 @@ import {
   relayEnvironmentAuthLayer,
   relayNotFoundRoute,
   revokeEnvironmentLinkRecord,
+  retireEnvironmentRecord,
   traceRelayHttpRequestWith,
   unlinkEnvironmentRecord,
   withoutCapturedParentSpan,
@@ -102,6 +103,7 @@ function relayUnlinkTestLayer(input?: {
   readonly withTransaction?: RelayDb.RelayTransactions["Service"]["withTransaction"];
   readonly getForUser?: EnvironmentLinks.EnvironmentLinks["Service"]["getForUser"];
   readonly revokeForUser?: EnvironmentLinks.EnvironmentLinks["Service"]["revokeForUser"];
+  readonly retireForUser?: EnvironmentLinks.EnvironmentLinks["Service"]["retireForUser"];
   readonly revokeCredential?: EnvironmentCredentials.EnvironmentCredentials["Service"]["revokeForEnvironmentPublicKey"];
   readonly prepareDeprovision?: ManagedEndpointProvider.ManagedEndpointProvider["Service"]["prepareDeprovision"];
   readonly deprovision?: ManagedEndpointProvider.ManagedEndpointProvider["Service"]["deprovision"];
@@ -117,12 +119,14 @@ function relayUnlinkTestLayer(input?: {
       EnvironmentLinks.EnvironmentLinks,
       EnvironmentLinks.EnvironmentLinks.of({
         upsert: () => Effect.die("unused upsert"),
+        ensureRelinkAllowed: () => Effect.die("unused ensureRelinkAllowed"),
         listUsersForEnvironment: () => Effect.die("unused listUsersForEnvironment"),
         listDeliveryUsersForEnvironment: () => Effect.die("unused listDeliveryUsersForEnvironment"),
         listPublicKeysForEnvironment: () => Effect.die("unused listPublicKeysForEnvironment"),
         listForUser: () => Effect.die("unused listForUser"),
         getForUser: input?.getForUser ?? (() => Effect.succeed(null)),
         revokeForUser: input?.revokeForUser ?? (() => Effect.succeed(false)),
+        retireForUser: input?.retireForUser ?? (() => Effect.succeed(null)),
         revokeOtherUsersForEnvironmentKey: () => Effect.succeed([]),
       }),
     ),
@@ -329,6 +333,69 @@ describe("relay environment unlink", () => {
             Effect.sync(() => {
               calls.push("deprovision");
             }),
+        }),
+      ),
+    );
+  });
+});
+
+describe("relay environment remote revocation", () => {
+  it.effect("retires the identity and credentials before removing its live tunnel", () => {
+    const calls: Array<string> = [];
+    return Effect.gen(function* () {
+      expect(
+        yield* retireEnvironmentRecord({
+          userId: "user-1",
+          environmentId: "environment-1",
+        }),
+      ).toEqual({ ok: true, cleanupPending: false });
+      expect(calls).toEqual(["transaction", "retire", "credential", "deprovision"]);
+    }).pipe(
+      Effect.provide(
+        relayUnlinkTestLayer({
+          withTransaction: (effect) => {
+            calls.push("transaction");
+            return effect;
+          },
+          retireForUser: () =>
+            Effect.sync(() => {
+              calls.push("retire");
+              return "public-key";
+            }),
+          revokeCredential: () =>
+            Effect.sync(() => {
+              calls.push("credential");
+              return true;
+            }),
+          deprovision: (input) =>
+            Effect.sync(() => {
+              expect(input).toEqual({ userId: "user-1", environmentId: "environment-1" });
+              calls.push("deprovision");
+            }),
+        }),
+      ),
+    );
+  });
+
+  it.effect("reports deferred cleanup without rolling back durable retirement", () => {
+    const cleanupFailure = new ManagedEndpointProvider.ManagedEndpointDeprovisioningFailed({
+      userId: "user-1",
+      environmentId: "environment-1",
+      stage: "remove-allocation",
+      cause: "database unavailable",
+    });
+    return Effect.gen(function* () {
+      expect(
+        yield* retireEnvironmentRecord({
+          userId: "user-1",
+          environmentId: "environment-1",
+        }),
+      ).toEqual({ ok: true, cleanupPending: true });
+    }).pipe(
+      Effect.provide(
+        relayUnlinkTestLayer({
+          retireForUser: () => Effect.succeed("public-key"),
+          deprovision: () => Effect.fail(cleanupFailure),
         }),
       ),
     );

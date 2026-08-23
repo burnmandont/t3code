@@ -74,14 +74,11 @@ describe("CloudAuthProvider relay account isolation", () => {
     let userId: string | null = "account-1";
     const departures: Array<{ readonly userId: string; readonly accessToken: string }> = [];
     const client = {
-      snapshot: () => ({ isSignedIn: userId !== null, userId }),
+      snapshot: () => ({ isSignedIn: userId !== null, userId, email: null, name: null }),
       getToken: async () => (userId ? `${userId}-token` : null),
       signIn: async () => {
         userId = "account-2";
-        return { isSignedIn: true, userId };
-      },
-      clear: async () => {
-        userId = null;
+        return { isSignedIn: true, userId, email: null, name: null };
       },
     };
 
@@ -89,17 +86,31 @@ describe("CloudAuthProvider relay account isolation", () => {
       departures.push(departure);
     });
 
-    expect(next).toEqual({ isSignedIn: true, userId: "account-2" });
+    expect(next).toEqual({
+      isSignedIn: true,
+      userId: "account-2",
+      email: null,
+      name: null,
+    });
     expect(departures).toEqual([{ userId: "account-1", accessToken: "account-1-token" }]);
   });
 
   it("does not deregister the current account when native sign-in is cancelled", async () => {
     const departure = vi.fn();
     const client = {
-      snapshot: () => ({ isSignedIn: true, userId: "account-1" }),
+      snapshot: () => ({
+        isSignedIn: true,
+        userId: "account-1",
+        email: null,
+        name: null,
+      }),
       getToken: async () => "account-1-token",
-      signIn: async () => ({ isSignedIn: true, userId: "account-1" }),
-      clear: async () => undefined,
+      signIn: async () => ({
+        isSignedIn: true,
+        userId: "account-1",
+        email: null,
+        name: null,
+      }),
     };
 
     await signInSovereignMobileAccount(client, departure);
@@ -111,17 +122,29 @@ describe("CloudAuthProvider relay account isolation", () => {
     let userId: string | null = "account-1";
     const departure = vi.fn();
     const client = {
-      snapshot: () => ({ isSignedIn: userId !== null, userId }),
+      snapshot: () => ({ isSignedIn: userId !== null, userId, email: null, name: null }),
       getToken: async () => (userId ? "account-1-token" : null),
-      signIn: async () => ({ isSignedIn: userId !== null, userId }),
-      clear: async () => {
+      signOut: async () => {
         userId = null;
+        return {
+          isSignedIn: false,
+          userId: null,
+          email: null,
+          name: null,
+          revoked: true,
+        };
       },
     };
 
     const next = await signOutSovereignMobileAccount(client, departure);
 
-    expect(next).toEqual({ isSignedIn: false, userId: null });
+    expect(next).toEqual({
+      isSignedIn: false,
+      userId: null,
+      email: null,
+      name: null,
+      revoked: true,
+    });
     expect(departure).toHaveBeenCalledWith({
       userId: "account-1",
       accessToken: "account-1-token",

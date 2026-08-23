@@ -13,6 +13,7 @@ import {
   type RelayEnvironmentLinkChallengeResponse,
   type RelayEnvironmentLinkRequest,
   type RelayEnvironmentLinkResponse,
+  type RelayEnvironmentRevocationResponse,
   type RelayEnvironmentStatusResponse,
   RelayExchangeDpopAccessTokenEndpoint,
   RelayGetEnvironmentStatusEndpoint,
@@ -89,6 +90,7 @@ export const ManagedRelayRequestAction = Schema.Literals([
   "create relay environment link challenge",
   "link relay environment",
   "unlink relay environment",
+  "revoke relay environment",
   "get relay environment status",
   "connect relay environment",
   "register relay mobile device",
@@ -105,6 +107,7 @@ export const ManagedRelayRequestActivity = Schema.Literals([
   "Relay environment link challenge",
   "Relay environment linking",
   "Relay environment unlinking",
+  "Relay environment revocation",
   "Relay environment status request",
   "Relay environment connection",
   "Relay mobile device registration",
@@ -271,6 +274,10 @@ export class ManagedRelayClient extends Context.Service<
       readonly clerkToken: string;
       readonly environmentId: RelayClientEnvironmentRecord["environmentId"];
     }) => Effect.Effect<RelayOkResponse, ManagedRelayClientError>;
+    readonly revokeEnvironment: (input: {
+      readonly clerkToken: string;
+      readonly environmentId: RelayClientEnvironmentRecord["environmentId"];
+    }) => Effect.Effect<RelayEnvironmentRevocationResponse, ManagedRelayClientError>;
     readonly getEnvironmentStatus: (input: {
       readonly clerkToken: string;
       readonly scopes: ReadonlyArray<RelayDpopAccessTokenScope>;
@@ -412,6 +419,7 @@ function disabledManagedRelayClient(relayUrl: string): ManagedRelayClient["Servi
     ),
     linkEnvironment: unavailable("clientRuntime.managedRelay.linkEnvironment"),
     unlinkEnvironment: unavailable("clientRuntime.managedRelay.unlinkEnvironment"),
+    revokeEnvironment: unavailable("clientRuntime.managedRelay.revokeEnvironment"),
     getEnvironmentStatus: unavailable("clientRuntime.managedRelay.getEnvironmentStatus"),
     connectEnvironment: unavailable("clientRuntime.managedRelay.connectEnvironment"),
     registerDevice: unavailable("clientRuntime.managedRelay.registerDevice"),
@@ -764,6 +772,21 @@ export const make = Effect.fn("ManagedRelayClient.make")(function* (
           );
       },
       Effect.withSpan("clientRuntime.managedRelay.unlinkEnvironment"),
+      withRelayClientTracing,
+    ),
+    revokeEnvironment: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.client
+          .revokeEnvironment({
+            headers: bearerHeaders(input.clerkToken),
+            params: { environmentId: input.environmentId },
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("revoke relay environment")),
+            timeoutRelayRequest("Relay environment revocation"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.revokeEnvironment"),
       withRelayClientTracing,
     ),
     getEnvironmentStatus: Effect.fnUntraced(

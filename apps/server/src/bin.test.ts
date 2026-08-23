@@ -215,6 +215,37 @@ it.layer(NodeServices.layer)("bin cli parsing", (it) => {
     }),
   );
 
+  it.effect("persists an explicit environment label without changing its identity", () =>
+    Effect.gen(function* () {
+      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-label-cli-"));
+      try {
+        NodeFS.mkdirSync(NodePath.join(baseDir, "userdata"), { recursive: true });
+        NodeFS.writeFileSync(
+          NodePath.join(baseDir, "userdata", "environment-id"),
+          "stable-environment-id\n",
+        );
+        yield* runCliWithRuntime([
+          "environment",
+          "label",
+          "set",
+          "Atlas worker",
+          "--base-dir",
+          baseDir,
+        ]);
+        assert.equal(
+          NodeFS.readFileSync(NodePath.join(baseDir, "runtime", "environment-label"), "utf8"),
+          "Atlas worker\n",
+        );
+        assert.equal(
+          NodeFS.readFileSync(NodePath.join(baseDir, "userdata", "environment-id"), "utf8"),
+          "stable-environment-id\n",
+        );
+      } finally {
+        NodeFS.rmSync(baseDir, { recursive: true, force: true });
+      }
+    }),
+  );
+
   it.effect("reports fresh headless connect state without requiring local configuration", () =>
     Effect.gen(function* () {
       const baseDir = NodeFS.mkdtempSync(

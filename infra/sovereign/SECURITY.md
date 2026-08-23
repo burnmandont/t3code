@@ -1,6 +1,6 @@
 # Sovereign deployment security review
 
-Last reviewed: 2026-08-07
+Last reviewed: 2026-08-10
 
 This review covers the Internet-facing sovereign deployment, not the complete
 upstream T3 Code product. Its primary security property is that possession of a
@@ -53,7 +53,14 @@ filesystem, and WebSocket RPC operations require scoped credentials.
 - Separate public-edge limits for the control plane, environment traffic, and
   FRP WebSocket handshakes.
 - Exact `/~!frp` routing, WebSocket enforcement, a 64 KiB handshake body cap,
-  and fail-closed apex paths at both Nginx tiers.
+  exact same-host Origin enforcement, and fail-closed apex paths at both Nginx
+  tiers. The allowlist includes FRP 0.70.1's native `http://` Origin and the
+  private monitor's `https://` Origin; connector tokens remain the actual
+  authorization boundary.
+- A 64 KiB body cap around every small environment bootstrap, token-exchange,
+  pairing-token, WebSocket-ticket, and relay-signed control route at both
+  Nginx tiers. Large authenticated orchestration dispatches retain their
+  separate upload allowance.
 - An explicit edge default server that returns 421 for unknown SNI/Host values
   instead of routing them through an unrelated virtual host.
 - HSTS, anti-framing, MIME-sniffing and referrer headers.
@@ -78,7 +85,14 @@ filesystem, and WebSocket RPC operations require scoped credentials.
   invariants, completed Coolify deployments, health, OAuth/JWKS, invalid relay
   authentication, hostile-origin CORS, disabled documentation routes, Host
   rejection, fail-closed Connect paths, security headers, CSP, and the Connect
-  WebSocket upgrade.
+  WebSocket upgrade. A terminal Coolify failure receives one bounded retry for
+  only the failed resource; cancellation, unknown state, and timeout remain
+  fail-closed rather than risking overlapping deployments.
+- Remote-server releases are complete, immutable, commit-addressed artifacts
+  in the self-hosted Gitea Generic Package Registry. An offline-rooted Ed25519
+  signature binds version, platform, filename, size, SHA-256, and commit. A
+  configured remote fails closed instead of falling back to public npm, and
+  the same signed archive supplies its pinned FRP client.
 
 ## Residual risks and decisions
 
@@ -105,6 +119,14 @@ filesystem, and WebSocket RPC operations require scoped credentials.
 - Relay regression tests assert that environment list and lookup queries are
   scoped to the authenticated OAuth subject and that a connector performs no
   environment request when that subject has no matching link.
+- On 2026-08-10, isolated restarts of FRPS, the active remote T3 service,
+  relay, account/OIDC, hosted web, PostgreSQL, the second proxy, and the public
+  edge all recovered without changing the environment ID, managed hostname,
+  or recorded thread state. PostgreSQL performed an orderly shutdown without
+  crash recovery. The public edge retained strict Host rejection, and neither
+  proxy restart exposed an internal port or required connector relinking. The
+  complete procedure and runtime-baseline correction are recorded in the
+  failure-recovery runbook.
 
 ### Accepted or deferred
 

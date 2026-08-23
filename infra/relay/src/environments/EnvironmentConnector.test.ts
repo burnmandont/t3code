@@ -216,6 +216,7 @@ function makeLinks(
 ): EnvironmentLinks.EnvironmentLinks["Service"] {
   return {
     upsert: () => Effect.void,
+    ensureRelinkAllowed: () => Effect.void,
     listUsersForEnvironment: () => Effect.succeed([]),
     listDeliveryUsersForEnvironment: () => Effect.succeed([]),
     listPublicKeysForEnvironment: () => Effect.succeed([environmentKeyPair.publicKey]),
@@ -234,6 +235,7 @@ function makeLinks(
         ...overrides,
       }),
     revokeForUser: () => Effect.succeed(false),
+    retireForUser: () => Effect.succeed(null),
     revokeOtherUsersForEnvironmentKey: () => Effect.succeed([]),
   };
 }

@@ -1,11 +1,32 @@
 import { UserButton } from "@clerk/react";
-import { CircleUserRoundIcon, LogInIcon, ServerIcon, SmartphoneIcon } from "lucide-react";
+import {
+  CircleUserRoundIcon,
+  Link2Icon,
+  LogInIcon,
+  LogOutIcon,
+  RefreshCwIcon,
+  ServerIcon,
+  SettingsIcon,
+  SmartphoneIcon,
+} from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { useCloudAuth } from "../../cloud/auth";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/menu";
 import { MobileClientsUserProfilePage } from "./MobileClientsUserProfilePage";
 import { T3ConnectUserProfilePage } from "./T3ConnectUserProfilePage";
+import { SovereignSignOutDialog } from "./SovereignSignOutDialog";
 import { useT3ConnectAuthPrompt } from "./useT3ConnectAuthPrompt";
 
 export function T3ConnectSidebarSignIn() {
@@ -21,24 +42,64 @@ export function T3ConnectSidebarAvatar() {
 }
 
 function ConfiguredT3ConnectSidebarAvatar() {
-  const { accountLabel, isLoaded, isSignedIn, provider, signOut } = useCloudAuth();
+  const { accountLabel, accountName, isLoaded, isSignedIn, provider, switchAccount } =
+    useCloudAuth();
+  const navigate = useNavigate();
+  const [signOutOpen, setSignOutOpen] = useState(false);
 
   if (!isLoaded || !isSignedIn) return null;
 
   if (provider === "sovereign") {
     return (
-      <SidebarMenu className="w-auto shrink-0">
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            className="size-9 px-0"
-            title={accountLabel ? `Sign out ${accountLabel}` : "Sign out of T3 Connect"}
-            onClick={() => void signOut()}
-          >
-            <CircleUserRoundIcon />
-            <span className="sr-only">Sign out of T3 Connect</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
+      <>
+        <DropdownMenu>
+          <SidebarMenu className="w-auto shrink-0">
+            <SidebarMenuItem>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    size="icon"
+                    className="size-9! shrink-0"
+                    title={accountLabel ? `Account: ${accountLabel}` : "T3 Connect account"}
+                  />
+                }
+              >
+                <CircleUserRoundIcon />
+                <span className="sr-only">Open T3 Connect account menu</span>
+              </DropdownMenuTrigger>
+            </SidebarMenuItem>
+          </SidebarMenu>
+          <DropdownMenuContent side="top" align="start" className="w-64">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="space-y-0.5">
+                <div className="truncate text-foreground">
+                  {accountName ?? "T3 Connect account"}
+                </div>
+                {accountLabel ? <div className="truncate font-normal">{accountLabel}</div> : null}
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => void navigate({ to: "/settings/profile" })}>
+              <SettingsIcon />
+              Account settings
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void navigate({ to: "/settings/connections" })}>
+              <Link2Icon />
+              Connections
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => switchAccount()}>
+              <RefreshCwIcon />
+              Switch account
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={() => setSignOutOpen(true)}>
+              <LogOutIcon />
+              Sign out…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <SovereignSignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
+      </>
     );
   }
 

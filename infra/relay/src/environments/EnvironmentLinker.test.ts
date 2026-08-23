@@ -14,6 +14,7 @@ import * as Schema from "effect/Schema";
 
 import * as DpopProofs from "../auth/DpopProofs.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
+import * as RelayDb from "../RelayDbService.ts";
 import * as EnvironmentCredentials from "./EnvironmentCredentials.ts";
 import * as EnvironmentLinks from "./EnvironmentLinks.ts";
 import * as RelayConfiguration from "../Config.ts";
@@ -47,6 +48,7 @@ const config = RelayConfiguration.RelayConfiguration.of({
   managedEndpointNamespace: undefined,
 });
 const isEnvironmentLinkProofInvalid = Schema.is(EnvironmentLinker.EnvironmentLinkProofInvalid);
+const isEnvironmentLinkRetired = Schema.is(EnvironmentLinks.EnvironmentLinkRetired);
 
 function signTestJwt(payload: object, typ: string, privateKey: string): string {
   const header = Buffer.from(JSON.stringify({ alg: "EdDSA", typ })).toString("base64url");
@@ -113,6 +115,7 @@ const makeRequest = makeRequestFor(false);
 
 function testLayer(input?: {
   readonly upsert?: EnvironmentLinks.EnvironmentLinks["Service"]["upsert"];
+  readonly ensureRelinkAllowed?: EnvironmentLinks.EnvironmentLinks["Service"]["ensureRelinkAllowed"];
   readonly consume?: DpopProofs.DpopProofReplay["Service"]["consume"];
   readonly deprovision?: ManagedEndpointProvider.ManagedEndpointProvider["Service"]["deprovision"];
   readonly provision?: ManagedEndpointProvider.ManagedEndpointProvider["Service"]["provision"];
@@ -123,6 +126,10 @@ function testLayer(input?: {
     Layer.provide(
       Layer.mergeAll(
         RelayConfiguration.layer(config),
+        Layer.succeed(
+          RelayDb.RelayTransactions,
+          RelayDb.RelayTransactions.of({ withTransaction: (effect) => effect }),
+        ),
         Layer.succeed(DpopProofs.DpopProofReplay, {
           verifyAndConsume: () => Effect.die("unexpected DPoP proof verification"),
           consume: input?.consume ?? (() => Effect.succeed(true)),
@@ -130,12 +137,14 @@ function testLayer(input?: {
         }),
         Layer.succeed(EnvironmentLinks.EnvironmentLinks, {
           upsert: input?.upsert ?? (() => Effect.void),
+          ensureRelinkAllowed: input?.ensureRelinkAllowed ?? (() => Effect.void),
           listUsersForEnvironment: () => Effect.succeed([]),
           listDeliveryUsersForEnvironment: () => Effect.succeed([]),
           listPublicKeysForEnvironment: () => Effect.succeed([]),
           listForUser: () => Effect.succeed([]),
           getForUser: () => Effect.succeed(null),
           revokeForUser: () => Effect.succeed(false),
+          retireForUser: () => Effect.succeed(null),
           revokeOtherUsersForEnvironmentKey:
             input?.revokeOtherUsersForEnvironmentKey ?? (() => Effect.succeed([])),
         }),
@@ -166,6 +175,95 @@ function testLayer(input?: {
 }
 
 describe("EnvironmentLinker", () => {
+  it.effect("rejects a remotely retired identity before provisioning", () => {
+    let provisioned = false;
+    let persisted = false;
+    return Effect.gen(function* () {
+      const { request } = yield* makeRequestFor(true);
+      const linker = yield* EnvironmentLinker.EnvironmentLinker;
+      const result = yield* Effect.result(linker.link({ userId: "user_123", request }));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(isEnvironmentLinkRetired(result.failure)).toBe(true);
+      }
+      expect(provisioned).toBe(false);
+      expect(persisted).toBe(false);
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          ensureRelinkAllowed: () =>
+            Effect.fail(
+              new EnvironmentLinks.EnvironmentLinkRetired({
+                userId: "user_123",
+                environmentId: "env-link-test",
+              }),
+            ),
+          provision: () =>
+            Effect.sync(() => {
+              provisioned = true;
+              return {
+                endpoint: {
+                  httpBaseUrl: "https://managed.example.test/",
+                  wsBaseUrl: "wss://managed.example.test/ws",
+                  providerKind: "cloudflare_tunnel" as const,
+                },
+                runtime: {
+                  providerKind: "cloudflare_tunnel" as const,
+                  connectorToken: "connector-token",
+                },
+              };
+            }),
+          upsert: () =>
+            Effect.sync(() => {
+              persisted = true;
+            }),
+        }),
+      ),
+    );
+  });
+
+  it.effect("cleans a managed allocation when retirement wins the upsert race", () => {
+    let deprovisioned = false;
+    return Effect.gen(function* () {
+      const { request } = yield* makeRequestFor(true);
+      const linker = yield* EnvironmentLinker.EnvironmentLinker;
+      const result = yield* Effect.result(linker.link({ userId: "user_123", request }));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(isEnvironmentLinkRetired(result.failure)).toBe(true);
+      }
+      expect(deprovisioned).toBe(true);
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          provision: () =>
+            Effect.succeed({
+              endpoint: {
+                httpBaseUrl: "https://managed.example.test/",
+                wsBaseUrl: "wss://managed.example.test/ws",
+                providerKind: "cloudflare_tunnel",
+              },
+              runtime: {
+                providerKind: "cloudflare_tunnel",
+                connectorToken: "connector-token",
+              },
+            }),
+          upsert: () =>
+            Effect.fail(
+              new EnvironmentLinks.EnvironmentLinkRetired({
+                userId: "user_123",
+                environmentId: "env-link-test",
+              }),
+            ),
+          deprovision: () =>
+            Effect.sync(() => {
+              deprovisioned = true;
+            }),
+        }),
+      ),
+    );
+  });
+
   it.effect("allows a managed HTTP endpoint only on a loopback localhost name", () =>
     Effect.gen(function* () {
       const { request } = yield* makeRequestFor(true);

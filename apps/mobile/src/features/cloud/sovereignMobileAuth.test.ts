@@ -47,6 +47,7 @@ function makeDependencies(
     readonly promptResult?: unknown;
     readonly exchanged?: ReturnType<typeof tokenResponse>;
     readonly refreshed?: ReturnType<typeof tokenResponse>;
+    readonly fetch?: typeof globalThis.fetch;
   } = {},
 ) {
   let stored = input.stored ?? null;
@@ -81,6 +82,13 @@ function makeDependencies(
       },
     ),
   );
+  const fetch =
+    input.fetch ??
+    (vi.fn(async (request: string | URL | Request) =>
+      request.toString().endsWith("/oauth2/userinfo")
+        ? Response.json({ sub: "account-1", email: "sam@example.test", name: "Sam" })
+        : new Response(null, { status: 200 }),
+    ) as typeof globalThis.fetch);
   const dependencies = {
     read: vi.fn(async () => stored),
     write,
@@ -89,8 +97,9 @@ function makeDependencies(
     exchangeCode,
     refresh,
     nowSeconds: () => input.nowSeconds ?? 1_000,
+    fetch,
   } as unknown as SovereignMobileAuthDependencies;
-  return { dependencies, createRequest, exchangeCode, refresh, remove, write };
+  return { dependencies, createRequest, exchangeCode, fetch, refresh, remove, write };
 }
 
 describe("sovereign mobile OAuth", () => {
@@ -106,7 +115,12 @@ describe("sovereign mobile OAuth", () => {
 
     await client.initialize();
 
-    expect(client.snapshot()).toEqual({ isSignedIn: true, userId: "account-1" });
+    expect(client.snapshot()).toEqual({
+      isSignedIn: true,
+      userId: "account-1",
+      email: null,
+      name: null,
+    });
     expect(await client.getToken()).toBe(accessToken("account-1"));
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -166,8 +180,13 @@ describe("sovereign mobile OAuth", () => {
         tokenEndpoint: "https://auth.example.test/api/auth/oauth2/token",
       },
     );
-    expect(write).toHaveBeenCalledOnce();
-    expect(client.snapshot()).toEqual({ isSignedIn: true, userId: "account-1" });
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(client.snapshot()).toEqual({
+      isSignedIn: true,
+      userId: "account-1",
+      email: "sam@example.test",
+      name: "Sam",
+    });
   });
 
   it("clears malformed stored sessions before exposing them", async () => {
@@ -183,6 +202,63 @@ describe("sovereign mobile OAuth", () => {
     await client.initialize();
 
     expect(remove).toHaveBeenCalledOnce();
-    expect(client.snapshot()).toEqual({ isSignedIn: false, userId: null });
+    expect(client.snapshot()).toEqual({
+      isSignedIn: false,
+      userId: null,
+      email: null,
+      name: null,
+    });
+  });
+
+  it("revokes the refresh token and clears the secure-store session", async () => {
+    const fetch = vi.fn(async (request: string | URL | Request, init?: RequestInit) => {
+      expect(request.toString()).toBe("https://auth.example.test/api/auth/oauth2/revoke");
+      const body = new URLSearchParams(init?.body as string);
+      expect(body.get("client_id")).toBe("t3-code");
+      expect(body.get("token")).toBe("refresh-1");
+      return new Response(null, { status: 200 });
+    });
+    const stored = JSON.stringify({
+      accessToken: accessToken("account-1"),
+      refreshToken: "refresh-1",
+      expiresIn: 3_600,
+      issuedAt: 1_000,
+    });
+    const { dependencies, remove } = makeDependencies({
+      stored,
+      fetch: fetch as typeof globalThis.fetch,
+    });
+    const client = makeSovereignMobileAuthClient(config, dependencies);
+
+    await expect(client.signOut()).resolves.toEqual({
+      isSignedIn: false,
+      userId: null,
+      email: null,
+      name: null,
+      revoked: true,
+    });
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
+  it("still clears secure storage when mobile revocation is unavailable", async () => {
+    const stored = JSON.stringify({
+      accessToken: accessToken("account-1"),
+      refreshToken: "refresh-1",
+      expiresIn: 3_600,
+      issuedAt: 1_000,
+    });
+    const { dependencies, remove } = makeDependencies({
+      stored,
+      fetch: vi.fn(async () => {
+        throw new Error("offline");
+      }) as typeof globalThis.fetch,
+    });
+    const client = makeSovereignMobileAuthClient(config, dependencies);
+
+    await expect(client.signOut()).resolves.toMatchObject({
+      isSignedIn: false,
+      revoked: false,
+    });
+    expect(remove).toHaveBeenCalledOnce();
   });
 });

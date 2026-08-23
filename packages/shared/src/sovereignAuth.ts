@@ -6,11 +6,19 @@ export const SOVEREIGN_TOKEN_STORAGE_KEY = "t3code:sovereign-oauth-token:v1";
 export const SOVEREIGN_TRANSACTION_STORAGE_KEY = "t3code:sovereign-oauth-transaction:v1";
 const TOKEN_EXPIRY_SKEW_MS = 30_000;
 
+const SovereignUserInfo = Schema.Struct({
+  userId: Schema.String,
+  email: Schema.NullOr(Schema.String),
+  name: Schema.NullOr(Schema.String),
+});
+export type SovereignUserInfo = typeof SovereignUserInfo.Type;
+
 const StoredToken = Schema.fromJsonString(
   Schema.Struct({
     accessToken: Schema.String,
     refreshToken: Schema.String,
     expiresAt: Schema.Number,
+    userInfo: Schema.optional(SovereignUserInfo),
   }),
 );
 type StoredToken = typeof StoredToken.Type;
@@ -29,9 +37,16 @@ const OAuthTokenResponse = Schema.Struct({
   expires_in: Schema.Number,
 });
 
+const OAuthUserInfoResponse = Schema.Struct({
+  sub: Schema.String,
+  email: Schema.optional(Schema.NullOr(Schema.String)),
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
 const decodeStoredToken = Schema.decodeUnknownOption(StoredToken);
 const decodeTransaction = Schema.decodeUnknownOption(OAuthTransaction);
 const decodeTokenResponse = Schema.decodeUnknownOption(OAuthTokenResponse);
+const decodeUserInfoResponse = Schema.decodeUnknownOption(OAuthUserInfoResponse);
 const encodeStoredToken = Schema.encodeSync(StoredToken);
 const encodeTransaction = Schema.encodeSync(OAuthTransaction);
 
@@ -41,6 +56,8 @@ export interface SovereignAuthConfiguration {
   readonly appHost: string;
   readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;
+  readonly userInfoEndpoint: string;
+  readonly revocationEndpoint: string;
   readonly clientId: string;
   readonly redirectUri: string;
   readonly resource: string;
@@ -106,7 +123,10 @@ export function makeSovereignAuthClient(
     dependencies.transactionStorage.removeItem(SOVEREIGN_TRANSACTION_STORAGE_KEY);
   };
 
-  const exchange = async (params: Record<string, string>): Promise<StoredToken> => {
+  const exchange = async (
+    params: Record<string, string>,
+    previousUserInfo?: SovereignUserInfo,
+  ): Promise<StoredToken> => {
     const response = await dependencies.fetch(config.tokenEndpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -124,16 +144,20 @@ export function makeSovereignAuthClient(
       accessToken: decoded.value.access_token,
       refreshToken,
       expiresAt: now() + decoded.value.expires_in * 1_000,
+      ...(previousUserInfo === undefined ? {} : { userInfo: previousUserInfo }),
     });
   };
 
   const refresh = async (token: StoredToken): Promise<StoredToken | null> => {
     try {
-      return await exchange({
-        grant_type: "refresh_token",
-        refresh_token: token.refreshToken,
-        client_id: config.clientId,
-      });
+      return await exchange(
+        {
+          grant_type: "refresh_token",
+          refresh_token: token.refreshToken,
+          client_id: config.clientId,
+        },
+        token.userInfo,
+      );
     } catch {
       clear();
       return null;
@@ -150,7 +174,10 @@ export function makeSovereignAuthClient(
     return (await refreshInFlight)?.accessToken ?? null;
   };
 
-  const beginSignIn = async (returnUrl: string): Promise<string> => {
+  const beginSignIn = async (
+    returnUrl: string,
+    options: { readonly prompt?: "login" } = {},
+  ): Promise<string> => {
     const parsedReturnUrl = new URL(returnUrl, config.appOrigin);
     if (
       parsedReturnUrl.protocol !== config.appProtocol ||
@@ -177,7 +204,53 @@ export function makeSovereignAuthClient(
     url.searchParams.set("state", state);
     url.searchParams.set("code_challenge", challenge);
     url.searchParams.set("code_challenge_method", "S256");
+    if (options.prompt) url.searchParams.set("prompt", options.prompt);
     return url.toString();
+  };
+
+  const getUserInfo = async (): Promise<SovereignUserInfo | null> => {
+    const accessToken = await getToken();
+    if (!accessToken) return null;
+    const response = await dependencies.fetch(config.userInfoEndpoint, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok)
+      throw new SovereignAuthError("The account service rejected the OAuth user-info request.");
+    const decoded = decodeUserInfoResponse(await response.json());
+    if (Option.isNone(decoded))
+      throw new SovereignAuthError("The account service returned invalid OAuth user information.");
+    const userInfo: SovereignUserInfo = {
+      userId: decoded.value.sub,
+      email: decoded.value.email ?? null,
+      name: decoded.value.name ?? null,
+    };
+    const token = readToken(dependencies.tokenStorage);
+    if (token) saveToken({ ...token, userInfo });
+    return userInfo;
+  };
+
+  const signOut = async (): Promise<{ readonly revoked: boolean }> => {
+    const token = readToken(dependencies.tokenStorage);
+    let revoked = token === null;
+    try {
+      if (token) {
+        const response = await dependencies.fetch(config.revocationEndpoint, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: config.clientId,
+            token: token.refreshToken,
+            token_type_hint: "refresh_token",
+          }),
+        });
+        revoked = response.ok;
+      }
+    } catch {
+      revoked = false;
+    } finally {
+      clear();
+    }
+    return { revoked };
   };
 
   const completeSignInOnce = async (callbackUrl: string): Promise<string> => {
@@ -212,8 +285,13 @@ export function makeSovereignAuthClient(
   const snapshot = () => {
     const token = readToken(dependencies.tokenStorage);
     const userId = token ? tokenSubject(token.accessToken) : null;
-    return { isSignedIn: userId !== null, userId };
+    return {
+      isSignedIn: userId !== null,
+      userId,
+      email: token?.userInfo?.email ?? null,
+      name: token?.userInfo?.name ?? null,
+    };
   };
 
-  return { beginSignIn, completeSignIn, getToken, snapshot, clear };
+  return { beginSignIn, completeSignIn, getToken, getUserInfo, signOut, snapshot, clear };
 }

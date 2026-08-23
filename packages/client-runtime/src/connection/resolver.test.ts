@@ -80,6 +80,7 @@ function relayClient(
     createEnvironmentLinkChallenge: () => unsupported("createEnvironmentLinkChallenge"),
     linkEnvironment: () => unsupported("linkEnvironment"),
     unlinkEnvironment: () => unsupported("unlinkEnvironment"),
+    revokeEnvironment: () => unsupported("revokeEnvironment"),
     getEnvironmentStatus: () => unsupported("getEnvironmentStatus"),
     connectEnvironment,
     registerDevice: () => unsupported("registerDevice"),

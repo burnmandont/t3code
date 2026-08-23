@@ -14,6 +14,7 @@ import * as BootService from "../cloud/bootService.ts";
 import {
   acquireRelayClientForLink,
   formatHeadlessAuthorizationPrompt,
+  formatCloudStatus,
   formatRelayClientReady,
   headlessSessionConfig,
   isPublishAgentActivityEnabledValue,
@@ -36,6 +37,31 @@ it("explains how to complete headless authorization", () => {
 
 it("formats relay readiness without printing its installation path", () => {
   assert.equal(formatRelayClientReady("0.70.1"), "✓ Relay client ready · frpc 0.70.1");
+});
+
+it("reports a remotely retired identity as terminal in human and JSON status", () => {
+  const status = {
+    desired: false,
+    authenticated: true,
+    linked: false,
+    retired: true,
+    retiredAt: "2026-08-09T20:00:00.000Z",
+    cloudUserId: null,
+    relayUrl: null,
+    publishAgentActivity: false,
+    relayClient: {
+      status: "available",
+      executablePath: "/tmp/frpc",
+      source: "managed",
+      version: "0.70.1",
+    },
+  } as const;
+
+  const human = formatCloudStatus(status);
+  assert.include(human, "Environment link: remotely revoked");
+  assert.include(human, "Remotely revoked: 2026-08-09T20:00:00.000Z");
+  assert.include(human, "cannot reconnect");
+  assert.deepEqual(JSON.parse(formatCloudStatus(status, { json: true })), status);
 });
 
 const readHeadlessSessionConfig = (env: Record<string, string>) =>
