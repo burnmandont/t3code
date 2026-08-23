@@ -187,6 +187,43 @@ generated runner script, clears stale launcher state, and starts a fresh server 
 discover or reuse a live one. You should not normally need to delete `~/.t3/ssh-launch` or kill `t3`
 processes manually.
 
+### Forward a Remote Port to the Desktop
+
+The desktop app can expose a service listening on an environment's loopback
+interface as a loopback port on your computer. This works with T3 Connect,
+direct HTTPS or Tailscale connections, and desktop-managed SSH environments.
+
+1. Open **Settings** → **Connections** in the desktop app.
+2. Under **Port forwarding**, select an environment.
+3. Enter the remote port. Leave the local port blank to choose an available
+   port automatically. T3 Code first tries the same port, then nearby ports,
+   and finally an operating-system-assigned free port. Enter a local port when
+   you need an exact mapping; an exact-port conflict is reported instead of
+   silently changing it.
+4. Choose **Start** and connect to the displayed `127.0.0.1` address.
+
+For the active environment, the cable icon in the conversation header opens a
+compact version of the same controls and shows how many forwards are running.
+Each forward reports **Listening** until a local application connects,
+**connecting** while T3 Code authorizes and opens the remote bridge, and
+**connected** only after that bridge is established. A failed bridge shows its
+error without stopping the loopback listener, so a later connection can retry.
+Long-running relay connections refresh their authorization automatically; if a
+credential is rejected during forwarding, the desktop reconnects that
+environment and retries once.
+
+A forward always uses the connection method currently selected for its
+environment. When you switch between T3 Connect and SSH, T3 Code keeps the
+desktop loopback listener but closes its active TCP sessions; applications that
+reconnect use the newly selected method. Existing TCP streams cannot be moved
+between transports without interruption.
+
+The forward is TCP-only and can reach only the remote environment's loopback
+interface. Services bound to either IPv4 `127.0.0.1` or IPv6 `::1` through
+`localhost` are supported. The forward is not exposed to your LAN or the public
+Internet. Manual forwards are currently runtime-only: they stop when you quit
+the desktop app, remove the environment, or choose **Stop**.
+
 ## Updating a Remote Server
 
 When the T3 Code web or desktop app and a remote server use different versions, a warning appears in
