@@ -78,7 +78,10 @@ jobs:
           pnpm --filter @t3tools/web test
 
       - name: Test deployment gate
-        run: node --test infra/sovereign/ci/deploy-and-verify.test.mjs
+        run: |
+          node --test infra/sovereign/backup/backup.test.mjs
+          node --test infra/sovereign/ci/deploy-and-verify.test.mjs
+          node --test infra/sovereign/monitor/monitor.test.mjs
 
       - name: Build sovereign web and desktop applications
         env:

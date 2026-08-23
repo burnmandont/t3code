@@ -121,6 +121,7 @@ function makeDeliveryAttempts(
     record: () => Effect.void,
     claimSourceJob: () => Effect.succeed("claimed"),
     completeSourceJob: () => Effect.void,
+    pruneBefore: () => Effect.void,
     ...overrides,
   };
 }

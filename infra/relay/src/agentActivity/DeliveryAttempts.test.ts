@@ -321,6 +321,35 @@ describe("DeliveryAttempts", () => {
     );
   });
 
+  it.effect("prunes delivery-attempt audit rows before the retention cutoff", () => {
+    const whereClauses: Array<unknown> = [];
+    const fakeDb = {
+      delete: (table: unknown) => {
+        expect(table).toBe(relayDeliveryAttempts);
+        return {
+          where: (clause: unknown) => {
+            whereClauses.push(clause);
+            return Effect.void;
+          },
+        };
+      },
+    } as unknown as RelayDb.RelayDb["Service"];
+
+    return Effect.gen(function* () {
+      const attempts = yield* DeliveryAttempts.DeliveryAttempts;
+      yield* attempts.pruneBefore({ createdBefore: "2026-07-09T16:00:00.000Z" });
+
+      expect(whereClauses).toHaveLength(1);
+    }).pipe(
+      Effect.provide(
+        DeliveryAttempts.layer.pipe(
+          Layer.provide(NodeCryptoLayer.layer),
+          Layer.provide(Layer.succeed(RelayDb.RelayDb, fakeDb)),
+        ),
+      ),
+    );
+  });
+
   it.effect("preserves operation context and causes for persistence failures", () => {
     const cause = new Error("database unavailable");
     const fakeDb = {
@@ -338,6 +367,9 @@ describe("DeliveryAttempts", () => {
         set: () => ({
           where: () => Effect.fail(cause),
         }),
+      }),
+      delete: () => ({
+        where: () => Effect.fail(cause),
       }),
     } as unknown as RelayDb.RelayDb["Service"];
 
@@ -367,6 +399,9 @@ describe("DeliveryAttempts", () => {
       );
       const completionError = yield* Effect.flip(
         attempts.completeSourceJob({ sourceJobId: "job-3", apnsStatus: 500 }),
+      );
+      const pruneError = yield* Effect.flip(
+        attempts.pruneBefore({ createdBefore: "2026-07-09T16:00:00.000Z" }),
       );
 
       expect(recordError).toMatchObject({
@@ -401,6 +436,12 @@ describe("DeliveryAttempts", () => {
         kind: null,
         cause,
         message: "Failed to persist APNs delivery attempt during complete-source-job.",
+      });
+      expect(pruneError).toMatchObject({
+        operation: "prune-before",
+        sourceJobId: null,
+        cause,
+        message: "Failed to persist APNs delivery attempt during prune-before.",
       });
     }).pipe(
       Effect.provide(

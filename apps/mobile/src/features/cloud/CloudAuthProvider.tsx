@@ -69,6 +69,59 @@ function resetManagedRelayTokenCache() {
   );
 }
 
+type SovereignMobileAuthClient = Pick<
+  ReturnType<typeof makeSovereignMobileAuthClient>,
+  "clear" | "getToken" | "signIn" | "snapshot"
+>;
+
+interface SovereignAccountDeparture {
+  readonly userId: string;
+  readonly accessToken: string;
+}
+
+/**
+ * Captures the departing account credential before native OAuth can replace it.
+ * A cancelled sign-in leaves the current account untouched and emits no cleanup.
+ */
+export async function signInSovereignMobileAccount(
+  client: SovereignMobileAuthClient,
+  onAccountDeparture: (departure: SovereignAccountDeparture) => void,
+) {
+  const previous = client.snapshot();
+  const previousAccessToken = previous.userId ? await client.getToken() : null;
+  const next = await client.signIn();
+  if (previous.userId && previous.userId !== next.userId && previousAccessToken) {
+    onAccountDeparture({ userId: previous.userId, accessToken: previousAccessToken });
+  }
+  return next;
+}
+
+/** Clears local authorization first, then schedules best-effort server teardown. */
+export async function signOutSovereignMobileAccount(
+  client: SovereignMobileAuthClient,
+  onAccountDeparture: (departure: SovereignAccountDeparture) => void,
+) {
+  const previous = client.snapshot();
+  const previousAccessToken = previous.userId ? await client.getToken() : null;
+  await client.clear();
+  if (previous.userId && previousAccessToken) {
+    onAccountDeparture({ userId: previous.userId, accessToken: previousAccessToken });
+  }
+  return client.snapshot();
+}
+
+function queueAgentAwarenessDeviceUnregistration(departure: SovereignAccountDeparture): void {
+  const fixedTokenProvider = async () => departure.accessToken;
+  void (async () => {
+    const result = await settleAsyncResult(() =>
+      runtime.runPromiseExit(unregisterAgentAwarenessDeviceForCurrentUser(fixedTokenProvider)),
+    );
+    reportAtomCommandResult(result, {
+      label: `cloud account device cleanup (${departure.userId})`,
+    });
+  })();
+}
+
 export function deactivateCloudRelayAccount(): void {
   setAgentAwarenessRelayTokenProvider(null);
   setManagedRelaySession(appAtomRegistry, null);
@@ -91,10 +144,6 @@ function RelayCloudAuthBridge(props: { readonly children: ReactNode }) {
     reportFailure: false,
     reportDefect: false,
   });
-  const previousTokenProviderRef = useRef<{
-    readonly userId: string;
-    readonly provider: () => Promise<string | null>;
-  } | null>(null);
   const observedAccountRef = useRef<string | null | undefined>(undefined);
   const accountTransitionRef = useRef<Promise<void> | null>(null);
 
@@ -109,27 +158,10 @@ function RelayCloudAuthBridge(props: { readonly children: ReactNode }) {
       previousObservedAccount !== undefined && previousObservedAccount !== nextAccount;
     if (isAccountTransition && nextAccount === null) clearConnectOnboardingRequest();
 
-    const queueAccountCleanup = (
-      previous: {
-        readonly userId: string;
-        readonly provider: () => Promise<string | null>;
-      } | null,
-    ) => {
+    const queueAccountCleanup = () => {
       const previousTransition = accountTransitionRef.current ?? Promise.resolve();
       accountTransitionRef.current = previousTransition.then(async () => {
-        const cleanup = [
-          resetManagedRelayTokenCache(),
-          removeRelayEnvironments(),
-          ...(previous
-            ? [
-                settleAsyncResult(() =>
-                  runtime.runPromiseExit(
-                    unregisterAgentAwarenessDeviceForCurrentUser(previous.provider),
-                  ),
-                ),
-              ]
-            : []),
-        ];
+        const cleanup = [resetManagedRelayTokenCache(), removeRelayEnvironments()];
         const results = await Promise.all(cleanup);
         for (const result of results) {
           reportAtomCommandResult(result, { label: "cloud account cleanup" });
@@ -139,18 +171,14 @@ function RelayCloudAuthBridge(props: { readonly children: ReactNode }) {
     };
 
     if (!isSignedIn || !userId) {
-      const previous = previousTokenProviderRef.current;
-      previousTokenProviderRef.current = null;
       deactivateCloudRelayAccount();
-      if (previousObservedAccount !== null) void queueAccountCleanup(previous);
+      if (previousObservedAccount !== null) void queueAccountCleanup();
       return;
     }
 
-    const previous = previousTokenProviderRef.current;
     const tokenProvider = getToken;
     const activateSession = () => {
       if (cancelled) return;
-      previousTokenProviderRef.current = { userId, provider: tokenProvider };
       activateCloudRelayAccount(userId, tokenProvider);
       if (isAccountTransition) requestConnectOnboarding(userId);
     };
@@ -168,9 +196,8 @@ function RelayCloudAuthBridge(props: { readonly children: ReactNode }) {
       previousObservedAccount !== null &&
       previousObservedAccount !== userId
     ) {
-      previousTokenProviderRef.current = null;
       deactivateCloudRelayAccount();
-      activateAfterTransition(queueAccountCleanup(previous));
+      activateAfterTransition(queueAccountCleanup());
     } else {
       activateAfterTransition(accountTransitionRef.current ?? Promise.resolve());
     }
@@ -182,7 +209,6 @@ function RelayCloudAuthBridge(props: { readonly children: ReactNode }) {
 
   useEffect(
     () => () => {
-      previousTokenProviderRef.current = null;
       releaseAgentAwarenessRelayTokenProvider();
       setManagedRelaySession(appAtomRegistry, null);
     },
@@ -233,12 +259,18 @@ function SovereignCloudAuthSessionProvider({
     return token;
   }, [client]);
   const signIn = useCallback(async () => {
-    await client.signIn();
-    setSession({ isLoaded: true, ...client.snapshot() });
+    const next = await signInSovereignMobileAccount(
+      client,
+      queueAgentAwarenessDeviceUnregistration,
+    );
+    setSession({ isLoaded: true, ...next });
   }, [client]);
   const signOut = useCallback(async () => {
-    await client.clear();
-    setSession({ isLoaded: true, ...client.snapshot() });
+    const next = await signOutSovereignMobileAccount(
+      client,
+      queueAgentAwarenessDeviceUnregistration,
+    );
+    setSession({ isLoaded: true, ...next });
   }, [client]);
   const value = useMemo<MobileCloudAuthSession>(
     () => ({

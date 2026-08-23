@@ -3,7 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lt } from "drizzle-orm";
 import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
 
@@ -13,7 +13,12 @@ import { relayDeliveryAttempts } from "../persistence/schema.ts";
 export class DeliveryAttemptRecordPersistenceError extends Schema.TaggedErrorClass<DeliveryAttemptRecordPersistenceError>()(
   "DeliveryAttemptRecordPersistenceError",
   {
-    operation: Schema.Literals(["record", "claim-source-job", "complete-source-job"]),
+    operation: Schema.Literals([
+      "record",
+      "claim-source-job",
+      "complete-source-job",
+      "prune-before",
+    ]),
     sourceJobId: Schema.NullOr(Schema.String),
     userId: Schema.NullOr(Schema.String),
     environmentId: Schema.NullOr(Schema.String),
@@ -52,6 +57,8 @@ export interface DeliveryAttemptCompletionInput {
 
 export type DeliverySourceJobClaimResult = "claimed" | "completed" | "in_flight";
 
+export const DELIVERY_ATTEMPT_RETENTION = { days: 30 } as const;
+
 export class DeliveryAttempts extends Context.Service<
   DeliveryAttempts,
   {
@@ -64,6 +71,9 @@ export class DeliveryAttempts extends Context.Service<
     readonly completeSourceJob: (
       input: DeliveryAttemptCompletionInput,
     ) => Effect.Effect<void, DeliveryAttemptRecordPersistenceError>;
+    readonly pruneBefore: (input: {
+      readonly createdBefore: string;
+    }) => Effect.Effect<void, DeliveryAttemptRecordPersistenceError>;
   }
 >()("t3code-relay/agentActivity/DeliveryAttempts") {}
 
@@ -236,6 +246,26 @@ export const make = Effect.gen(function* () {
               new DeliveryAttemptRecordPersistenceError({
                 operation: "complete-source-job",
                 sourceJobId: input.sourceJobId,
+                userId: null,
+                environmentId: null,
+                threadId: null,
+                deviceId: null,
+                kind: null,
+                cause,
+              }),
+          ),
+        );
+    }),
+    pruneBefore: Effect.fn("relay.delivery_attempts.prune_before")(function* (input) {
+      yield* db
+        .delete(relayDeliveryAttempts)
+        .where(lt(relayDeliveryAttempts.createdAt, input.createdBefore))
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new DeliveryAttemptRecordPersistenceError({
+                operation: "prune-before",
+                sourceJobId: null,
                 userId: null,
                 environmentId: null,
                 threadId: null,

@@ -78,16 +78,22 @@ dependencies represented at their boundary rather than mocking internal behavior
 
 `src/sovereign.ts` runs the existing relay API as a conventional Node service and runs the private
 frps authorization callback on a second listener. It uses ordinary PostgreSQL, the `t3_relay`
-endpoint provider, JWKS-verified OAuth access tokens, and local logs. APNs delivery is disabled.
-The runtime does not read Clerk, Cloudflare, PlanetScale, Axiom, or APNs configuration.
+endpoint provider, JWKS-verified OAuth access tokens, and local logs. APNs is disabled by default;
+when explicitly enabled, a PostgreSQL outbox and in-process worker replace Cloudflare Queues while
+the existing provider-token signing, payload validation, stale-state checks, and Apple delivery
+client remain unchanged. The runtime does not read Clerk, Cloudflare, PlanetScale, or Axiom
+configuration. It communicates directly with Apple's APNs endpoints and never uses Expo Push.
 
 The Node process also runs relay maintenance immediately at startup and every five minutes. It
-prunes expired DPoP replay records and terminal agent-activity rows using the same retention policy
-as the upstream Worker. Token exchange and terminal/deletion activity events perform the same
-cleanup opportunistically. Event cleanup is best-effort so a maintenance failure never rejects an
-otherwise valid authorization or activity update; the periodic pass logs failures and retries on
-the next cycle. The same reconciliation pass deprovisions allocation rows that no longer have an
-active managed link, including teardown left incomplete by a failed unlink or account transfer.
+prunes expired DPoP replay records, terminal agent-activity rows using the same retention policy as
+the upstream Worker, and APNs delivery-attempt audit rows after 30 days. Token exchange and
+terminal/deletion activity events perform their corresponding cleanup opportunistically. Mobile
+sign-out and account switching deregister the departing account's device with a captured credential
+before that credential can be replaced. Event cleanup is best-effort so a maintenance failure never
+rejects an otherwise valid authorization or activity update; the periodic pass logs failures and
+retries on the next cycle. The same reconciliation pass deprovisions allocation rows that no longer
+have an active managed link, including teardown left incomplete by a failed unlink or account
+transfer.
 Background cleanup waits through a 15-minute orphan grace period and uses allocation-generation
 compare-and-swap checks so it cannot tear down a tunnel that is concurrently being linked.
 
@@ -116,6 +122,23 @@ Required runtime configuration:
   resource identifier, and JWKS URL.
 - `T3_MANAGED_ENDPOINT_BASE_DOMAIN`: environment endpoint zone.
 - `T3_FRPS_SERVER_ADDR`: address remote frpc connectors can reach.
+
+Optional sovereign APNs configuration:
+
+- `T3_APNS_ENABLED=true` opts into direct Apple Push Notification service delivery. It is false by
+  default and partial configuration fails relay startup rather than silently dropping pushes.
+- `T3_APNS_ENVIRONMENT` is `sandbox` for development-signed iOS builds and `production` for
+  distribution builds. A device's registered APS environment and bundle id override these defaults.
+- `T3_APNS_TEAM_ID`, `T3_APNS_KEY_ID`, and `T3_APNS_BUNDLE_ID` identify the Apple developer team,
+  APNs `.p8` key, and fallback app bundle.
+- `T3_APNS_PRIVATE_KEY_B64` is the base64-encoded contents of the Apple `.p8` private key.
+- `T3_APNS_DELIVERY_JOB_SIGNING_SECRET` is an independently generated secret of at least 32
+  characters (`openssl rand -hex 32`).
+
+The queue body contains the destination APNs token. Protect the relay database and its backups as
+secrets. Successful jobs are deleted; a job is moved to `dead_letter` after five processing failures
+and records only a bounded error code outside its signed body. Operators should diagnose and delete
+dead-letter rows rather than exporting their payloads.
 
 For a local sovereign relay whose managed wildcard names do not resolve through the host DNS,
 set `T3_MANAGED_ENDPOINT_DIAL_HOST` to the local frps HTTP listener address, such as

@@ -31,14 +31,14 @@ export type ApnsLiveActivityEvent = typeof ApnsLiveActivityEventSchema.Type;
 
 const ApnsRequestKindSchema = Schema.Literals(["live-activity", "push-notification"]);
 
-interface ApnsLiveActivityRequest {
+export interface ApnsLiveActivityRequest {
   readonly token: string;
   readonly event: ApnsLiveActivityEvent;
   readonly priority: "5" | "10";
   readonly payload: unknown;
 }
 
-interface ApnsPushNotificationRequest {
+export interface ApnsPushNotificationRequest {
   readonly token: string;
   readonly priority: "10";
   readonly payload: unknown;
@@ -121,7 +121,9 @@ function liveActivityAlertPayload(alert: ApnsLiveActivityAlert) {
   };
 }
 
-function makeLiveActivityRequest(input: MakeLiveActivityRequestInput): ApnsLiveActivityRequest {
+export function makeLiveActivityRequest(
+  input: MakeLiveActivityRequestInput,
+): ApnsLiveActivityRequest {
   const timestamp = input.nowEpochSeconds;
   if (input.event === "end") {
     return {
@@ -171,7 +173,7 @@ function makeLiveActivityRequest(input: MakeLiveActivityRequestInput): ApnsLiveA
   };
 }
 
-function makePushNotificationRequest(input: {
+export function makePushNotificationRequest(input: {
   readonly token: string;
   readonly notification: ApnsNotificationPayload;
 }): ApnsPushNotificationRequest {
@@ -193,7 +195,7 @@ function makePushNotificationRequest(input: {
   };
 }
 
-function apnsReasonFromBody(body: string): string | undefined {
+export function apnsReasonFromBody(body: string): string | undefined {
   if (body.trim().length === 0) {
     return undefined;
   }

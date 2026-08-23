@@ -1,0 +1,17 @@
+[Unit]
+Description=Pull and verify encrypted Sovereign recovery points
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/sovereign-backup/run-backup-cycle.sh
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=20
+IOWeight=10
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/sovereign-backups
+ReadOnlyPaths=/etc/sovereign-backup

@@ -9,6 +9,10 @@ These are production-impacting exercises. Run one at a time, stop when the
 baseline is not healthy, and never combine a database restart with a relay or
 FRPS restart.
 
+Before the baseline, confirm in Coolify that neither `t3-control` nor `t3-web`
+has a queued or in-progress deployment. A deployment replacement invalidates
+an isolation exercise even when the replacement itself is healthy.
+
 ## Invariants
 
 - `code`, `auth`, and `relay` health return 200 before and after each exercise.
@@ -154,6 +158,7 @@ silently remove the tunnel service.
 Stop the exercise and preserve logs if any of these occur:
 
 - more than one target resolves for a supposedly singleton service;
+- a `t3-control` or `t3-web` deployment becomes queued or in progress;
 - a service remains unhealthy after its normal health-check retry window;
 - recovery changes the environment ID or managed hostname;
 - a connector requires relinking or a new credential;
@@ -169,9 +174,21 @@ Coolify deployment or the documented all-in-one rollback manifest.
 ## Cleanup semantics
 
 Cleanup is event-driven on successful token exchange, terminal agent activity,
-environment unlink, and explicit transfer. Those paths are the normal low
-latency mechanism. The relay also reconciles at startup and every five minutes
-because a process can die after committing state but before completing an
-external teardown, or PostgreSQL/FRPS can be unavailable when the event is
-handled. Reconciliation is therefore an idempotent repair mechanism, not the
-primary lifecycle trigger.
+environment unlink, explicit transfer, and mobile account departure. Mobile
+sign-out/account switching captures the old access token before clearing or
+replacing it and uses that fixed credential for immediate device deregistration.
+Those paths are the normal low-latency mechanism. The relay also reconciles at
+startup and every five minutes because a process can die after committing state
+but before completing an external teardown, or PostgreSQL/FRPS can be unavailable
+when the event is handled. Reconciliation is therefore an idempotent repair
+mechanism, not the primary lifecycle trigger. Delivery-attempt audit rows are
+retained for 30 days and then removed by this periodic pass.
+
+## Production validation
+
+Last completed on 2026-08-08. FRPS, the remote T3 user service, relay,
+account/OIDC, hosted web, PostgreSQL, and a complete Coolify replacement all
+recovered without relinking or changing the environment ID or managed
+hostname. The first hosted-web attempt overlapped a queued deployment and was
+discarded; the repeated isolated attempt passed and led to the deployment-lock
+precondition above.

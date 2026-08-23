@@ -1,0 +1,11 @@
+[Unit]
+Description=Create Sovereign recovery points every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:15:00 UTC
+Persistent=true
+AccuracySec=1s
+Unit=sovereign-backup.service
+
+[Install]
+WantedBy=timers.target

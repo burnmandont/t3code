@@ -64,6 +64,15 @@ filesystem, and WebSocket RPC operations require scoped credentials.
   preview tab does not disclose its hostname to Google.
 - Query-free structured access logs. OAuth codes, authorization headers,
   referrers, and request bodies are not included in routine Nginx logs.
+- A private, portless monitor exercises the public health and FRP upgrade
+  paths, becomes Docker-unhealthy after sustained failure, and emits bounded
+  failure/recovery events without credentials or managed hostnames.
+- Account and relay health require successful PostgreSQL queries rather than
+  reporting process liveness as dependency readiness.
+- Optional APNs delivery talks directly to Apple over a dedicated HTTP/2
+  transport. Its `.p8` key and job-signing secret are runtime-only variables;
+  the Cloudflare Queue and Expo Push services are not used. The PostgreSQL
+  outbox atomically claims jobs, bounds retries, and does not log device tokens.
 - Public relay documentation and OpenAPI endpoints disabled.
 - CI verifies account/relay/web tests, the hosted build, configuration
   invariants, completed Coolify deployments, health, OAuth/JWKS, invalid relay
@@ -114,6 +123,11 @@ filesystem, and WebSocket RPC operations require scoped credentials.
   modes.
 - Manual DNS-01 certificate renewal remains accepted until a credential with a
   genuinely narrow DNS authority boundary is available.
+- APNs is disabled until the operator supplies an Apple key. When enabled, the
+  relay database temporarily contains signed outbox bodies with destination
+  device tokens; database access and every retained backup must therefore be
+  treated as secret material. Apple APNs remains an unavoidable external
+  dependency for native iOS notifications.
 - The operator deliberately chose one platform passkey instead of a second
   hardware authenticator. This retains a device or credential-provider failure
   domain, depending on whether the passkey is synchronized. Recovery therefore
@@ -122,9 +136,11 @@ filesystem, and WebSocket RPC operations require scoped credentials.
   Nginx tiers restrict every credential route to the operator's source
   addresses. A compromised password is therefore not remotely usable from an
   arbitrary network unless the proxy boundary is also bypassed.
-- The public edge, second proxy, Coolify host, and PostgreSQL instance remain
-  single-site availability dependencies. Backups and recovery testing are a
-  separate operational priority.
+- The production host and PostgreSQL instance now have encrypted recovery
+  points on the separate Coolify control host, but the public edge, second
+  proxy, control host, and retained copies remain in one site. This protects
+  against a production-host loss, not a site loss; a second encrypted replica
+  remains an operational priority.
 
 ## Controlled exposure sequence
 

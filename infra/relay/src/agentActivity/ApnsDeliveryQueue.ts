@@ -46,9 +46,7 @@ export type ApnsDeliveryQueueError = ApnsDeliveryQueueSendError;
 export class ApnsDeliveryQueueSender extends Context.Service<
   ApnsDeliveryQueueSender,
   {
-    readonly send: (
-      body: SignedApnsDeliveryJob,
-    ) => Effect.Effect<void, Cloudflare.Queues.SendError>;
+    readonly send: (body: SignedApnsDeliveryJob) => Effect.Effect<void, Error>;
   }
 >()("t3code-relay/agentActivity/ApnsDeliveryQueue/ApnsDeliveryQueueSender") {}
 

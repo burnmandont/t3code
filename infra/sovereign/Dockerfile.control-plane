@@ -59,5 +59,6 @@ COPY --from=build /out/ /app/
 COPY infra/account/drizzle/ /app/drizzle/account/
 COPY infra/relay/drizzle/ /app/drizzle/relay/
 COPY infra/sovereign/scripts/start-relay.sh /app/start-relay.sh
+COPY infra/sovereign/monitor/monitor.mjs /app/sovereign-monitor.mjs
 
 USER node

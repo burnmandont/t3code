@@ -11,9 +11,10 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import { loadAccountConfiguration } from "./config.ts";
 import { withTrustedOriginCors } from "./corsHandler.ts";
+import { makeAccountHealthResponse } from "./health.ts";
 import { withPublicClientMetadata } from "./oidcHandler.ts";
 import { consentPage, signInPage } from "./pages.ts";
-import { auth } from "./runtimeAuth.ts";
+import { accountDatabase, auth } from "./runtimeAuth.ts";
 import { withSignupAllowlist } from "./signupHandler.ts";
 
 const configuration = loadAccountConfiguration();
@@ -39,7 +40,7 @@ const html = (body: string) =>
   });
 
 const routes = Layer.mergeAll(
-  HttpRouter.add("GET", "/health", HttpServerResponse.json({ ok: true })),
+  HttpRouter.add("GET", "/health", makeAccountHealthResponse(accountDatabase)),
   HttpRouter.add(
     "GET",
     "/sign-in",

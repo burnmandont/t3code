@@ -9,6 +9,10 @@ import * as Redacted from "effect/Redacted";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 
 import * as ApnsDeliveries from "./agentActivity/ApnsDeliveries.ts";
+import * as ApnsDeliveryQueue from "./agentActivity/ApnsDeliveryQueue.ts";
+import * as ApnsProviderTokens from "./agentActivity/ApnsProviderTokens.ts";
+import * as SovereignApnsClient from "./agentActivity/SovereignApnsClient.ts";
+import * as SovereignApnsQueue from "./agentActivity/SovereignApnsQueue.ts";
 import * as RelayIdentityVerifierOidc from "./auth/RelayIdentityVerifierOidc.ts";
 import * as RelayConfiguration from "./Config.ts";
 import * as ManagedEndpointProviderT3 from "./environments/ManagedEndpointProviderT3.ts";
@@ -42,6 +46,13 @@ interface SovereignRuntimeConfiguration {
   readonly oidcRequiredScope: string;
   readonly cloudMintPrivateKey: Redacted.Redacted<string>;
   readonly cloudMintPublicKey: string;
+  readonly apnsEnabled: boolean;
+  readonly apnsEnvironment: RelayConfiguration.ApnsEnvironment;
+  readonly apnsTeamId: string;
+  readonly apnsKeyId: string;
+  readonly apnsBundleId: string;
+  readonly apnsPrivateKeyBase64: Redacted.Redacted<string>;
+  readonly apnsDeliveryJobSigningSecret: Redacted.Redacted<string>;
 }
 
 export const parseRelayAllowedOrigins = (value: string): ReadonlyArray<string> => [
@@ -102,21 +113,73 @@ const loadConfiguration: Effect.Effect<SovereignRuntimeConfiguration, Config.Con
     oidcRequiredScope: Config.string("T3_OIDC_REQUIRED_SCOPE").pipe(Config.withDefault("t3:relay")),
     cloudMintPrivateKey: Config.redacted("T3_RELAY_SIGNING_PRIVATE_KEY"),
     cloudMintPublicKey: Config.string("T3_RELAY_SIGNING_PUBLIC_KEY"),
+    apnsEnabled: Config.boolean("T3_APNS_ENABLED").pipe(Config.withDefault(false)),
+    apnsEnvironment: Config.schema(RelayConfiguration.ApnsEnvironment, "T3_APNS_ENVIRONMENT").pipe(
+      Config.withDefault("sandbox" as const),
+    ),
+    apnsTeamId: Config.string("T3_APNS_TEAM_ID").pipe(Config.withDefault("")),
+    apnsKeyId: Config.string("T3_APNS_KEY_ID").pipe(Config.withDefault("")),
+    apnsBundleId: Config.string("T3_APNS_BUNDLE_ID").pipe(Config.withDefault("")),
+    apnsPrivateKeyBase64: Config.redacted("T3_APNS_PRIVATE_KEY_B64").pipe(
+      Config.withDefault(Redacted.make("")),
+    ),
+    apnsDeliveryJobSigningSecret: Config.redacted("T3_APNS_DELIVERY_JOB_SIGNING_SECRET").pipe(
+      Config.withDefault(Redacted.make("")),
+    ),
   });
 
+function sovereignApnsConfiguration(config: SovereignRuntimeConfiguration) {
+  if (!config.apnsEnabled) {
+    return null;
+  }
+  const privateKey = Buffer.from(Redacted.value(config.apnsPrivateKeyBase64), "base64").toString(
+    "utf8",
+  );
+  const required = {
+    T3_APNS_TEAM_ID: config.apnsTeamId,
+    T3_APNS_KEY_ID: config.apnsKeyId,
+    T3_APNS_BUNDLE_ID: config.apnsBundleId,
+    T3_APNS_PRIVATE_KEY_B64: privateKey,
+    T3_APNS_DELIVERY_JOB_SIGNING_SECRET: Redacted.value(config.apnsDeliveryJobSigningSecret),
+  };
+  const missing = Object.entries(required)
+    .filter(([, value]) => value.trim().length === 0)
+    .map(([name]) => name);
+  if (missing.length > 0) {
+    throw new TypeError(`T3_APNS_ENABLED requires ${missing.join(", ")}`);
+  }
+  if (!privateKey.includes("-----BEGIN PRIVATE KEY-----")) {
+    throw new TypeError("T3_APNS_PRIVATE_KEY_B64 must decode to an APNs .p8 private key");
+  }
+  if (Redacted.value(config.apnsDeliveryJobSigningSecret).length < 32) {
+    throw new TypeError("T3_APNS_DELIVERY_JOB_SIGNING_SECRET must contain at least 32 characters");
+  }
+  return {
+    credentials: {
+      environment: config.apnsEnvironment,
+      teamId: config.apnsTeamId,
+      keyId: config.apnsKeyId,
+      bundleId: config.apnsBundleId,
+      privateKey: Redacted.make(privateKey),
+    },
+    signingSecret: config.apnsDeliveryJobSigningSecret,
+  };
+}
+
 export const makeSovereignRelayLayer = (config: SovereignRuntimeConfiguration) => {
+  const sovereignApns = sovereignApnsConfiguration(config);
   const relayConfiguration = RelayConfiguration.layer({
     relayIssuer: config.relayIssuer,
-    // APNs is intentionally disabled in sovereign v1; these values are never
-    // consumed by ApnsDeliveries.layerDisabled.
-    apns: {
-      environment: "sandbox",
-      teamId: "disabled",
-      keyId: "disabled",
-      privateKey: Redacted.make("disabled"),
-      bundleId: "disabled",
-    },
-    apnsDeliveryJobSigningSecret: Redacted.make("disabled"),
+    apns:
+      sovereignApns?.credentials ??
+      ({
+        environment: "sandbox",
+        teamId: "disabled",
+        keyId: "disabled",
+        privateKey: Redacted.make("disabled"),
+        bundleId: "disabled",
+      } as const),
+    apnsDeliveryJobSigningSecret: sovereignApns?.signingSecret ?? Redacted.make("disabled"),
     // The OIDC adapter is injected below. No Clerk request or key is used.
     clerkSecretKey: Redacted.make("disabled"),
     clerkPublishableKey: "disabled",
@@ -145,6 +208,19 @@ export const makeSovereignRelayLayer = (config: SovereignRuntimeConfiguration) =
       }),
     ),
   );
+  const sovereignApnsRepository = SovereignApnsQueue.repositoryLayer;
+  const sovereignApnsDeliveries = ApnsDeliveries.layer.pipe(
+    Layer.provideMerge(
+      SovereignApnsClient.layer.pipe(Layer.provideMerge(ApnsProviderTokens.layer)),
+    ),
+    Layer.provideMerge(
+      ApnsDeliveryQueue.layer.pipe(
+        Layer.provideMerge(
+          SovereignApnsQueue.senderLayer.pipe(Layer.provideMerge(sovereignApnsRepository)),
+        ),
+      ),
+    ),
+  );
   const runtimeLayer = RelayRuntime.make({
     managedEndpoint: ManagedEndpointProviderT3.layer.pipe(
       Layer.provide(
@@ -154,7 +230,7 @@ export const makeSovereignRelayLayer = (config: SovereignRuntimeConfiguration) =
         }),
       ),
     ),
-    apnsDeliveries: ApnsDeliveries.layerDisabled,
+    apnsDeliveries: sovereignApns === null ? ApnsDeliveries.layerDisabled : sovereignApnsDeliveries,
     identity: RelayIdentityVerifierOidc.layer({
       issuer: config.oidcIssuer,
       audience: config.oidcAudience,
@@ -188,7 +264,17 @@ export const makeSovereignRelayLayer = (config: SovereignRuntimeConfiguration) =
     ),
   );
 
-  return Layer.mergeAll(relayServer, frpAuthorizationServer, RelayMaintenance.layerScheduled).pipe(
+  const apnsWorker =
+    sovereignApns === null
+      ? Layer.empty
+      : SovereignApnsQueue.workerLayer.pipe(Layer.provideMerge(sovereignApnsRepository));
+
+  return Layer.mergeAll(
+    relayServer,
+    frpAuthorizationServer,
+    RelayMaintenance.layerScheduled,
+    apnsWorker,
+  ).pipe(
     Layer.provideMerge(runtimeLayer),
     Layer.provideMerge(NodeHttpClient.layerNodeHttp),
     Layer.provideMerge(NodeServices.layer),

@@ -41,6 +41,13 @@ x-relay-environment: &relay-environment
   T3_MANAGED_ENDPOINT_DIAL_ORIGIN: http://frps:8080
   T3_FRPS_SERVER_ADDR: ${T3_CONNECT_DOMAIN:-connect.moondiner.com}
   T3_FRPS_SERVER_PORT: "${T3_FRPS_PUBLIC_PORT:-443}"
+  T3_APNS_ENABLED: "${T3_APNS_ENABLED:-false}"
+  T3_APNS_ENVIRONMENT: "${T3_APNS_ENVIRONMENT:-sandbox}"
+  T3_APNS_TEAM_ID: "${T3_APNS_TEAM_ID:-}"
+  T3_APNS_KEY_ID: "${T3_APNS_KEY_ID:-}"
+  T3_APNS_BUNDLE_ID: "${T3_APNS_BUNDLE_ID:-}"
+  T3_APNS_PRIVATE_KEY_B64: "${T3_APNS_PRIVATE_KEY_B64:-}"
+  T3_APNS_DELIVERY_JOB_SIGNING_SECRET: "${T3_APNS_DELIVERY_JOB_SIGNING_SECRET:-}"
 
 services:
   postgres:
@@ -184,6 +191,39 @@ services:
     depends_on:
       relay:
         condition: service_healthy
+
+  monitor:
+    <<: *control-plane
+    profiles: ["frps"]
+    restart: unless-stopped
+    environment:
+      T3_MONITOR_CODE_URL: ${T3_CODE_URL:-https://code.moondiner.com}
+      T3_MONITOR_ACCOUNT_URL: ${T3_AUTH_URL:-https://auth.moondiner.com}
+      T3_MONITOR_RELAY_URL: ${T3_RELAY_URL:-https://relay.moondiner.com}
+      T3_MONITOR_CONNECT_URL: https://${T3_CONNECT_DOMAIN:-connect.moondiner.com}
+      T3_MONITOR_MANAGED_HOSTS: "${T3_MONITOR_MANAGED_HOSTS:-}"
+      T3_MONITOR_ALERT_WEBHOOK_URL: "${T3_MONITOR_ALERT_WEBHOOK_URL:-}"
+      T3_MONITOR_FAILURE_THRESHOLD: "2"
+    command: ["node", "/app/sovereign-monitor.mjs"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const s=require('node:fs').statSync('/tmp/t3-sovereign-monitor/healthy');if(Date.now()-s.mtimeMs>180000)process.exit(1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      account:
+        condition: service_healthy
+      relay:
+        condition: service_healthy
+      frps:
+        condition: service_started
 
   code:
     build:

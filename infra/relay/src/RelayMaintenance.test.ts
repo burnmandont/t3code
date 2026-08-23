@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as AgentActivityRows from "./agentActivity/AgentActivityRows.ts";
+import * as DeliveryAttempts from "./agentActivity/DeliveryAttempts.ts";
 import * as DpopProofs from "./auth/DpopProofs.ts";
 import * as ManagedEndpointAllocations from "./environments/ManagedEndpointAllocations.ts";
 import * as ManagedEndpointProvider from "./environments/ManagedEndpointProviderService.ts";
@@ -16,6 +17,7 @@ const now = DateTime.makeUnsafe("2026-08-08T16:00:00.000Z");
 function dependencies(input?: {
   readonly pruneDpop?: DpopProofs.DpopProofReplay["Service"]["pruneExpired"];
   readonly pruneTerminal?: AgentActivityRows.AgentActivityRows["Service"]["pruneTerminal"];
+  readonly pruneDeliveryAttempts?: DeliveryAttempts.DeliveryAttempts["Service"]["pruneBefore"];
   readonly listOrphaned?: ManagedEndpointAllocations.ManagedEndpointAllocations["Service"]["listOrphaned"];
   readonly deprovision?: ManagedEndpointProvider.ManagedEndpointProvider["Service"]["deprovision"];
 }) {
@@ -23,11 +25,15 @@ function dependencies(input?: {
   const pruneTerminal = vi.fn((request: { readonly updatedBefore: string }) =>
     (input?.pruneTerminal ?? (() => Effect.void))(request),
   );
+  const pruneDeliveryAttempts = vi.fn((request: { readonly createdBefore: string }) =>
+    (input?.pruneDeliveryAttempts ?? (() => Effect.void))(request),
+  );
   const listOrphaned = vi.fn(input?.listOrphaned ?? (() => Effect.succeed([])));
   const deprovision = vi.fn(input?.deprovision ?? (() => Effect.void));
   return {
     pruneDpop,
     pruneTerminal,
+    pruneDeliveryAttempts,
     listOrphaned,
     deprovision,
     layer: Layer.mergeAll(
@@ -42,6 +48,12 @@ function dependencies(input?: {
         listForUser: () => Effect.die("not used"),
         getForUserThread: () => Effect.die("not used"),
         pruneTerminal,
+      }),
+      Layer.succeed(DeliveryAttempts.DeliveryAttempts, {
+        record: () => Effect.die("not used"),
+        claimSourceJob: () => Effect.die("not used"),
+        completeSourceJob: () => Effect.die("not used"),
+        pruneBefore: pruneDeliveryAttempts,
       }),
       Layer.succeed(ManagedEndpointAllocations.ManagedEndpointAllocations, {
         get: () => Effect.die("not used"),
@@ -79,6 +91,9 @@ describe("RelayMaintenance", () => {
       expect(deps.pruneDpop).toHaveBeenCalledOnce();
       expect(deps.pruneTerminal).toHaveBeenCalledWith({
         updatedBefore: "2026-08-08T15:30:00.000Z",
+      });
+      expect(deps.pruneDeliveryAttempts).toHaveBeenCalledWith({
+        createdBefore: "2026-07-09T16:00:00.000Z",
       });
       expect(deps.deprovision).not.toHaveBeenCalled();
       expect(deps.listOrphaned).toHaveBeenCalledWith({
@@ -132,6 +147,19 @@ describe("RelayMaintenance", () => {
             cause: "database unavailable",
           }),
         ),
+      pruneDeliveryAttempts: () =>
+        Effect.fail(
+          new DeliveryAttempts.DeliveryAttemptRecordPersistenceError({
+            operation: "prune-before",
+            sourceJobId: null,
+            userId: null,
+            environmentId: null,
+            threadId: null,
+            deviceId: null,
+            kind: null,
+            cause: "database unavailable",
+          }),
+        ),
     });
     return Effect.gen(function* () {
       yield* TestClock.setTime(now.epochMilliseconds);
@@ -140,6 +168,7 @@ describe("RelayMaintenance", () => {
 
       expect(deps.pruneDpop).toHaveBeenCalledOnce();
       expect(deps.pruneTerminal).toHaveBeenCalledOnce();
+      expect(deps.pruneDeliveryAttempts).toHaveBeenCalledOnce();
     }).pipe(
       Effect.provide(
         RelayMaintenance.layer.pipe(Layer.provideMerge(Layer.merge(deps.layer, TestClock.layer()))),

@@ -222,6 +222,7 @@ function makeLayer(input: {
                 Object.assign(attempt, completion);
               }
             }),
+          pruneBefore: () => Effect.void,
         }),
         Layer.succeed(LiveActivities.LiveActivities, {
           register: () => Effect.void,

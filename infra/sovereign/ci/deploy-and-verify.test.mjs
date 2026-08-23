@@ -112,6 +112,75 @@ test("keeps FRPS durable across every split control deployment", () => {
   assert.match(frpsService, /restart: unless-stopped/u);
 });
 
+test("runs a private self-hosted monitor with the split control plane", () => {
+  const controlCompose = readSovereignFile("../compose.control.yaml");
+  const monitorService = controlCompose.slice(controlCompose.indexOf("  monitor:"));
+
+  assert.match(monitorService, /^  monitor:\n/mu);
+  assert.doesNotMatch(monitorService, /^    profiles:/mu);
+  assert.match(monitorService, /T3_MONITOR_ALERT_WEBHOOK_URL/u);
+  assert.match(monitorService, /condition: service_started/u);
+  assert.doesNotMatch(monitorService, /^    ports:/mu);
+  assert.doesNotMatch(monitorService, /^    expose:/mu);
+});
+
+test("keeps sovereign APNs opt-in and replaces the hosted queue with PostgreSQL", () => {
+  const controlCompose = readSovereignFile("../compose.control.yaml");
+  const queue = readSovereignFile("../../relay/src/agentActivity/SovereignApnsQueue.ts");
+  const transport = readSovereignFile("../../relay/src/agentActivity/SovereignApnsClient.ts");
+  const migration = readSovereignFile(
+    "../../relay/drizzle/20260808174028_remarkable_hammerhead/migration.sql",
+  );
+
+  assert.match(controlCompose, /T3_APNS_ENABLED: "\$\{T3_APNS_ENABLED:-false\}"/u);
+  assert.match(queue, /FOR UPDATE SKIP LOCKED/u);
+  assert.match(queue, /state: deadLetter \? "dead_letter" : "pending"/u);
+  assert.match(transport, /from "node:http2"/u);
+  assert.match(migration, /CREATE TABLE "relay_apns_delivery_jobs"/u);
+  assert.doesNotMatch(controlCompose, /^  apns:/mu);
+});
+
+test("validates logical backups through isolated restores", () => {
+  const restoreValidator = readSovereignFile("../postgres/validate-logical-restore.sh");
+  const fullRestoreValidator = readSovereignFile("../postgres/validate-full-restore.sh");
+  const remoteHomeValidator = readSovereignFile("../runtime/validate-remote-home-restore.sh");
+
+  assert.match(restoreValidator, /label=coolify[.]resourceName=t3-postgres/u);
+  assert.match(restoreValidator, /pg_dump/u);
+  assert.match(restoreValidator, /pg_restore --exit-on-error/u);
+  assert.match(restoreValidator, /trap cleanup EXIT/u);
+  assert.match(restoreValidator, /diff -u/u);
+  assert.doesNotMatch(restoreValidator, /docker (?:rm|volume rm)/u);
+
+  assert.match(fullRestoreValidator, /docker network create --internal/u);
+  assert.match(fullRestoreValidator, /[.]Internal/u);
+  assert.match(fullRestoreValidator, /--tmpfs \/var\/lib\/postgresql\/data/u);
+  assert.match(fullRestoreValidator, /pg_restore --exit-on-error/u);
+  assert.match(fullRestoreValidator, /node \/app\/account-migrate[.]mjs/u);
+  assert.match(fullRestoreValidator, /node \/app\/relay-migrate[.]mjs/u);
+  assert.match(fullRestoreValidator, /node \/app\/account-server[.]mjs/u);
+  assert.match(fullRestoreValidator, /\/app\/start-relay[.]sh/u);
+  assert.match(fullRestoreValidator, /T3_APNS_ENABLED=false/u);
+  assert.match(fullRestoreValidator, /--cap-drop ALL/u);
+  assert.match(fullRestoreValidator, /HostConfig[.]PortBindings/u);
+  assert.match(fullRestoreValidator, /tableowner/u);
+  assert.match(fullRestoreValidator, /--format '\{\{[.]Image\}\}'/u);
+  assert.match(fullRestoreValidator, /trap cleanup EXIT/u);
+  assert.doesNotMatch(fullRestoreValidator, /docker volume/u);
+
+  assert.match(remoteHomeValidator, /[.]backup/u);
+  assert.match(remoteHomeValidator, /PRAGMA integrity_check/u);
+  assert.match(remoteHomeValidator, /projection_threads/u);
+  assert.match(remoteHomeValidator, /orchestration_events/u);
+  assert.match(remoteHomeValidator, /environment-id/u);
+  assert.match(remoteHomeValidator, /secret_manifest/u);
+  assert.match(remoteHomeValidator, /tar --extract/u);
+  assert.match(remoteHomeValidator, /trap cleanup EXIT/u);
+  assert.doesNotMatch(remoteHomeValidator, /systemctl --user (?:stop|restart)/u);
+  assert.doesNotMatch(remoteHomeValidator, /runtime\/versions/u);
+  assert.doesNotMatch(remoteHomeValidator, /userdata\/logs/u);
+});
+
 test("keeps sovereign browser requests local unless the user opens a URL", () => {
   const dockerfile = readSovereignFile("../Dockerfile.web");
   const webNginx = readSovereignFile("../nginx.conf");

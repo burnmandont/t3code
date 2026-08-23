@@ -4,6 +4,7 @@ import type {
   RelayAgentAwarenessPreferences,
   RelayManagedEndpointProviderKind,
 } from "@t3tools/contracts/relay";
+import type { SignedApnsDeliveryJob } from "../agentActivity/apnsDeliveryJobs.ts";
 import {
   boolean,
   index,
@@ -179,6 +180,39 @@ export const relayDeliveryAttempts = pgTable(
       table.createdAt,
     ),
     uniqueIndex("idx_relay_delivery_attempts_source_job").on(table.sourceJobId),
+  ],
+);
+
+/**
+ * Durable sovereign replacement for the hosted Cloudflare APNs queue.
+ *
+ * The signed body contains an Apple device token, so this table belongs in the
+ * same protected relay database and encrypted backup boundary as mobile device
+ * registrations. Completed jobs are deleted; exhausted jobs retain only until
+ * an operator reviews or purges the dead-letter rows.
+ */
+export const relayApnsDeliveryJobs = pgTable(
+  "relay_apns_delivery_jobs",
+  {
+    jobId: varchar("job_id", { length: 64 }).primaryKey(),
+    bodyJson: jsonb("body_json").notNull().$type<SignedApnsDeliveryJob>(),
+    state: varchar("state", { length: 16 })
+      .notNull()
+      .$type<"pending" | "dead_letter">()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    availableAt: varchar("available_at", { length: 64 }).notNull(),
+    claimedAt: varchar("claimed_at", { length: 64 }),
+    lastErrorCode: varchar("last_error_code", { length: 128 }),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    updatedAt: varchar("updated_at", { length: 64 }).notNull(),
+  },
+  (table) => [
+    index("idx_relay_apns_delivery_jobs_available").on(
+      table.state,
+      table.availableAt,
+      table.createdAt,
+    ),
   ],
 );
 

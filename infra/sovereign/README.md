@@ -129,9 +129,11 @@ The long-lived relay process runs its cleanup once at startup and every five
 minutes thereafter. Successful DPoP token exchanges and terminal/deletion
 activity events also trigger best-effort cleanup, while the scheduled pass
 repairs missed events after crashes or unavailable dependencies. Expired DPoP
-replay rows and aged terminal activity rows must therefore remain bounded
-without any external cron service. The pass also retries deprovisioning
-allocations that have no active managed link.
+replay rows, aged terminal activity rows, and APNs delivery-attempt audit rows
+(30-day retention) must therefore remain bounded without any external cron
+service. Mobile sign-out and account switching immediately schedule device
+deregistration using the departing account's captured access token. The pass
+also retries deprovisioning allocations that have no active managed link.
 Orphan reconciliation waits 15 minutes and then uses the allocation generation
 as a compare-and-swap guard against concurrent relinking.
 
@@ -140,6 +142,20 @@ Normal linking can intentionally share an environment across accounts. Use
 environment-signed transfer revokes prior links only when they use the same
 environment signing key, then tears down their managed allocations. Failed
 teardown is safe to retry and is recovered by the maintenance pass.
+
+## Optional native iOS notifications
+
+The iOS client obtains native APNs device and Live Activity tokens. Expo is not the push transport.
+Sovereign deployments leave delivery disabled until `T3_APNS_ENABLED=true` and all Apple credential
+variables in `.env.example` are present. When enabled, the relay writes signed jobs to its own
+PostgreSQL outbox and processes them directly against Apple's APNs API. This replaces upstream's
+Cloudflare Queue without replacing the tested upstream payload, signing, deduplication, stale-state,
+or APNs client logic.
+
+The outbox is durable across relay restarts, claims work atomically with `FOR UPDATE SKIP LOCKED`,
+retries processing failures with bounded backoff, and marks a job `dead_letter` after five attempts.
+It exposes no listener or additional public service. Its signed job body contains an APNs token, so
+the relay database and every retained backup must be encrypted and access-restricted.
 
 ## Enable FRPS last during bootstrap
 
@@ -258,6 +274,12 @@ The complete local-client procedure and troubleshooting checks are in
 Run the component restart and persistence exercises in
 [`../../docs/operations/sovereign-failure-recovery.md`](../../docs/operations/sovereign-failure-recovery.md)
 after every material control-plane or tunnel lifecycle change.
+The private, credential-free health monitor and self-hosted alert contract are
+documented in
+[`../../docs/operations/sovereign-observability.md`](../../docs/operations/sovereign-observability.md).
+Logical dump validation, retention boundaries, and the separate remote T3 home
+backup requirement are documented in
+[`../../docs/operations/sovereign-backup-restore.md`](../../docs/operations/sovereign-backup-restore.md).
 
 The source tree retains upstream Clerk adapters for shallow-fork compatibility.
 They are dormant when the complete sovereign OAuth configuration is present;
