@@ -1,14 +1,15 @@
 import {
-  buildConnectClerkAuthorizeUrl,
+  buildConnectOAuthAuthorizeUrl,
   connectCallbackUrl,
   connectLoopbackRedirectUri,
   CONNECT_OAUTH_SCOPES,
+  SOVEREIGN_CONNECT_OAUTH_SCOPES,
   type ConnectAuthorizeRequest,
 } from "@t3tools/shared/connectAuth";
 import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
 
 import { configuredHostedAppUrl, isHostedStaticApp } from "../hostedPairing";
-import { hasCloudPublicConfig, resolveCloudPublicConfig, trimNonEmpty } from "./publicConfig";
+import { resolveCloudPublicConfig, trimNonEmpty } from "./publicConfig";
 
 const CONNECT_CLI_AUTH_STATE_STORAGE_KEY = "t3code-connect-cli-auth-state";
 
@@ -16,10 +17,63 @@ export function resolveConnectCliOAuthClientId(): string | null {
   return trimNonEmpty(import.meta.env.VITE_CLERK_CLI_OAUTH_CLIENT_ID as string | undefined);
 }
 
-export function hasConnectCliAuthConfig(): boolean {
-  return Boolean(
-    resolveCloudPublicConfig().clerkPublishableKey && resolveConnectCliOAuthClientId(),
+export interface ConnectCliOAuthConfig {
+  readonly provider: "clerk" | "sovereign";
+  readonly authorizationEndpoint: string;
+  readonly clientId: string;
+  readonly scopes: ReadonlyArray<string>;
+  readonly resource?: string;
+}
+
+function resolveSovereignIssuer(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const isLoopbackHttp =
+      url.protocol === "http:" &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+    if ((url.protocol !== "https:" && !isLoopbackHttp) || url.search || url.hash) return null;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function resolveConnectCliOAuthConfig(): ConnectCliOAuthConfig | null {
+  const oauthIssuerValue = trimNonEmpty(
+    import.meta.env.VITE_T3CODE_OAUTH_ISSUER as string | undefined,
   );
+  const oauthIssuer = resolveSovereignIssuer(oauthIssuerValue);
+  const oauthClientId = trimNonEmpty(
+    import.meta.env.VITE_T3CODE_OAUTH_CLIENT_ID as string | undefined,
+  );
+  const oauthResource = trimNonEmpty(
+    import.meta.env.VITE_T3CODE_OAUTH_RESOURCE as string | undefined,
+  );
+  if (oauthIssuerValue || oauthClientId || oauthResource) {
+    if (!oauthIssuer || !oauthClientId || !oauthResource) return null;
+    return {
+      provider: "sovereign",
+      authorizationEndpoint: `${oauthIssuer}/oauth2/authorize`,
+      clientId: oauthClientId,
+      scopes: SOVEREIGN_CONNECT_OAUTH_SCOPES,
+      resource: oauthResource,
+    };
+  }
+
+  const { clerkPublishableKey } = resolveCloudPublicConfig();
+  const clerkClientId = resolveConnectCliOAuthClientId();
+  if (!clerkPublishableKey || !clerkClientId) return null;
+  return {
+    provider: "clerk",
+    authorizationEndpoint: `${clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey)}/oauth/authorize`,
+    clientId: clerkClientId,
+    scopes: CONNECT_OAUTH_SCOPES,
+  };
+}
+
+export function hasConnectCliAuthConfig(): boolean {
+  return resolveConnectCliOAuthConfig() !== null;
 }
 
 /**
@@ -28,40 +82,35 @@ export function hasConnectCliAuthConfig(): boolean {
  * Clerk CLI OAuth client configured at build time.
  */
 export function connectCliAuthRoutesEnabled(): boolean {
-  return isHostedStaticApp() && hasCloudPublicConfig() && hasConnectCliAuthConfig();
+  return isHostedStaticApp() && hasConnectCliAuthConfig();
 }
 
 /**
- * Builds the Clerk authorize URL for a CLI-initiated connect request. The
- * state is mirrored into sessionStorage so the callback page can verify the
- * response matches a request this browser actually started.
- *
- * A request carrying a loopback port came from a CLI with a local callback
- * listener: the authorization code must return to `127.0.0.1` directly, so
- * the hosted callback page never sees it. Clerk enforces its registered
- * redirect URI allowlist either way.
+ * Builds the configured provider's authorize URL for a CLI-initiated request.
+ * Loopback requests return directly to the waiting CLI; headless requests use
+ * the hosted callback page so the user can copy the one-time code.
  */
-export function buildConnectCliClerkAuthorizeUrl(request: ConnectAuthorizeRequest): string | null {
-  const { clerkPublishableKey } = resolveCloudPublicConfig();
-  const clientId = resolveConnectCliOAuthClientId();
-  if (!clerkPublishableKey || !clientId) {
-    return null;
-  }
-  return buildConnectClerkAuthorizeUrl({
-    authorizationEndpoint: `${clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey)}/oauth/authorize`,
-    clientId,
+export function buildConnectCliOAuthAuthorizeUrl(request: ConnectAuthorizeRequest): string | null {
+  const config = resolveConnectCliOAuthConfig();
+  if (!config) return null;
+  return buildConnectOAuthAuthorizeUrl({
+    authorizationEndpoint: config.authorizationEndpoint,
+    clientId: config.clientId,
     redirectUri:
       request.loopbackPort === undefined
         ? connectCallbackUrl(configuredHostedAppUrl())
         : connectLoopbackRedirectUri(request.loopbackPort),
-    scopes: CONNECT_OAUTH_SCOPES,
+    scopes: config.scopes,
     state: request.state,
     challenge: request.challenge,
   });
 }
 
+/** @deprecated Use buildConnectCliOAuthAuthorizeUrl. */
+export const buildConnectCliClerkAuthorizeUrl = buildConnectCliOAuthAuthorizeUrl;
+
 /**
- * Where Clerk sends the browser once the sign-in modal on /connect completes.
+ * Where the provider sends the browser once sign-in on /connect completes.
  * It has to be the authorize endpoint rather than this page: /connect carries
  * the CLI request in its fragment, so navigating back to the same URL is a
  * same-document fragment navigation the browser never reloads — and Clerk
@@ -74,7 +123,7 @@ export function connectCliSignInRedirectUrl(
   request: ConnectAuthorizeRequest,
   currentHref: string,
 ): string {
-  return buildConnectCliClerkAuthorizeUrl(request) ?? currentHref;
+  return buildConnectCliOAuthAuthorizeUrl(request) ?? currentHref;
 }
 
 export function rememberConnectCliAuthState(state: string): void {

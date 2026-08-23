@@ -8,6 +8,9 @@ export interface T3CodePublicConfig {
   readonly clerkPublishableKey: string | undefined;
   readonly clerkJwtTemplate: string | undefined;
   readonly clerkCliOAuthClientId: string | undefined;
+  readonly oauthIssuer: string | undefined;
+  readonly oauthClientId: string | undefined;
+  readonly oauthResource: string | undefined;
   readonly relayUrl: string | undefined;
   readonly mobileOtlpTracesUrl: string | undefined;
   readonly mobileOtlpTracesDataset: string | undefined;
@@ -56,6 +59,27 @@ export function loadRepoEnv({
       ? {
           T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: config.clerkCliOAuthClientId,
           VITE_CLERK_CLI_OAUTH_CLIENT_ID: config.clerkCliOAuthClientId,
+        }
+      : {}),
+    ...(config.oauthIssuer
+      ? {
+          T3CODE_OAUTH_ISSUER: config.oauthIssuer,
+          VITE_T3CODE_OAUTH_ISSUER: config.oauthIssuer,
+          EXPO_PUBLIC_T3CODE_OAUTH_ISSUER: config.oauthIssuer,
+        }
+      : {}),
+    ...(config.oauthClientId
+      ? {
+          T3CODE_OAUTH_CLIENT_ID: config.oauthClientId,
+          VITE_T3CODE_OAUTH_CLIENT_ID: config.oauthClientId,
+          EXPO_PUBLIC_T3CODE_OAUTH_CLIENT_ID: config.oauthClientId,
+        }
+      : {}),
+    ...(config.oauthResource
+      ? {
+          T3CODE_OAUTH_RESOURCE: config.oauthResource,
+          VITE_T3CODE_OAUTH_RESOURCE: config.oauthResource,
+          EXPO_PUBLIC_T3CODE_OAUTH_RESOURCE: config.oauthResource,
         }
       : {}),
     ...(config.relayUrl
@@ -121,6 +145,24 @@ export function resolvePublicConfig(...sources: readonly Environment[]): T3CodeP
       sources,
       "T3CODE_CLERK_CLI_OAUTH_CLIENT_ID",
       "VITE_CLERK_CLI_OAUTH_CLIENT_ID",
+    ),
+    oauthIssuer: firstNonEmpty(
+      sources,
+      "T3CODE_OAUTH_ISSUER",
+      "VITE_T3CODE_OAUTH_ISSUER",
+      "EXPO_PUBLIC_T3CODE_OAUTH_ISSUER",
+    ),
+    oauthClientId: firstNonEmpty(
+      sources,
+      "T3CODE_OAUTH_CLIENT_ID",
+      "VITE_T3CODE_OAUTH_CLIENT_ID",
+      "EXPO_PUBLIC_T3CODE_OAUTH_CLIENT_ID",
+    ),
+    oauthResource: firstNonEmpty(
+      sources,
+      "T3CODE_OAUTH_RESOURCE",
+      "VITE_T3CODE_OAUTH_RESOURCE",
+      "EXPO_PUBLIC_T3CODE_OAUTH_RESOURCE",
     ),
     relayUrl: firstNonEmpty(sources, "T3CODE_RELAY_URL", "VITE_T3CODE_RELAY_URL"),
     mobileOtlpTracesUrl: firstNonEmpty(

@@ -24,6 +24,13 @@ const TEST_ENV = {
   T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
 };
 
+const SOVEREIGN_TEST_ENV = {
+  T3CODE_OAUTH_ISSUER: "https://account.example.test/api/auth",
+  T3CODE_OAUTH_CLIENT_ID: "t3-code",
+  T3CODE_OAUTH_RESOURCE: "urn:t3:relay",
+  T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+};
+
 interface RecordedTokenRequest {
   readonly url: string;
   readonly params: URLSearchParams;
@@ -104,6 +111,57 @@ it("formats loopback authorization with a headless-host fallback", () => {
       "No browser on this device? Press \u001b[1mH\u001b[22m to switch to headless mode.",
     ].join("\n"),
   );
+});
+
+it("keeps Clerk loopback authorization behind the hosted session handoff", () => {
+  const authorizationUrl = CliTokenManager.buildLoopbackAuthorizationUrl({
+    metadata: {
+      provider: "clerk",
+      authorizationEndpoint: "https://clerk.example.test/oauth/authorize",
+      tokenEndpoint: "https://clerk.example.test/oauth/token",
+      clientId: "clerk-client",
+      loopbackPort: 34338,
+      redirectUri: "http://127.0.0.1:34338/callback",
+      scopes: ["openid"],
+    },
+    hostedAppUrl: "https://hosted.example.test",
+    state: "state-1",
+    challenge: "challenge-1",
+  });
+
+  const url = new URL(authorizationUrl);
+  assert.equal(url.origin, "https://hosted.example.test");
+  assert.equal(url.pathname, "/connect");
+  assert.deepEqual(readConnectAuthorizeRequest(url), {
+    state: "state-1",
+    challenge: "challenge-1",
+    loopbackPort: 34338,
+  });
+});
+
+it("sends standalone OIDC loopback authorization directly to its issuer", () => {
+  const authorizationUrl = CliTokenManager.buildLoopbackAuthorizationUrl({
+    metadata: {
+      provider: "sovereign",
+      authorizationEndpoint: "https://account.example.test/oauth2/authorize",
+      tokenEndpoint: "https://account.example.test/oauth2/token",
+      clientId: "sovereign-client",
+      loopbackPort: 34338,
+      redirectUri: "http://127.0.0.1:34338/callback",
+      scopes: ["openid", "t3:relay"],
+      resource: "urn:t3:relay",
+    },
+    hostedAppUrl: "https://hosted.example.test",
+    state: "state-1",
+    challenge: "challenge-1",
+  });
+
+  const url = new URL(authorizationUrl);
+  assert.equal(url.origin, "https://account.example.test");
+  assert.equal(url.pathname, "/oauth2/authorize");
+  assert.equal(url.searchParams.get("redirect_uri"), "http://127.0.0.1:34338/callback");
+  assert.equal(url.searchParams.get("state"), "state-1");
+  assert.equal(url.searchParams.get("code_challenge"), "challenge-1");
 });
 
 const makeTestTerminal = (queue: Queue.Queue<Terminal.UserInput>) =>
@@ -225,6 +283,29 @@ it.layer(NodeServices.layer)("CliTokenManager.outOfBandOAuthLogin", (it) => {
       assert.lengthOf(validationErrors, 1);
       assert.include(validationErrors[0], "different connect request");
       assert.instanceOf(result, PromptRejectedError);
+    }),
+  );
+
+  it.effect("requests a JWT for the sovereign relay resource", () =>
+    Effect.gen(function* () {
+      const requests: Array<RecordedTokenRequest> = [];
+
+      yield* CliTokenManager.outOfBandOAuthLogin(({ authorizeUrl }) => {
+        const request = readConnectAuthorizeRequest(new URL(authorizeUrl));
+        assert.isNotNull(request);
+        return Effect.succeed(`sovereign-code-123.${request!.state}`);
+      }).pipe(
+        Effect.provide(
+          Layer.merge(
+            makeTokenEndpointLayer(requests),
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: SOVEREIGN_TEST_ENV })),
+          ),
+        ),
+      );
+
+      assert.lengthOf(requests, 1);
+      assert.equal(requests[0]!.url, "https://account.example.test/api/auth/oauth2/token");
+      assert.equal(requests[0]!.params.get("resource"), "urn:t3:relay");
     }),
   );
 

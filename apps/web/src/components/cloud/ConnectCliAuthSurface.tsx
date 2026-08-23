@@ -3,11 +3,12 @@ import { encodeConnectAuthCode, readConnectAuthorizeRequest } from "@t3tools/sha
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  buildConnectCliClerkAuthorizeUrl,
+  buildConnectCliOAuthAuthorizeUrl,
   connectCliSignInRedirectUrl,
   readConnectCliAuthState,
   readConnectCliCallbackResult,
   rememberConnectCliAuthState,
+  resolveConnectCliOAuthConfig,
 } from "../../cloud/connectCliAuth";
 import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -45,13 +46,56 @@ const invalidLinkMessage = {
 } as const;
 
 /**
- * /connect: the URL the CLI prints for both flows. Waits for a Clerk session,
- * then forwards the CLI's PKCE request to Clerk's authorize endpoint — with a
- * loopback redirect URI when the request carries a port, so the code returns
- * straight to the waiting CLI, and the hosted callback page otherwise.
+ * /connect is the URL the CLI prints for headless authorization and for Clerk
+ * loopback authorization, where the hosted page must establish the session
+ * before forwarding the preserved PKCE request.
  */
 export function ConnectCliAuthorizeSurface() {
   const [request] = useState(() => readConnectAuthorizeRequest(new URL(window.location.href)));
+  const config = resolveConnectCliOAuthConfig();
+
+  if (config?.provider === "sovereign") {
+    return <SovereignConnectCliAuthorizeSurface request={request} />;
+  }
+  return <ClerkConnectCliAuthorizeSurface request={request} />;
+}
+
+function SovereignConnectCliAuthorizeSurface({
+  request,
+}: {
+  readonly request: ReturnType<typeof readConnectAuthorizeRequest>;
+}) {
+  const redirecting = useRef(false);
+
+  useEffect(() => {
+    if (!request || redirecting.current) return;
+    const authorizeUrl = buildConnectCliOAuthAuthorizeUrl(request);
+    if (!authorizeUrl) return;
+    redirecting.current = true;
+    rememberConnectCliAuthState(request.state);
+    window.location.assign(authorizeUrl);
+  }, [request]);
+
+  return (
+    <AuthSurfaceShell>
+      <ConnectCliAuthMessage
+        {...(request
+          ? {
+              eyebrow: "Step 1 of 2 · Browser authorization",
+              title: "Connecting your terminal",
+              description: "Redirecting to your T3 account service…",
+            }
+          : invalidLinkMessage)}
+      />
+    </AuthSurfaceShell>
+  );
+}
+
+function ClerkConnectCliAuthorizeSurface({
+  request,
+}: {
+  readonly request: ReturnType<typeof readConnectAuthorizeRequest>;
+}) {
   const clerk = useClerk();
   const { isLoaded, isSignedIn } = useAuth();
   const signInOpened = useRef(false);
@@ -83,7 +127,7 @@ export function ConnectCliAuthorizeSurface() {
       }
       return;
     }
-    const authorizeUrl = buildConnectCliClerkAuthorizeUrl(request);
+    const authorizeUrl = buildConnectCliOAuthAuthorizeUrl(request);
     if (!authorizeUrl) {
       return;
     }
@@ -126,14 +170,24 @@ export function ConnectCliAuthorizeSurface() {
   );
 }
 
-/**
- * /connect/callback: Clerk's redirect target. Shows the one-time code the
- * user enters in the waiting terminal.
- */
+/** The issuer callback displays the one-time code entered in the waiting CLI. */
 export function ConnectCliCallbackSurface() {
+  return resolveConnectCliOAuthConfig()?.provider === "clerk" ? (
+    <ClerkConnectCliCallbackSurface />
+  ) : (
+    <ConnectCliCallbackContent accountLabel={null} />
+  );
+}
+
+function ClerkConnectCliCallbackSurface() {
+  const { user } = useUser();
+  const accountLabel = user?.primaryEmailAddress?.emailAddress ?? user?.username ?? null;
+  return <ConnectCliCallbackContent accountLabel={accountLabel} />;
+}
+
+function ConnectCliCallbackContent({ accountLabel }: { readonly accountLabel: string | null }) {
   const [result] = useState(readConnectCliCallbackResult);
   const [expectedState] = useState(readConnectCliAuthState);
-  const { user } = useUser();
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "authentication code" });
 
   if (!result) {
@@ -164,7 +218,6 @@ export function ConnectCliCallbackSurface() {
     );
   }
 
-  const accountLabel = user?.primaryEmailAddress?.emailAddress ?? user?.username ?? null;
   const authCode = encodeConnectAuthCode(result);
 
   return (

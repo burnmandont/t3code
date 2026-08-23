@@ -26,6 +26,7 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import {
   buildConnectAuthorizeRequestUrl,
+  buildConnectOAuthAuthorizeUrl,
   checkConnectAuthCode,
   connectCallbackUrl,
 } from "@t3tools/shared/connectAuth";
@@ -241,12 +242,15 @@ function bytesToString(value: Uint8Array): string {
 }
 
 const exchangeToken = Effect.fn("cloud.cli_token.exchange")(function* (
-  metadata: Pick<CloudCliOAuthConfig, "tokenEndpoint">,
+  metadata: Pick<CloudCliOAuthConfig, "tokenEndpoint" | "resource">,
   params: Record<string, string>,
 ) {
   const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
   const response = yield* HttpClientRequest.post(metadata.tokenEndpoint).pipe(
-    HttpClientRequest.bodyUrlParams(params),
+    HttpClientRequest.bodyUrlParams({
+      ...params,
+      ...(metadata.resource ? { resource: metadata.resource } : {}),
+    }),
     httpClient.execute,
     Effect.flatMap(HttpClientResponse.schemaBodyJson(OAuthTokenResponse)),
   );
@@ -272,6 +276,30 @@ const makePkceRequest = Effect.gen(function* () {
   const state = Encoding.encodeBase64Url(yield* crypto.randomBytes(16));
   return { verifier, challenge, state };
 });
+
+export function buildLoopbackAuthorizationUrl(input: {
+  readonly metadata: CloudCliOAuthConfig;
+  readonly hostedAppUrl: string;
+  readonly state: string;
+  readonly challenge: string;
+}): string {
+  const { metadata } = input;
+  return metadata.provider === "clerk"
+    ? buildConnectAuthorizeRequestUrl({
+        hostedAppUrl: input.hostedAppUrl,
+        state: input.state,
+        challenge: input.challenge,
+        loopbackPort: metadata.loopbackPort,
+      })
+    : buildConnectOAuthAuthorizeUrl({
+        authorizationEndpoint: metadata.authorizationEndpoint,
+        clientId: metadata.clientId,
+        redirectUri: metadata.redirectUri,
+        scopes: metadata.scopes,
+        state: input.state,
+        challenge: input.challenge,
+      });
+}
 
 export interface OutOfBandOAuthPromptInput {
   readonly authorizeUrl: string;
@@ -300,8 +328,8 @@ export const outOfBandOAuthLogin = Effect.fn("cloud.cli_token.out_of_band_oauth_
       return typeof checked === "string" ? Effect.fail(checked) : Effect.succeed(value);
     },
   }).pipe(
-    // Clerk authorization codes expire on this horizon anyway; matching the
-    // loopback flow's timeout turns an abandoned prompt into a clear error.
+    // Match the loopback flow's timeout so an abandoned prompt becomes a
+    // clear error regardless of which configured issuer minted the code.
     Effect.timeout(CLOUD_CLI_OAUTH_CALLBACK_TIMEOUT),
     Effect.catchTag("TimeoutError", (cause) =>
       Effect.fail(new CloudCliAuthorizationTimeoutError({ cause })),
@@ -398,15 +426,14 @@ export const make = Effect.gen(function* () {
       ),
       Layer.build,
     );
-    // The hosted /connect page establishes a Clerk session before forwarding
-    // the request to /oauth/authorize with the loopback redirect URI. Sending
-    // a signed-out browser to /oauth/authorize directly loses the authorize
-    // parameters across Clerk's sign-in redirect (#5051).
-    const authorizationUrl = buildConnectAuthorizeRequestUrl({
+    // Clerk first needs the hosted /connect page to establish a browser
+    // session without losing the PKCE parameters (#5051). A standalone OIDC
+    // issuer can receive the loopback authorization request directly.
+    const authorizationUrl = buildLoopbackAuthorizationUrl({
+      metadata,
       hostedAppUrl,
       state,
       challenge,
-      loopbackPort: metadata.loopbackPort,
     });
     yield* Console.log(formatLoopbackAuthorizationPrompt(authorizationUrl));
     const authorization = yield* waitForLoopbackAuthorization({

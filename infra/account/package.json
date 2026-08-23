@@ -1,0 +1,33 @@
+{
+  "name": "t3code-account",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:schema": "auth generate --config src/runtimeAuth.ts --output src/schema.generated.ts --adapter drizzle --dialect postgresql --yes",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    "client:provision": "node -- src/provisionClient.ts",
+    "client:build": "esbuild src/accountClient.ts --bundle --platform=browser --format=iife --target=es2022 --outfile=dist/account-client.js",
+    "dev": "pnpm client:build && node --watch src/server.ts",
+    "start": "node -- src/server.ts",
+    "typecheck": "tsgo --noEmit",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@better-auth/oauth-provider": "catalog:",
+    "@better-auth/passkey": "catalog:",
+    "better-auth": "catalog:",
+    "drizzle-orm": "0.45.2",
+    "effect": "catalog:",
+    "pg": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "auth": "catalog:",
+    "drizzle-kit": "0.31.10",
+    "vite-plus": "catalog:"
+  }
+}

@@ -119,6 +119,10 @@
       "types": "./src/relaySigning.ts",
       "import": "./src/relaySigning.ts"
     },
+    "./oidcAccessToken": {
+      "types": "./src/oidcAccessToken.ts",
+      "import": "./src/oidcAccessToken.ts"
+    },
     "./dpop": {
       "types": "./src/dpop.ts",
       "import": "./src/dpop.ts"

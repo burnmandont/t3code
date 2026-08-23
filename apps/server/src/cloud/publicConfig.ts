@@ -2,6 +2,7 @@ import {
   connectLoopbackRedirectUri,
   CONNECT_OAUTH_SCOPES,
   DEFAULT_HOSTED_APP_URL,
+  SOVEREIGN_CONNECT_OAUTH_SCOPES,
 } from "@t3tools/shared/connectAuth";
 import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
@@ -14,12 +15,14 @@ import * as SchemaIssue from "effect/SchemaIssue";
 declare const __T3CODE_BUILD_RELAY_URL__: string | undefined;
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
 declare const __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__: string | undefined;
+declare const __T3CODE_BUILD_OAUTH_ISSUER__: string | undefined;
+declare const __T3CODE_BUILD_OAUTH_CLIENT_ID__: string | undefined;
+declare const __T3CODE_BUILD_OAUTH_RESOURCE__: string | undefined;
 declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__: string | undefined;
 declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__: string | undefined;
 declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__: string | undefined;
 
 const CLOUD_CLI_OAUTH_LOOPBACK_PORT = 34338;
-const CLOUD_CLI_OAUTH_SCOPES = CONNECT_OAUTH_SCOPES;
 
 function validateRelayUrl(value: string) {
   const relayUrl = normalizeSecureRelayUrl(value);
@@ -62,6 +65,19 @@ export const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
   typeof __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__ === "undefined"
     ? undefined
     : __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__,
+);
+export const buildTimeOAuthIssuer = readBuildTimeValue(
+  typeof __T3CODE_BUILD_OAUTH_ISSUER__ === "undefined" ? undefined : __T3CODE_BUILD_OAUTH_ISSUER__,
+);
+export const buildTimeOAuthClientId = readBuildTimeValue(
+  typeof __T3CODE_BUILD_OAUTH_CLIENT_ID__ === "undefined"
+    ? undefined
+    : __T3CODE_BUILD_OAUTH_CLIENT_ID__,
+);
+export const buildTimeOAuthResource = readBuildTimeValue(
+  typeof __T3CODE_BUILD_OAUTH_RESOURCE__ === "undefined"
+    ? undefined
+    : __T3CODE_BUILD_OAUTH_RESOURCE__,
 );
 export const buildTimeRelayClientTracing = {
   tracesUrl: readBuildTimeValue(
@@ -149,59 +165,131 @@ function makePublicValueConfig(name: string, fallback: string) {
   );
 }
 
-/**
- * The CLI never calls Clerk's /oauth/authorize itself: the browser leg goes
- * through the hosted /connect page, which builds the authorize URL after a
- * Clerk session exists (see CliTokenManager.login). Only the token endpoint
- * is contacted directly.
- */
+function makeOptionalPublicValueConfig(name: string, fallback: string) {
+  return Config.string(name).pipe(
+    Config.withDefault(fallback),
+    Config.map((value) => value.trim()),
+  );
+}
+
+function normalizeOAuthIssuer(value: string): string {
+  const url = new URL(value);
+  const isLoopbackHttp =
+    url.protocol === "http:" &&
+    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+  if ((url.protocol !== "https:" && !isLoopbackHttp) || url.search !== "" || url.hash !== "") {
+    throw new Error("OAuth issuer must be HTTPS (or HTTP loopback) without query or fragment.");
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 export interface CloudCliOAuthConfig {
+  readonly provider: "clerk" | "sovereign";
+  readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;
   readonly clientId: string;
   readonly loopbackPort: number;
   readonly redirectUri: string;
-  readonly scopes: typeof CLOUD_CLI_OAUTH_SCOPES;
+  readonly scopes: ReadonlyArray<string>;
+  readonly resource?: string;
 }
 
 export function makeCloudCliOAuthConfig({
   clerkPublishableKeyFallback = buildTimeClerkPublishableKey,
   clerkCliOAuthClientIdFallback = buildTimeClerkCliOAuthClientId,
+  oauthIssuerFallback = buildTimeOAuthIssuer,
+  oauthClientIdFallback = buildTimeOAuthClientId,
+  oauthResourceFallback = buildTimeOAuthResource,
 }: {
   readonly clerkPublishableKeyFallback?: string;
   readonly clerkCliOAuthClientIdFallback?: string;
+  readonly oauthIssuerFallback?: string;
+  readonly oauthClientIdFallback?: string;
+  readonly oauthResourceFallback?: string;
 } = {}) {
   return Config.all({
-    clerkPublishableKey: makePublicValueConfig(
+    clerkPublishableKey: makeOptionalPublicValueConfig(
       "T3CODE_CLERK_PUBLISHABLE_KEY",
       clerkPublishableKeyFallback,
     ),
-    clientId: makePublicValueConfig(
+    clerkClientId: makeOptionalPublicValueConfig(
       "T3CODE_CLERK_CLI_OAUTH_CLIENT_ID",
       clerkCliOAuthClientIdFallback,
     ),
+    oauthIssuer: makeOptionalPublicValueConfig("T3CODE_OAUTH_ISSUER", oauthIssuerFallback),
+    oauthClientId: makeOptionalPublicValueConfig("T3CODE_OAUTH_CLIENT_ID", oauthClientIdFallback),
+    oauthResource: makeOptionalPublicValueConfig("T3CODE_OAUTH_RESOURCE", oauthResourceFallback),
   }).pipe(
-    Config.mapOrFail(({ clerkPublishableKey, clientId }) =>
-      Effect.try({
-        try: () => clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey),
-        catch: (cause) =>
-          new Config.ConfigError(
-            new ConfigProvider.SourceError({
-              message: "Failed to derive Clerk Frontend API URL from the publishable key.",
-              cause,
-            }),
-          ),
-      }).pipe(
-        Effect.map(
-          (clerkFrontendApiUrl) =>
-            ({
+    Config.mapOrFail(
+      ({ clerkPublishableKey, clerkClientId, oauthIssuer, oauthClientId, oauthResource }) => {
+        if (oauthIssuer || oauthClientId || oauthResource) {
+          if (!oauthIssuer || !oauthClientId || !oauthResource) {
+            return Effect.fail(
+              new Config.ConfigError(
+                new ConfigProvider.SourceError({
+                  message:
+                    "T3CODE_OAUTH_ISSUER, T3CODE_OAUTH_CLIENT_ID, and T3CODE_OAUTH_RESOURCE must be configured together.",
+                  cause: new Error("Incomplete sovereign OAuth configuration."),
+                }),
+              ),
+            );
+          }
+          return Effect.try({
+            try: (): CloudCliOAuthConfig => {
+              const issuer = normalizeOAuthIssuer(oauthIssuer);
+              return {
+                provider: "sovereign",
+                authorizationEndpoint: `${issuer}/oauth2/authorize`,
+                tokenEndpoint: `${issuer}/oauth2/token`,
+                clientId: oauthClientId,
+                loopbackPort: CLOUD_CLI_OAUTH_LOOPBACK_PORT,
+                redirectUri: connectLoopbackRedirectUri(CLOUD_CLI_OAUTH_LOOPBACK_PORT),
+                scopes: SOVEREIGN_CONNECT_OAUTH_SCOPES,
+                resource: oauthResource,
+              } satisfies CloudCliOAuthConfig;
+            },
+            catch: (cause) =>
+              new Config.ConfigError(
+                new ConfigProvider.SourceError({
+                  message: "T3CODE_OAUTH_ISSUER is not a valid OAuth issuer URL.",
+                  cause,
+                }),
+              ),
+          });
+        }
+        if (!clerkPublishableKey || !clerkClientId) {
+          return Effect.fail(
+            new Config.ConfigError(
+              new ConfigProvider.SourceError({
+                message: "Sovereign OAuth or Clerk OAuth public configuration is required.",
+                cause: new Error("No complete OAuth provider configuration was found."),
+              }),
+            ),
+          );
+        }
+        return Effect.try({
+          try: () => clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey),
+          catch: (cause) =>
+            new Config.ConfigError(
+              new ConfigProvider.SourceError({
+                message: "Failed to derive Clerk Frontend API URL from the publishable key.",
+                cause,
+              }),
+            ),
+        }).pipe(
+          Effect.map(
+            (clerkFrontendApiUrl): CloudCliOAuthConfig => ({
+              provider: "clerk",
+              authorizationEndpoint: `${clerkFrontendApiUrl}/oauth/authorize`,
               tokenEndpoint: `${clerkFrontendApiUrl}/oauth/token`,
-              clientId,
+              clientId: clerkClientId,
               loopbackPort: CLOUD_CLI_OAUTH_LOOPBACK_PORT,
               redirectUri: connectLoopbackRedirectUri(CLOUD_CLI_OAUTH_LOOPBACK_PORT),
-              scopes: CLOUD_CLI_OAUTH_SCOPES,
-            }) satisfies CloudCliOAuthConfig,
-        ),
-      ),
+              scopes: CONNECT_OAUTH_SCOPES,
+            }),
+          ),
+        );
+      },
     ),
   );
 }
@@ -210,6 +298,9 @@ export const cloudCliOAuthConfig = makeCloudCliOAuthConfig();
 
 export const hasCloudPublicConfig = Boolean(
   (normalizeSecureRelayUrl(process.env.T3CODE_RELAY_URL ?? "") ?? buildTimeRelayUrl) &&
-  (process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() || buildTimeClerkPublishableKey) &&
-  (process.env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID?.trim() || buildTimeClerkCliOAuthClientId),
+  (((process.env.T3CODE_OAUTH_ISSUER?.trim() || buildTimeOAuthIssuer) &&
+    (process.env.T3CODE_OAUTH_CLIENT_ID?.trim() || buildTimeOAuthClientId) &&
+    (process.env.T3CODE_OAUTH_RESOURCE?.trim() || buildTimeOAuthResource)) ||
+    ((process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() || buildTimeClerkPublishableKey) &&
+      (process.env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID?.trim() || buildTimeClerkCliOAuthClientId))),
 );

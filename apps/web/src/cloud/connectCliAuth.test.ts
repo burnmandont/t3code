@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
-  buildConnectCliClerkAuthorizeUrl,
+  buildConnectCliOAuthAuthorizeUrl,
   connectCliSignInRedirectUrl,
   hasConnectCliAuthConfig,
   readConnectCliCallbackResult,
@@ -30,7 +30,7 @@ describe("connectCliAuth", () => {
     vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_123");
     vi.stubEnv("VITE_HOSTED_APP_URL", "https://nightly.app.t3.codes");
 
-    const authorizeUrl = buildConnectCliClerkAuthorizeUrl({
+    const authorizeUrl = buildConnectCliOAuthAuthorizeUrl({
       state: "state-1",
       challenge: "challenge-1",
     });
@@ -51,7 +51,7 @@ describe("connectCliAuth", () => {
     vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", TEST_PUBLISHABLE_KEY);
     vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_123");
 
-    const authorizeUrl = buildConnectCliClerkAuthorizeUrl({
+    const authorizeUrl = buildConnectCliOAuthAuthorizeUrl({
       state: "state-1",
       challenge: "challenge-1",
       loopbackPort: 34338,
@@ -63,10 +63,43 @@ describe("connectCliAuth", () => {
     expect(url.searchParams.get("state")).toBe("state-1");
   });
 
+  it("prefers the sovereign issuer and requests relay plus refresh scopes", () => {
+    vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", TEST_PUBLISHABLE_KEY);
+    vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_clerk");
+    vi.stubEnv("VITE_T3CODE_OAUTH_ISSUER", "https://account.example.test/api/auth/");
+    vi.stubEnv("VITE_T3CODE_OAUTH_CLIENT_ID", "t3-code");
+    vi.stubEnv("VITE_T3CODE_OAUTH_RESOURCE", "urn:t3:relay");
+    vi.stubEnv("VITE_HOSTED_APP_URL", "https://code.example.test");
+
+    const authorizeUrl = buildConnectCliOAuthAuthorizeUrl({
+      state: "state-1",
+      challenge: "challenge-1",
+    });
+    expect(authorizeUrl).not.toBeNull();
+
+    const url = new URL(authorizeUrl!);
+    expect(url.origin).toBe("https://account.example.test");
+    expect(url.pathname).toBe("/api/auth/oauth2/authorize");
+    expect(url.searchParams.get("client_id")).toBe("t3-code");
+    expect(url.searchParams.get("scope")).toBe("openid profile email offline_access t3:relay");
+    expect(url.searchParams.get("redirect_uri")).toBe("https://code.example.test/connect/callback");
+  });
+
+  it("fails closed when sovereign OAuth configuration is incomplete", () => {
+    vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", TEST_PUBLISHABLE_KEY);
+    vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_clerk");
+    vi.stubEnv("VITE_T3CODE_OAUTH_ISSUER", "https://account.example.test/api/auth");
+
+    expect(hasConnectCliAuthConfig()).toBe(false);
+    expect(
+      buildConnectCliOAuthAuthorizeUrl({ state: "state-1", challenge: "challenge-1" }),
+    ).toBeNull();
+  });
+
   it("returns null when the CLI OAuth client id is not configured", () => {
     vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", TEST_PUBLISHABLE_KEY);
     expect(
-      buildConnectCliClerkAuthorizeUrl({ state: "state-1", challenge: "challenge-1" }),
+      buildConnectCliOAuthAuthorizeUrl({ state: "state-1", challenge: "challenge-1" }),
     ).toBeNull();
   });
 

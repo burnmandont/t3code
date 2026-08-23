@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   CloudPublicConfigMissingError,
   hasCloudPublicConfig,
+  resolveCloudIdentityConfig,
   resolveRelayClerkTokenOptions,
 } from "./publicConfig.ts";
 
@@ -33,6 +34,26 @@ describe("hasCloudPublicConfig", () => {
     vi.stubEnv("VITE_T3CODE_RELAY_URL", "http://relay.example.test");
 
     expect(hasCloudPublicConfig()).toBe(false);
+  });
+
+  it("prefers complete sovereign identity configuration and fails closed when partial", () => {
+    vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", "pk_test_example");
+    vi.stubEnv("VITE_CLERK_JWT_TEMPLATE", "t3-relay");
+    vi.stubEnv("VITE_T3CODE_RELAY_URL", "https://relay.example.test");
+    vi.stubEnv("VITE_T3CODE_OAUTH_ISSUER", "https://auth.example.test/api/auth/");
+
+    expect(resolveCloudIdentityConfig()).toBeNull();
+    expect(hasCloudPublicConfig()).toBe(false);
+
+    vi.stubEnv("VITE_T3CODE_OAUTH_CLIENT_ID", "t3-code");
+    vi.stubEnv("VITE_T3CODE_OAUTH_RESOURCE", "urn:t3:relay");
+    expect(resolveCloudIdentityConfig()).toEqual({
+      provider: "sovereign",
+      issuer: "https://auth.example.test/api/auth",
+      clientId: "t3-code",
+      resource: "urn:t3:relay",
+    });
+    expect(hasCloudPublicConfig()).toBe(true);
   });
 
   it("reports the missing Clerk JWT template as structured configuration", () => {

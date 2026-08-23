@@ -90,6 +90,8 @@ it.effect("derives direct Clerk OAuth endpoints from statically injected public 
     }).pipe(provideEnv({}));
 
     assert.deepEqual(config, {
+      provider: "clerk",
+      authorizationEndpoint: "https://clerk.example.test/oauth/authorize",
       tokenEndpoint: "https://clerk.example.test/oauth/token",
       clientId: "oauth_client_embedded",
       loopbackPort: 34338,
@@ -179,3 +181,36 @@ it("resolves relay client tracing from runtime config with build-time fallback",
     null,
   );
 });
+
+it.effect("prefers sovereign OAuth issuer configuration over Clerk fallbacks", () =>
+  Effect.gen(function* () {
+    const config = yield* makeCloudCliOAuthConfig({
+      clerkPublishableKeyFallback: "pk_test_ZW1iZWRkZWQuZXhhbXBsZS50ZXN0JA==",
+      clerkCliOAuthClientIdFallback: "oauth_client_embedded",
+      oauthIssuerFallback: "https://account.example.test/api/auth/",
+      oauthClientIdFallback: "t3-code",
+      oauthResourceFallback: "urn:t3:relay",
+    }).pipe(provideEnv({}));
+
+    assert.deepEqual(config, {
+      provider: "sovereign",
+      authorizationEndpoint: "https://account.example.test/api/auth/oauth2/authorize",
+      tokenEndpoint: "https://account.example.test/api/auth/oauth2/token",
+      clientId: "t3-code",
+      loopbackPort: 34338,
+      redirectUri: "http://127.0.0.1:34338/callback",
+      scopes: ["openid", "profile", "email", "offline_access", "t3:relay"],
+      resource: "urn:t3:relay",
+    });
+  }),
+);
+
+it.effect("rejects incomplete sovereign OAuth configuration instead of falling back to Clerk", () =>
+  makeCloudCliOAuthConfig({
+    clerkPublishableKeyFallback: "pk_test_ZW1iZWRkZWQuZXhhbXBsZS50ZXN0JA==",
+    clerkCliOAuthClientIdFallback: "oauth_client_embedded",
+    oauthIssuerFallback: "https://account.example.test/api/auth",
+    oauthClientIdFallback: "",
+    oauthResourceFallback: "urn:t3:relay",
+  }).pipe(provideEnv({}), Effect.flip),
+);

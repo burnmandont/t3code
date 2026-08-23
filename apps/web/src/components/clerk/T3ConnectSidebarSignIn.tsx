@@ -1,7 +1,8 @@
-import { UserButton, useAuth } from "@clerk/react";
-import { LogInIcon, ServerIcon, SmartphoneIcon } from "lucide-react";
+import { UserButton } from "@clerk/react";
+import { CircleUserRoundIcon, LogInIcon, ServerIcon, SmartphoneIcon } from "lucide-react";
 
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
+import { useCloudAuth } from "../../cloud/auth";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
 import { MobileClientsUserProfilePage } from "./MobileClientsUserProfilePage";
 import { T3ConnectUserProfilePage } from "./T3ConnectUserProfilePage";
@@ -20,9 +21,26 @@ export function T3ConnectSidebarAvatar() {
 }
 
 function ConfiguredT3ConnectSidebarAvatar() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { accountLabel, isLoaded, isSignedIn, provider, signOut } = useCloudAuth();
 
   if (!isLoaded || !isSignedIn) return null;
+
+  if (provider === "sovereign") {
+    return (
+      <SidebarMenu className="w-auto shrink-0">
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            className="size-9 px-0"
+            title={accountLabel ? `Sign out ${accountLabel}` : "Sign out of T3 Connect"}
+            onClick={() => void signOut()}
+          >
+            <CircleUserRoundIcon />
+            <span className="sr-only">Sign out of T3 Connect</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    );
+  }
 
   return (
     <UserButton
@@ -52,7 +70,7 @@ function ConfiguredT3ConnectSidebarAvatar() {
 }
 
 function ConfiguredT3ConnectSidebarSignIn() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useCloudAuth();
   const { authPrompt, openAuthPrompt } = useT3ConnectAuthPrompt();
 
   if (!isLoaded || isSignedIn) return null;

@@ -9,7 +9,8 @@ import "./index.css";
 
 import { isElectron } from "./env";
 import { ManagedRelayAuthProvider } from "./cloud/managedAuth";
-import { hasCloudPublicConfig } from "./cloud/publicConfig";
+import { ClerkCloudAuthProvider, SovereignCloudAuthProvider } from "./cloud/auth";
+import { hasCloudPublicConfig, resolveCloudIdentityConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
 import {
   syncDocumentElectronPlatformClasses,
@@ -28,7 +29,7 @@ if (isElectron) {
   syncDocumentWindowControlsOverlayClass();
 }
 
-const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+const identityConfig = resolveCloudIdentityConfig();
 
 // First Clerk UI build containing https://github.com/clerk/javascript/pull/9500.
 const electronClerkUI = {
@@ -39,19 +40,27 @@ const app = <AppRoot router={router} />;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {clerkPublishableKey && hasCloudPublicConfig() ? (
+    {identityConfig?.provider === "sovereign" && hasCloudPublicConfig() ? (
+      <SovereignCloudAuthProvider config={identityConfig}>
+        <ManagedRelayAuthProvider>{app}</ManagedRelayAuthProvider>
+      </SovereignCloudAuthProvider>
+    ) : identityConfig?.provider === "clerk" && hasCloudPublicConfig() ? (
       isElectron ? (
         <ElectronClerkProvider
           {...electronClerkUI}
           appearance={clerkAppearance}
-          publishableKey={clerkPublishableKey}
+          publishableKey={identityConfig.publishableKey}
           passkeys={passkeys}
         >
-          <ManagedRelayAuthProvider>{app}</ManagedRelayAuthProvider>
+          <ClerkCloudAuthProvider>
+            <ManagedRelayAuthProvider>{app}</ManagedRelayAuthProvider>
+          </ClerkCloudAuthProvider>
         </ElectronClerkProvider>
       ) : (
-        <ClerkProvider appearance={clerkAppearance} publishableKey={clerkPublishableKey}>
-          <ManagedRelayAuthProvider>{app}</ManagedRelayAuthProvider>
+        <ClerkProvider appearance={clerkAppearance} publishableKey={identityConfig.publishableKey}>
+          <ClerkCloudAuthProvider>
+            <ManagedRelayAuthProvider>{app}</ManagedRelayAuthProvider>
+          </ClerkCloudAuthProvider>
         </ClerkProvider>
       )
     ) : (

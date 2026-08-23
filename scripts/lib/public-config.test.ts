@@ -20,6 +20,9 @@ describe("loadRepoEnv", () => {
 
     expect(env.T3CODE_CLERK_PUBLISHABLE_KEY).toBeUndefined();
     expect(env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID).toBeUndefined();
+    expect(env.T3CODE_OAUTH_ISSUER).toBeUndefined();
+    expect(env.T3CODE_OAUTH_CLIENT_ID).toBeUndefined();
+    expect(env.T3CODE_OAUTH_RESOURCE).toBeUndefined();
     expect(env.VITE_CLERK_PUBLISHABLE_KEY).toBeUndefined();
     expect(env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY).toBeUndefined();
     expect(env.T3CODE_CLERK_JWT_TEMPLATE).toBeUndefined();
@@ -93,6 +96,9 @@ describe("loadRepoEnv", () => {
       clerkPublishableKey: "pk_legacy",
       clerkJwtTemplate: "template_legacy",
       clerkCliOAuthClientId: "oauth_canonical",
+      oauthIssuer: undefined,
+      oauthClientId: undefined,
+      oauthResource: undefined,
       relayUrl: "https://legacy.example.test",
       mobileOtlpTracesUrl: "https://api.axiom.co/v1/traces",
       mobileOtlpTracesDataset: "mobile-traces",

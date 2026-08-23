@@ -22,6 +22,17 @@ export const DEFAULT_HOSTED_APP_URL = "https://app.t3.codes";
  */
 export const CONNECT_OAUTH_SCOPES = ["openid", "profile", "email"] as const;
 
+/**
+ * The sovereign issuer grants a refresh token explicitly and places the relay
+ * audience on access tokens carrying the t3:relay scope. Clerk's OAuth app
+ * keeps its existing scope set for upstream compatibility.
+ */
+export const SOVEREIGN_CONNECT_OAUTH_SCOPES = [
+  ...CONNECT_OAUTH_SCOPES,
+  "offline_access",
+  "t3:relay",
+] as const;
+
 export interface ConnectAuthorizeRequest {
   readonly state: string;
   readonly challenge: string;
@@ -103,7 +114,7 @@ export function connectCallbackUrl(hostedAppUrl: string): string {
   return new URL(CONNECT_CALLBACK_PATH, hostedAppUrl).toString();
 }
 
-export function buildConnectClerkAuthorizeUrl(input: {
+export function buildConnectOAuthAuthorizeUrl(input: {
   readonly authorizationEndpoint: string;
   readonly clientId: string;
   readonly redirectUri: string;
@@ -121,6 +132,9 @@ export function buildConnectClerkAuthorizeUrl(input: {
   url.searchParams.set("code_challenge_method", "S256");
   return url.toString();
 }
+
+/** @deprecated Use buildConnectOAuthAuthorizeUrl. */
+export const buildConnectClerkAuthorizeUrl = buildConnectOAuthAuthorizeUrl;
 
 export interface ConnectAuthCode {
   readonly code: string;
