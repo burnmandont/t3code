@@ -91,12 +91,64 @@ try {
   await NodeFSP.mkdir(NodePath.dirname(t3Root), { recursive: true });
   NodeChildProcess.execFileSync(
     "pnpm",
-    ["--filter", "t3", "deploy", "--prod", "--legacy", deployed],
+    ["--filter", "t3", "deploy", "--prod", "--legacy", "--ignore-scripts", deployed],
     {
       cwd: repoRoot,
       stdio: "inherit",
       env: { ...process.env, CI: "true" },
     },
+  );
+
+  // The production runner installs dependencies with lifecycle scripts disabled,
+  // then explicitly rebuilds node-pty before this builder runs. Keep deployment
+  // script-free as well: pnpm's legacy deploy can otherwise start msgpackr-extract
+  // before its nested helper binary is linked. Copy only the already-validated
+  // node-pty build output into the isolated closure and prove both native modules
+  // load from that closure before it is signed.
+  const nodePtySource = NodePath.join(repoRoot, "apps/server/node_modules/node-pty/build/Release");
+  const nodePtyRoot = NodePath.join(deployed, "node_modules/node-pty");
+  const nodePtyRelease = NodePath.join(nodePtyRoot, "build", "Release");
+  try {
+    await NodeFSP.access(NodePath.join(nodePtySource, "pty.node"));
+  } catch {
+    throw new Error("The validated node-pty build output is missing from the workspace.");
+  }
+  await NodeFSP.mkdir(NodePath.dirname(nodePtyRelease), { recursive: true });
+  await NodeFSP.cp(nodePtySource, nodePtyRelease, { recursive: true, force: true });
+  for (const helper of [
+    NodePath.join(nodePtyRelease, "spawn-helper"),
+    NodePath.join(nodePtyRoot, "prebuilds", "linux-x64", "spawn-helper"),
+  ]) {
+    try {
+      await NodeFSP.chmod(helper, 0o755);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  NodeChildProcess.execFileSync(
+    process.execPath,
+    [
+      "-e",
+      `const pty = require("node-pty");
+const child = pty.spawn("/bin/sh", ["-c", "printf sovereign-runtime-pty-ok"], { cols: 80, rows: 24 });
+let output = "";
+const timeout = setTimeout(() => { console.error("node-pty smoke test timed out"); process.exit(1); }, 5_000);
+child.onData((data) => { output += data; });
+child.onExit(({ exitCode }) => {
+  clearTimeout(timeout);
+  if (exitCode !== 0 || !output.includes("sovereign-runtime-pty-ok")) process.exit(1);
+});`,
+    ],
+    { cwd: deployed, stdio: "inherit" },
+  );
+  NodeChildProcess.execFileSync(
+    process.execPath,
+    [
+      "-e",
+      `const extract = require("msgpackr-extract");
+if (typeof extract.extractStrings !== "function") process.exit(1);`,
+    ],
+    { cwd: deployed, stdio: "inherit" },
   );
   await NodeFSP.rename(deployed, t3Root);
 
