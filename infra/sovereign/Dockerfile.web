@@ -25,7 +25,9 @@ RUN npm install --global pnpm@11.10.0
 
 WORKDIR /app
 COPY . .
-RUN pnpm install --frozen-lockfile --ignore-scripts --filter @t3tools/web...
+RUN pnpm install --frozen-lockfile --ignore-scripts \
+    --filter @t3tools/web... \
+    --filter @t3tools/scripts...
 RUN pnpm rebuild esbuild
 RUN test -n "$SOURCE_COMMIT" \
     && runtime_version="$(SOURCE_COMMIT="$SOURCE_COMMIT" node infra/sovereign/runtime/set-runtime-version.mjs --print-only)" \

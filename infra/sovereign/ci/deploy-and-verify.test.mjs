@@ -412,6 +412,7 @@ test("keeps sovereign browser requests local unless the user opens a URL", () =>
   const webNginx = readSovereignFile("../nginx.conf");
 
   assert.match(dockerfile, /^ENV VITE_REMOTE_FAVICONS=0$/mu);
+  assert.match(dockerfile, /--filter @t3tools\/scripts[.][.][.]/u);
   assert.match(controlDockerfile, /infra\/account\/src\/accountClient[.]ts/u);
   assert.match(controlDockerfile, /--outfile=\/out\/account-client[.]js/u);
   assert.match(
