@@ -1526,7 +1526,7 @@ function SavedBackendListRow({
               }}
             >
               <SelectTrigger
-                size="xs"
+                size="sm"
                 className="w-full min-w-0 sm:w-48"
                 aria-label={`Connection method for ${environment.label}`}
                 disabled={
@@ -1561,13 +1561,14 @@ function SavedBackendListRow({
               selfUpdate={resolveServerSelfUpdateCapability(environment.serverConfig)}
               targetVersion={runtimeDrift.clientVersion}
               label={serverUpdateState.status === "failed" ? "Retry" : "Sync"}
+              size="sm"
             />
           ) : null}
           {isWslEnvironment ? (
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <Button size="xs" variant="outline" disabled>
+                  <Button size="sm" variant="outline" disabled>
                     Managed above
                   </Button>
                 }
@@ -1580,7 +1581,7 @@ function SavedBackendListRow({
             <>
               {!isConnected ? (
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="outline"
                   disabled={removingEnvironmentId === environmentId}
                   onClick={() => void onRemove(environmentId)}
@@ -1589,7 +1590,7 @@ function SavedBackendListRow({
                 </Button>
               ) : null}
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 disabled={isConnecting || removingEnvironmentId === environmentId}
                 onClick={() =>

@@ -4,6 +4,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import type { ComponentProps } from "react";
 
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { serverEnvironment } from "~/state/server";
@@ -77,12 +78,14 @@ export function ServerUpdateAction({
   selfUpdate,
   targetVersion,
   label = "Update",
+  size = "xs",
 }: {
   readonly environmentId: EnvironmentId;
   readonly serverLabel: string;
   readonly selfUpdate: ServerSelfUpdateCapability | null;
   readonly targetVersion: string;
   readonly label?: string;
+  readonly size?: ComponentProps<typeof Button>["size"];
 }) {
   const updateServer = useAtomCommand(serverEnvironment.updateServer, {
     reportFailure: false,
@@ -147,14 +150,14 @@ export function ServerUpdateAction({
   if (selfUpdate === null) {
     const command = manualServerUpdateCommand(targetVersion);
     return (
-      <Button size="xs" variant="outline" onClick={() => copyToClipboard(command, { command })}>
+      <Button size={size} variant="outline" onClick={() => copyToClipboard(command, { command })}>
         Copy update command
       </Button>
     );
   }
 
   return (
-    <Button size="xs" onClick={() => void handleUpdate()}>
+    <Button size={size} onClick={() => void handleUpdate()}>
       {label}
     </Button>
   );

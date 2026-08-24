@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { ComponentProps, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -27,14 +27,18 @@ import { ServerUpdateAction, ServerUpdateProgress } from "./ServerUpdateAction";
 
 type ActionElement = ReactElement<{
   readonly onClick?: () => void;
+  readonly size?: ComponentProps<typeof ServerUpdateAction>["size"];
 }>;
 
-function renderAction(): ActionElement {
+function renderAction(
+  options: { readonly size?: ComponentProps<typeof ServerUpdateAction>["size"] } = {},
+): ActionElement {
   return ServerUpdateAction({
     environmentId: "env-test" as EnvironmentId,
     serverLabel: "Test server",
     selfUpdate: "boot-service",
     targetVersion: "0.0.31",
+    size: options.size,
   }) as ActionElement;
 }
 
@@ -47,6 +51,12 @@ describe("ServerUpdateAction", () => {
   beforeEach(() => {
     testState.updateServer.mockReset();
     testState.toast.mockReset();
+  });
+
+  it("passes the requested control size to the update button", () => {
+    const action = renderAction({ size: "sm" });
+
+    expect(action.props.size).toBe("sm");
   });
 
   it("reports success only after the shared update flow reconnects", async () => {
