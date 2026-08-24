@@ -432,13 +432,15 @@ test("binds the hosted client build to Coolify's exact source commit", () => {
 test("installs dependencies for source trees included by the desktop typecheck", () => {
   const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
   const runtimeBuilder = readSovereignFile("../runtime/build-runtime-artifact.mjs");
+  const serverPackage = JSON.parse(readSovereignFile("../../../apps/server/package.json"));
 
   assert.match(workflow, /--filter @t3tools\/desktop[.][.][.]/u);
   assert.match(workflow, /--filter @t3tools\/mobile[.][.][.]/u);
   assert.match(workflow, /--filter @t3tools\/scripts[.][.][.]/u);
   assert.match(workflow, /pnpm rebuild esbuild/u);
   assert.doesNotMatch(workflow, /pnpm rebuild esbuild node-pty/u);
-  assert.match(runtimeBuilder, /node_modules\/[.]pnpm\/node_modules\/[.]bin\/node-gyp/u);
+  assert.equal(serverPackage.devDependencies["node-gyp"], "12.3.0");
+  assert.match(runtimeBuilder, /apps\/server\/node_modules\/[.]bin\/node-gyp/u);
   assert.match(runtimeBuilder, /NodeChildProcess[.]execFileSync\(nodeGyp, \["rebuild"\]/u);
   assert.match(runtimeBuilder, /"--ignore-scripts"/u);
   assert.match(runtimeBuilder, /sovereign-runtime-pty-ok/u);

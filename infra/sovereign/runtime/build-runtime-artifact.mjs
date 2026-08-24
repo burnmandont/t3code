@@ -90,7 +90,7 @@ try {
   const t3Root = NodePath.join(root, "node_modules", "t3");
   const nodePtyPackageRoot = NodePath.join(repoRoot, "apps/server/node_modules/node-pty");
   const nodePtySource = NodePath.join(nodePtyPackageRoot, "build", "Release");
-  const nodeGyp = NodePath.join(repoRoot, "node_modules/.pnpm/node_modules/.bin/node-gyp");
+  const nodeGyp = NodePath.join(repoRoot, "apps/server/node_modules/.bin/node-gyp");
   await NodeFSP.mkdir(NodePath.dirname(t3Root), { recursive: true });
 
   // pnpm's rebuild bookkeeping does not mark dependencies from the runner's
