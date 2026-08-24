@@ -1727,6 +1727,7 @@ function AutoSettleDaysInput({
 const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
   "legacy-plan-mode",
   "legacy-sidebar",
+  "legacy-expanded-sidebar-footer",
 ]);
 
 /**
@@ -1811,6 +1812,19 @@ function LegacyFeaturesSection() {
                     updateSettings({ legacySidebarEnabled: Boolean(checked) })
                   }
                   aria-label="Sidebar (legacy)"
+                />
+              }
+            />
+            <SettingsRow
+              {...searchableSetting("legacy-expanded-sidebar-footer")}
+              description="Brings back the full-width update notice and labeled Usage and Settings rows at the bottom of the sidebar. The compact icon footer remains the default."
+              control={
+                <Switch
+                  checked={settings.legacyExpandedSidebarFooter}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ legacyExpandedSidebarFooter: Boolean(checked) })
+                  }
+                  aria-label="Expanded sidebar footer (legacy)"
                 />
               }
             />

@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
-import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
+import { useClientSettings, useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
 import {
@@ -126,7 +126,11 @@ function SidebarUtilityItem({
   );
 }
 
-export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
+export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
+  expanded = false,
+}: {
+  expanded?: boolean;
+}) {
   const navigate = useNavigate();
   const canGoBack = useCanGoBack();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -177,7 +181,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   }, [canGoBack, closeMobileSidebar, navigate]);
 
   return (
-    <SidebarMenu className="flex-row items-center">
+    <SidebarMenu className={expanded ? undefined : "flex-row items-center"}>
       {currentFooterPage ? (
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
@@ -185,6 +189,21 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             <span>Back</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
+      ) : expanded ? (
+        <>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleUsageClick}>
+              <ChartNoAxesColumnIcon />
+              <span>Usage</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleSettingsClick}>
+              <SettingsIcon />
+              <span>Settings</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </>
       ) : (
         <>
           <SidebarUtilityItem
@@ -206,17 +225,19 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           />
         </>
       )}
-      <SidebarUpdatePill />
+      {expanded ? null : <SidebarUpdatePill />}
     </SidebarMenu>
   );
 });
 
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
+  const expanded = useClientSettings((settings) => settings.legacyExpandedSidebarFooter);
   return (
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
-      <SidebarUtilityMenu />
+      {expanded ? <SidebarUpdatePill expanded /> : null}
+      <SidebarUtilityMenu expanded={expanded} />
     </SidebarFooter>
   );
 });

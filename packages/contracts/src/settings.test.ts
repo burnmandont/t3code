@@ -89,6 +89,7 @@ describe("ClientSettings sidebar", () => {
   it("defaults to the current sidebar with automatic merge and inactivity settling", () => {
     const settings = decodeClientSettings({});
     expect(settings.legacySidebarEnabled).toBe(false);
+    expect(settings.legacyExpandedSidebarFooter).toBe(false);
     expect(settings.sidebarAutoSettleAfterDays).toBe(3);
     expect(settings.sidebarAutoSettleOnMerge).toBe(true);
   });
@@ -108,6 +109,15 @@ describe("ClientSettings sidebar", () => {
     expect(decodeClientSettingsPatch({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(
       true,
     );
+  });
+
+  it("preserves an explicit expanded sidebar footer opt-in", () => {
+    expect(
+      decodeClientSettings({ legacyExpandedSidebarFooter: true }).legacyExpandedSidebarFooter,
+    ).toBe(true);
+    expect(
+      decodeClientSettingsPatch({ legacyExpandedSidebarFooter: true }).legacyExpandedSidebarFooter,
+    ).toBe(true);
   });
 
   it("allows auto-settle by inactivity to be disabled", () => {

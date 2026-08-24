@@ -213,6 +213,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
+    id: "legacy-expanded-sidebar-footer",
+    title: "Expanded sidebar footer (legacy)",
+    to: "/settings/general",
+  },
+  {
     id: "keybindings",
     title: "Keybindings",
     to: "/settings/keybindings",

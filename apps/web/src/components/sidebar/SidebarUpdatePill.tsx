@@ -136,11 +136,11 @@ function SidebarUpdateArchitectureWarningContent() {
   );
 }
 
-export function SidebarUpdatePill() {
-  return isElectron ? <SidebarUpdateControl /> : null;
+export function SidebarUpdatePill({ expanded = false }: { expanded?: boolean }) {
+  return isElectron ? <SidebarUpdateControl expanded={expanded} /> : null;
 }
 
-function SidebarUpdateControl() {
+function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
   const state = useDesktopUpdateState();
   const [isActionPending, setIsActionPending] = useState(false);
   const [checkAnimationKey, setCheckAnimationKey] = useState(0);
@@ -303,6 +303,43 @@ function SidebarUpdateControl() {
       }),
     );
   }, [prefersReducedMotion, state?.status]);
+
+  if (expanded) {
+    if (!showUpdateDetails) return null;
+    const label =
+      action === "install"
+        ? "Restart to update"
+        : isDownloading
+          ? typeof state?.downloadPercent === "number"
+            ? `Downloading (${Math.floor(state.downloadPercent)}%)`
+            : "Downloading…"
+          : "Update available";
+
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={tooltip}
+              aria-disabled={disabled || isActionPending || undefined}
+              disabled={disabled || isActionPending}
+              className="flex h-8 w-full items-center gap-2 rounded-lg bg-update-surface px-2 text-left text-sm font-medium text-update-foreground outline-hidden ring-ring transition-colors enabled:cursor-pointer enabled:hover:bg-update/22 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleAction}
+            >
+              <DesktopUpdateStatusIcon
+                downloadPercent={state?.downloadPercent ?? null}
+                isCheckAnimating={false}
+                status={iconStatus}
+              />
+              <span>{label}</span>
+            </button>
+          }
+        />
+        <TooltipPopup side="top">{tooltip}</TooltipPopup>
+      </Tooltip>
+    );
+  }
 
   return (
     <SidebarMenuItem className="ml-auto shrink-0">
