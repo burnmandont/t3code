@@ -79,7 +79,7 @@ jobs:
           # validated applications; the general dependency install remains
           # --ignore-scripts so imported packages cannot execute arbitrary
           # lifecycle hooks in the production-capable runner.
-          pnpm rebuild esbuild node-pty
+          pnpm rebuild esbuild
           # pnpm rebuild still honors the ignore-scripts installation policy
           # for Electron in this runner. Invoke the pinned package's installer
           # explicitly, then prove its platform executable exists before any

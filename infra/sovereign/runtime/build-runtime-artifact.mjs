@@ -88,7 +88,19 @@ try {
   const deployed = NodePath.join(workspace, "deployed");
   const root = NodePath.join(workspace, "root");
   const t3Root = NodePath.join(root, "node_modules", "t3");
+  const nodePtyPackageRoot = NodePath.join(repoRoot, "apps/server/node_modules/node-pty");
+  const nodePtySource = NodePath.join(nodePtyPackageRoot, "build", "Release");
+  const nodeGyp = NodePath.join(repoRoot, "node_modules/.pnpm/node_modules/.bin/node-gyp");
   await NodeFSP.mkdir(NodePath.dirname(t3Root), { recursive: true });
+
+  // pnpm's rebuild bookkeeping does not mark dependencies from the runner's
+  // script-free install as pending. Build this one audited native dependency
+  // directly with the node-gyp version already pinned in the workspace lock.
+  NodeChildProcess.execFileSync(nodeGyp, ["rebuild"], {
+    cwd: nodePtyPackageRoot,
+    stdio: "inherit",
+    env: { ...process.env, CI: "true" },
+  });
   NodeChildProcess.execFileSync(
     "pnpm",
     ["--filter", "t3", "deploy", "--prod", "--legacy", "--ignore-scripts", deployed],
@@ -99,13 +111,10 @@ try {
     },
   );
 
-  // The production runner installs dependencies with lifecycle scripts disabled,
-  // then explicitly rebuilds node-pty before this builder runs. Keep deployment
-  // script-free as well: pnpm's legacy deploy can otherwise start msgpackr-extract
-  // before its nested helper binary is linked. Copy only the already-validated
-  // node-pty build output into the isolated closure and prove both native modules
-  // load from that closure before it is signed.
-  const nodePtySource = NodePath.join(repoRoot, "apps/server/node_modules/node-pty/build/Release");
+  // Keep deployment script-free: pnpm's legacy deploy can otherwise start
+  // msgpackr-extract before its nested helper binary is linked. Copy only the
+  // validated node-pty release output into the isolated closure and prove both
+  // native modules load from that closure before it is signed.
   const nodePtyRoot = NodePath.join(deployed, "node_modules/node-pty");
   const nodePtyRelease = NodePath.join(nodePtyRoot, "build", "Release");
   try {
@@ -117,7 +126,7 @@ try {
   await NodeFSP.cp(nodePtySource, nodePtyRelease, { recursive: true, force: true });
   for (const helper of [
     NodePath.join(nodePtyRelease, "spawn-helper"),
-    NodePath.join(nodePtyRoot, "prebuilds", "linux-x64", "spawn-helper"),
+    NodePath.join(nodePtyRoot, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
   ]) {
     try {
       await NodeFSP.chmod(helper, 0o755);
