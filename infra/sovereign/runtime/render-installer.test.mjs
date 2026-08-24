@@ -46,9 +46,11 @@ NodeTest.test("the production bootstrap onboards Connect before serving", async 
   });
   NodeAssert.match(installer, /entryPath, "connect", "--headless"/u);
   NodeAssert.match(installer, /entryPath, "service", "update"/u);
+  NodeAssert.match(installer, /NodePath[.]join\(binDir, "sovereign"\)/u);
+  NodeAssert.match(installer, /NodePath[.]join\(binDir, "t3"\)/u);
   NodeAssert.match(installer, /"--user", "cat", "--quiet", "t3code[.]service"/u);
   NodeAssert.match(installer, /"--user", "is-active", "--quiet", "t3code[.]service"/u);
-  NodeAssert.match(installer, /Sovereign T3 installer failed:/u);
+  NodeAssert.match(installer, /Sovereign installer failed:/u);
   NodeAssert.match(installer, /Installation cancelled[.]/u);
   NodeAssert.match(installer, /Sovereign control-plane URL/u);
   NodeAssert.match(installer, /Environment display label/u);

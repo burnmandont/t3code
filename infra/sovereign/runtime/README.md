@@ -135,7 +135,7 @@ credentials, queries, and fragments. It also asks for this machine's display
 label and persists the answer rather than binding relay identity to the
 operating-system hostname; that first-run label also has no hostname default.
 It requires Linux x64, Node
-22.16 or newer, and `tar`, matching the upstream `npx t3 serve` prerequisite of
+22.16 or newer, and `tar`, matching the upstream server prerequisite of
 an existing Node installation. The shell wrapper stages its embedded module in
 a private temporary directory and connects interactive authorization to the
 controlling terminal; the installer pipe is never reused as the prompt input.
@@ -145,7 +145,8 @@ is rebuilt without the operator's code, account, or relay endpoints; the
 persisted discovery profile is its only sovereign control-plane configuration.
 
 The installer writes the public release URL and signing public key to
-`runtime/artifact-source.json`, installs a stable `~/.local/bin/t3` launcher,
+`runtime/artifact-source.json`, installs a stable `~/.local/bin/sovereign` launcher
+plus a deprecated `~/.local/bin/t3` rollback alias,
 and runs the requested command. If a background service is already installed,
 the installer reconciles that service through the newly verified runtime and
 requires the restarted service to become active; it does not leave the live
@@ -157,19 +158,19 @@ package credential. The account flow stores only the environment's normal
 sovereign OAuth authorization. Subsequent use is:
 
 ```sh
-t3 serve
+sovereign serve
 ```
 
 Both choices are durable across signed runtime upgrades and service restarts:
 
 ```sh
-t3 control-plane show
-t3 control-plane set https://code.example.com
-t3 control-plane reset
+sovereign control-plane show
+sovereign control-plane set https://code.example.com
+sovereign control-plane reset
 
-t3 environment label show
-t3 environment label set "Atlas worker"
-t3 environment label reset
+sovereign environment label show
+sovereign environment label set "Atlas worker"
+sovereign environment label reset
 ```
 
 A control-plane change first validates discovery, revokes and clears the old
@@ -202,9 +203,9 @@ curl -fsSL https://get.moondiner.com/install | sh -s -- serve
 Then verify:
 
 ```sh
-systemctl --user status t3code.service --no-pager
-t3 --version
-t3 connect status --json
+systemctl --user status sovereign.service --no-pager
+sovereign --version
+sovereign connect status --json
 ```
 
 Test browser, desktop, and iOS reconnection; create a thread; stream a reply;

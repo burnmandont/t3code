@@ -25,7 +25,7 @@ an isolation exercise even when the replacement itself is healthy.
 - Restarting infrastructure does not change the environment ID, allocated
   hostname, or stored thread history.
 - Recovery uses the existing supervised connector. It must not require a new
-  `t3 connect link`, credential rotation, or account login.
+  `sovereign connect link`, credential rotation, or account login.
 
 ## Resolve exact targets
 
@@ -75,8 +75,8 @@ retired and that both its CLI wrapper and user service use the Node executable
 pinned by the current signed installer:
 
 ```bash
-t3 --version
-t3 connect status --json
+sovereign --version
+sovereign connect status --json
 grep '^exec ' "$HOME/.local/bin/t3"
 systemctl --user cat t3code.service
 ```

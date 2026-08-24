@@ -89,6 +89,9 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
     "",
     "[Install]",
     "WantedBy=default.target",
+    // Keep the upstream unit filename as the update/rollback identity while
+    // exposing the canonical Sovereign operator-facing name on Linux.
+    "Alias=sovereign.service",
     "",
   ].join("\n");
 }

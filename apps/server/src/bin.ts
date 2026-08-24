@@ -18,6 +18,7 @@ import { serviceCommand } from "./cli/service.ts";
 import { servicePreflightCommand } from "./cli/servicePreflight.ts";
 import { triageCommand } from "./cli/triage.ts";
 import { controlPlaneCommand, environmentCommand } from "./cli/runtimeSettings.ts";
+import { canonicalCliName } from "./cli/branding.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -30,23 +31,34 @@ class ConnectPublicConfigMissingError extends CliError.UserError {
   }
 }
 
-const connectUnavailableCommand = Command.make("connect", {
-  command: Argument.string("command").pipe(Argument.variadic),
-}).pipe(
-  Command.withDescription("Sovereign Relay is unavailable in builds without public configuration."),
-  Command.withHidden,
-  Command.withHandler(() =>
-    Effect.fail(
-      new CliError.ShowHelp({
-        commandPath: ["t3", "connect"],
-        errors: [new ConnectPublicConfigMissingError({ cause: connectPublicConfigMissingMessage })],
-      }),
+const connectUnavailableCommand = (cliName: string) =>
+  Command.make("connect", {
+    command: Argument.string("command").pipe(Argument.variadic),
+  }).pipe(
+    Command.withDescription(
+      "Sovereign Relay is unavailable in builds without public configuration.",
     ),
-  ),
-);
+    Command.withHidden,
+    Command.withHandler(() =>
+      Effect.fail(
+        new CliError.ShowHelp({
+          commandPath: [cliName, "connect"],
+          errors: [
+            new ConnectPublicConfigMissingError({ cause: connectPublicConfigMissingMessage }),
+          ],
+        }),
+      ),
+    ),
+  );
 
-export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
-  Command.make("t3", { ...sharedServerCommandFlags }).pipe(
+export const makeCli = ({
+  cloudEnabled = hasCloudPublicConfig,
+  cliName = "t3",
+}: {
+  readonly cloudEnabled?: boolean;
+  readonly cliName?: string;
+} = {}) =>
+  Command.make(cliName, { ...sharedServerCommandFlags }).pipe(
     Command.withDescription("Run the Sovereign server."),
     Command.withHandler((flags) => runServerCommand(flags)),
     Command.withSubcommands([
@@ -60,11 +72,11 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       triageCommand,
       controlPlaneCommand,
       environmentCommand,
-      cloudEnabled ? connectCommand : connectUnavailableCommand,
+      cloudEnabled ? connectCommand : connectUnavailableCommand(cliName),
     ]),
   );
 
-export const cli = makeCli();
+export const cli = makeCli({ cliName: canonicalCliName });
 
 if (import.meta.main) {
   Command.run(cli, { version: packageJson.version }).pipe(

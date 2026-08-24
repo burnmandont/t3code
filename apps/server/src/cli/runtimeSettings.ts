@@ -31,6 +31,7 @@ import {
 } from "../cloud/publicConfig.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveBaseDir } from "../os-jank.ts";
+import { canonicalCliCommand } from "./branding.ts";
 import { projectLocationFlags } from "./config.ts";
 import { disconnectCloud, runCloudCommand } from "./connect.ts";
 
@@ -54,20 +55,20 @@ function restartInstalledService(): { restarted: boolean; warning?: string } {
   if (process.platform !== "linux") return { restarted: false };
   const installed = NodeChildProcess.spawnSync(
     "systemctl",
-    ["--user", "cat", "--quiet", "t3code.service"],
+    ["--user", "cat", "--quiet", "sovereign.service"],
     { stdio: "ignore" },
   );
   if (installed.status !== 0) return { restarted: false };
   const restarted = NodeChildProcess.spawnSync(
     "systemctl",
-    ["--user", "restart", "t3code.service"],
+    ["--user", "restart", "sovereign.service"],
     { encoding: "utf8" },
   );
   return restarted.status === 0
     ? { restarted: true }
     : {
         restarted: false,
-        warning: restarted.stderr?.trim() || "systemctl could not restart t3code.service",
+        warning: restarted.stderr?.trim() || "systemctl could not restart sovereign.service",
       };
 }
 
@@ -84,13 +85,13 @@ const withBaseDir = <A, E>(
 const reportRestart = Effect.fn(function* () {
   const result = restartInstalledService();
   if (result.restarted) {
-    yield* Console.log("Restarted t3code.service so the setting is live.");
+    yield* Console.log("Restarted sovereign.service so the setting is live.");
   } else if (result.warning) {
     yield* Console.warn(
       `The setting was saved, but the background service was not restarted: ${result.warning}`,
     );
   } else {
-    yield* Console.log("The setting will apply the next time T3 starts.");
+    yield* Console.log("The setting will apply the next time Sovereign starts.");
   }
 });
 
@@ -157,7 +158,7 @@ const controlPlaneSetCommand = Command.make("set", {
         );
         yield* Console.log(
           endpointsChanged
-            ? `Saved control plane ${discovered.origin}.\nSign in again with \`t3 connect --headless\`.`
+            ? `Saved control plane ${discovered.origin}.\nSign in again with \`${canonicalCliCommand("connect --headless")}\`.`
             : `Saved control plane ${discovered.origin}. Existing authorization remains valid.`,
         );
         yield* reportRestart();
@@ -190,7 +191,7 @@ const controlPlaneResetCommand = Command.make("reset", projectLocationFlags).pip
         yield* attempt("remove the control-plane profile", () => clearControlPlaneProfile(baseDir));
         yield* Console.log(
           authorizationCleared
-            ? "Removed the persisted control-plane profile. Sign in again with `t3 connect --headless`."
+            ? `Removed the persisted control-plane profile. Sign in again with \`${canonicalCliCommand("connect --headless")}\`.`
             : "Removed the persisted control-plane profile. Existing authorization remains valid.",
         );
         yield* reportRestart();

@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
+import { canonicalBootstrapCliCommand } from "../cli/branding.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
 
 export class BunPtyUnsupportedPlatformError extends Schema.TaggedErrorClass<BunPtyUnsupportedPlatformError>()(
@@ -14,7 +15,7 @@ export class BunPtyUnsupportedPlatformError extends Schema.TaggedErrorClass<BunP
   },
 ) {
   override get message(): string {
-    return `Bun PTY terminal support is unavailable on ${this.platform}. Please use Node.js (e.g. by running \`npx t3\`) instead.`;
+    return `Bun PTY terminal support is unavailable on ${this.platform}. Please use Node.js (e.g. by running \`${canonicalBootstrapCliCommand("serve")}\`) instead.`;
   }
 }
 

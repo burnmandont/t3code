@@ -9,6 +9,11 @@ import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
 import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import {
+  canonicalCliCommand,
+  canonicalCliName,
+  canonicalServiceUpdateCommand,
+} from "./branding.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 export const bootServiceLayer = (config: ServerConfig.ServerConfig["Service"]) =>
@@ -52,14 +57,14 @@ export function formatServiceStatus(
     return "Sovereign service\n  Status: unavailable on this machine\n  Supported on: Linux with systemd, macOS with launchd";
   }
   if (!status.installed) {
-    return "Sovereign service\n  Status: not installed\n  Next: Run `t3 service install`.";
+    return `Sovereign service\n  Status: not installed\n  Next: Run \`${canonicalCliCommand("service install")}\`.`;
   }
   return [
     "Sovereign service",
-    `  Status: ${status.current ? `installed · t3@${cliVersion}` : "needs an update or repair"}`,
+    `  Status: ${status.current ? `installed · ${canonicalCliName}@${cliVersion}` : "needs an update or repair"}`,
     `  Unit: ${status.unitPath}`,
     `  Logs: ${status.logPath}`,
-    ...(status.current ? [] : ["  Next: Run `npx t3@latest service update`."]),
+    ...(status.current ? [] : [`  Next: Run \`${canonicalServiceUpdateCommand()}\`.`]),
   ].join("\n");
 }
 
@@ -81,12 +86,12 @@ const serviceInstallCommand = Command.make("install", projectLocationFlags).pipe
         const result = yield* reconcileService();
         if (!result.changed) {
           yield* Console.log(
-            `Sovereign service is already installed with t3@${packageJson.version}.`,
+            `Sovereign service is already installed with ${canonicalCliName}@${packageJson.version}.`,
           );
           return;
         }
         yield* Console.log(
-          `${result.previouslyInstalled ? "Updated" : "Installed"} Sovereign service with t3@${packageJson.version}.\nLogs: ${result.plan.logPath}`,
+          `${result.previouslyInstalled ? "Updated" : "Installed"} Sovereign service with ${canonicalCliName}@${packageJson.version}.\nLogs: ${result.plan.logPath}`,
         );
       }),
     ),
@@ -95,7 +100,7 @@ const serviceInstallCommand = Command.make("install", projectLocationFlags).pipe
 
 const serviceUpdateCommand = Command.make("update", projectLocationFlags).pipe(
   Command.withDescription(
-    "Update or repair the background service using this CLI version. Use `npx t3@latest service update` for the latest release.",
+    `Update or repair the background service using this CLI version. Use \`${canonicalServiceUpdateCommand()}\` after installing a new runtime.`,
   ),
   Command.withHandler((flags) =>
     runServiceCommand(
@@ -103,11 +108,13 @@ const serviceUpdateCommand = Command.make("update", projectLocationFlags).pipe(
       Effect.gen(function* () {
         const result = yield* reconcileService();
         if (!result.changed) {
-          yield* Console.log(`Sovereign service is already using t3@${packageJson.version}.`);
+          yield* Console.log(
+            `Sovereign service is already using ${canonicalCliName}@${packageJson.version}.`,
+          );
           return;
         }
         yield* Console.log(
-          `${result.previouslyInstalled ? "Updated" : "Installed"} Sovereign service with t3@${packageJson.version}.\nLogs: ${result.plan.logPath}`,
+          `${result.previouslyInstalled ? "Updated" : "Installed"} Sovereign service with ${canonicalCliName}@${packageJson.version}.\nLogs: ${result.plan.logPath}`,
         );
       }),
     ),

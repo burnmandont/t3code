@@ -46,7 +46,7 @@ authorization secrets.
 ## Identity and availability invariant
 
 After a proxy policy change, restart one linked test environment once. The
-same environment ID and managed hostname must return, `t3 connect status
+same environment ID and managed hostname must return, `sovereign connect status
 --json` must show `authenticated`, `linked`, and not `retired`, and an existing
 client must reconnect without re-linking. This proves the policy admits the
 real native FRPC handshake rather than only a synthetic monitor request.

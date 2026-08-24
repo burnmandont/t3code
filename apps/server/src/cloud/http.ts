@@ -61,6 +61,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { requireEnvironmentScope } from "../auth/http.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { canonicalCliCommand } from "../cli/branding.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntimeService.ts";
 import {
   SERVICE_STATE_FILE,
@@ -612,7 +613,7 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
           onNone: () =>
             Effect.fail(
               new EnvironmentHttpUnauthorizedError({
-                message: "Run `t3 connect link` to authorize this environment.",
+                message: `Run \`${canonicalCliCommand("connect link")}\` to authorize this environment.`,
               }),
             ),
           onSome: Effect.succeed,

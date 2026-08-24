@@ -47,6 +47,7 @@ class ProjectCliHttpApi extends HttpApi.make("environment").add(EnvironmentOrche
 
 const connectCli = makeCli({ cloudEnabled: true });
 const noConnectCli = makeCli({ cloudEnabled: false });
+const sovereignNoConnectCli = makeCli({ cloudEnabled: false, cliName: "sovereign" });
 const runCli = (args: ReadonlyArray<string>, command = cli) =>
   Command.runWith(command, { version: "0.0.0" })(args);
 const runConnectCli = (args: ReadonlyArray<string>) => runCli(args, connectCli);
@@ -204,6 +205,17 @@ it.layer(NodeServices.layer)("bin cli parsing", (it) => {
       assert.include(output, "ERROR");
       assert.include(output, "missing Sovereign Relay public configuration");
     }).pipe(Effect.provide(Layer.mergeAll(CliRuntimeLayer, TestConsole.layer))),
+  );
+
+  it.effect("uses the Sovereign command name in branded CLI errors", () =>
+    Effect.gen(function* () {
+      const error = yield* runCli(["connect", "status"], sovereignNoConnectCli).pipe(Effect.flip);
+
+      if (!CliError.isCliError(error) || error._tag !== "ShowHelp") {
+        assert.fail(`Expected ShowHelp, got ${String(error)}`);
+      }
+      assert.deepEqual(error.commandPath, ["sovereign", "connect"]);
+    }).pipe(Effect.provide(CliRuntimeLayer)),
   );
 
   it.effect("exposes service lifecycle commands without Sovereign Relay configuration", () =>

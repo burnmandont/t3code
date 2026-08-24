@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import { HostProcessArguments } from "@t3tools/shared/hostProcess";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { canonicalCliName } from "./branding.ts";
 
 export type CliRunner = "npx" | "pnpm dlx" | "bunx";
 
@@ -56,10 +57,11 @@ export function formatCliCommand(input: {
   readonly subcommand: string;
   readonly entryPath: string;
   readonly version: string;
+  readonly cliName?: string;
 }): string {
   const runner = detectCliRunner(input.entryPath);
   if (runner === null) {
-    return `t3 ${input.subcommand}`;
+    return `${input.cliName ?? "t3"} ${input.subcommand}`;
   }
   return `${runner} ${suggestedPackageSpec(input.version)} ${input.subcommand}`;
 }
@@ -71,5 +73,6 @@ export const resolveCliCommand = (subcommand: string) =>
       subcommand,
       entryPath: processArguments[1] ?? "",
       version: packageJson.version,
+      cliName: canonicalCliName,
     }),
   );

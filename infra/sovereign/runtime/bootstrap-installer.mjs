@@ -521,6 +521,10 @@ process.exit(child.status ?? 1);
   const binDir = NodePath.join(NodeOS.homedir(), ".local", "bin");
   await NodeFSP.mkdir(binDir, { recursive: true });
   const wrapper = renderCliWrapper(baseDir, process.execPath);
+  await NodeFSP.writeFile(NodePath.join(binDir, "sovereign"), wrapper, { mode: 0o700 });
+  // Retain the old entry point as an update-in-place and rollback alias. Both
+  // wrappers execute the same signed runtime, whose displayed command is
+  // Sovereign.
   await NodeFSP.writeFile(NodePath.join(binDir, "t3"), wrapper, { mode: 0o700 });
   return binDir;
 }
@@ -578,7 +582,7 @@ function runRequestedCommand(entryPath, baseDir, command, runtimeEnv) {
     // `t3 connect` offers to install and starts the durable user service. Do
     // not start a competing foreground server when that onboarding succeeded.
     if (isBackgroundServiceActive()) {
-      process.stdout.write("Sovereign T3 is running as the t3code.service user service.\n");
+      process.stdout.write("Sovereign server is running as sovereign.service.\n");
       return;
     }
   }
@@ -616,9 +620,9 @@ async function main() {
   // service command so it replaces the launcher/state atomically and restarts
   // the service, while preserving the existing repair path on failure.
   reconcileInstalledBackgroundService(entryPath, baseDir, runtimeEnv);
-  process.stdout.write(`Installed verified sovereign T3 ${version}.\n`);
+  process.stdout.write(`Installed verified Sovereign ${version}.\n`);
   if (!(process.env.PATH ?? "").split(NodePath.delimiter).includes(binDir)) {
-    process.stdout.write(`Add ${binDir} to PATH to use the t3 command in future shells.\n`);
+    process.stdout.write(`Add ${binDir} to PATH to use the sovereign command in future shells.\n`);
   }
   if (command.length > 0) {
     runRequestedCommand(entryPath, baseDir, command, runtimeEnv);
@@ -642,7 +646,7 @@ export async function runInstaller() {
         : cause instanceof Error
           ? cause.message
           : String(cause);
-    process.stderr.write(`Sovereign T3 installer failed: ${message}\n`);
+    process.stderr.write(`Sovereign installer failed: ${message}\n`);
     process.exitCode =
       childStatus !== undefined && childStatus > 0 && childStatus <= 255 ? childStatus : 1;
   }
