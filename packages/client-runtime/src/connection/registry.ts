@@ -62,6 +62,17 @@ export class PlatformEnvironmentRemovalError extends Schema.TaggedErrorClass<Pla
   }
 }
 
+export class PlatformEnvironmentDisconnectionError extends Schema.TaggedErrorClass<PlatformEnvironmentDisconnectionError>()(
+  "PlatformEnvironmentDisconnectionError",
+  {
+    environmentId: EnvironmentId,
+  },
+) {
+  override get message(): string {
+    return `Platform-managed environment ${this.environmentId} cannot be disconnected.`;
+  }
+}
+
 export class PlatformEnvironmentRouteSelectionError extends Schema.TaggedErrorClass<PlatformEnvironmentRouteSelectionError>()(
   "PlatformEnvironmentRouteSelectionError",
   {
@@ -111,6 +122,12 @@ export class EnvironmentRegistry extends Context.Service<
       | ConnectionRouteNotRegisteredError
       | PlatformEnvironmentRouteSelectionError
     >;
+    readonly connect: (
+      environmentId: EnvironmentId,
+    ) => Effect.Effect<void, EnvironmentNotRegisteredError>;
+    readonly disconnect: (
+      environmentId: EnvironmentId,
+    ) => Effect.Effect<void, EnvironmentNotRegisteredError | PlatformEnvironmentDisconnectionError>;
     readonly registerPlatform: (registration: PrimaryConnectionRegistration) => Effect.Effect<void>;
     readonly reconcilePlatform: (
       registrations: ReadonlyArray<PlatformConnectionRegistration>,
@@ -522,6 +539,23 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const connect = Effect.fn("EnvironmentRegistry.connect")(function* (
+    environmentId: EnvironmentId,
+  ) {
+    const supervisor = yield* acquireSupervisor(environmentId);
+    yield* supervisor.connect;
+  });
+
+  const disconnect = Effect.fn("EnvironmentRegistry.disconnect")(function* (
+    environmentId: EnvironmentId,
+  ) {
+    if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
+      return yield* new PlatformEnvironmentDisconnectionError({ environmentId });
+    }
+    const supervisor = yield* acquireSupervisor(environmentId);
+    yield* supervisor.disconnect;
+  });
+
   const installPlatformRegistration = Effect.fn("EnvironmentRegistry.installPlatformRegistration")(
     function* (registration: PlatformConnectionRegistration) {
       const entry = connectionRegistrationCatalogEntry(registration);
@@ -840,6 +874,8 @@ export const make = Effect.gen(function* () {
     start,
     register,
     selectRoute,
+    connect,
+    disconnect,
     registerPlatform,
     reconcilePlatform,
     remove,

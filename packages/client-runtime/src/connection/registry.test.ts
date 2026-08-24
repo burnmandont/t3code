@@ -760,6 +760,55 @@ describe("EnvironmentRegistry", () => {
     }),
   );
 
+  it.effect("disconnects a session without forgetting its routes and reconnects on demand", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness([SSH_RELAY_TARGET], [SSH_PROFILE], [], {
+        initialRoutes: [SSH_RELAY_TARGET, SSH_CONNECTION],
+      });
+
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        yield* registry.start;
+        yield* awaitConnectionState(
+          registry,
+          SSH_RELAY_TARGET.environmentId,
+          (state) => state.phase === "connected",
+        );
+
+        yield* registry.disconnect(SSH_RELAY_TARGET.environmentId);
+        yield* awaitConnectionState(
+          registry,
+          SSH_RELAY_TARGET.environmentId,
+          (state) => state.phase === "available",
+        );
+
+        expect((yield* Ref.get(harness.storedTargets)).get(SSH_RELAY_TARGET.environmentId)).toEqual(
+          SSH_RELAY_TARGET,
+        );
+        expect([...(yield* Ref.get(harness.storedRoutes)).values()]).toEqual([
+          SSH_RELAY_TARGET,
+          SSH_CONNECTION,
+        ]);
+        expect(
+          (yield* SubscriptionRef.get(registry.entries)).get(SSH_RELAY_TARGET.environmentId)
+            ?.target,
+        ).toEqual(SSH_RELAY_TARGET);
+        expect(yield* Ref.get(harness.releasedSessions)).toBe(1);
+        expect(yield* Ref.get(harness.cacheClears)).toEqual([]);
+        expect(yield* Ref.get(harness.ownedDataClears)).toEqual([]);
+        expect(yield* Ref.get(harness.disconnectedSshTargets)).toEqual([]);
+
+        yield* registry.connect(SSH_RELAY_TARGET.environmentId);
+        yield* awaitConnectionState(
+          registry,
+          SSH_RELAY_TARGET.environmentId,
+          (state) => state.phase === "connected",
+        );
+        expect(yield* Ref.get(harness.sessions)).toHaveLength(2);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
   it.effect("keeps the active route when candidate preparation fails", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness([SSH_RELAY_TARGET], [SSH_PROFILE], [], {

@@ -27,6 +27,7 @@ export {
   ConnectionRouteNotRegisteredError,
   EnvironmentNotRegisteredError,
   EnvironmentRegistry,
+  PlatformEnvironmentDisconnectionError,
   PlatformEnvironmentRemovalError,
   PlatformEnvironmentRouteSelectionError,
 } from "./registry.ts";

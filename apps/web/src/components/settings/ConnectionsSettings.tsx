@@ -1366,6 +1366,7 @@ type SavedBackendListRowProps = {
   removingEnvironmentId: EnvironmentId | null;
   switchingRouteEnvironmentIds: ReadonlySet<EnvironmentId>;
   onConnect: (environmentId: EnvironmentId) => void;
+  onDisconnect: (environmentId: EnvironmentId) => void;
   onRemove: (environmentId: EnvironmentId) => void;
   onSelectRoute: (environmentId: EnvironmentId, routeId: string) => void;
 };
@@ -1392,6 +1393,7 @@ function SavedBackendListRow({
   removingEnvironmentId,
   switchingRouteEnvironmentIds,
   onConnect,
+  onDisconnect,
   onRemove,
   onSelectRoute,
 }: SavedBackendListRowProps) {
@@ -1583,7 +1585,7 @@ function SavedBackendListRow({
                   disabled={removingEnvironmentId === environmentId}
                   onClick={() => void onRemove(environmentId)}
                 >
-                  {removingEnvironmentId === environmentId ? "Removing…" : "Remove"}
+                  {removingEnvironmentId === environmentId ? "Forgetting…" : "Forget"}
                 </Button>
               ) : null}
               <Button
@@ -1591,16 +1593,10 @@ function SavedBackendListRow({
                 variant="outline"
                 disabled={isConnecting || removingEnvironmentId === environmentId}
                 onClick={() =>
-                  void (isConnected ? onRemove(environmentId) : onConnect(environmentId))
+                  void (isConnected ? onDisconnect(environmentId) : onConnect(environmentId))
                 }
               >
-                {isConnected
-                  ? removingEnvironmentId === environmentId
-                    ? "Disconnecting…"
-                    : "Disconnect"
-                  : isConnecting
-                    ? "Connecting…"
-                    : "Connect"}
+                {isConnected ? "Disconnect" : isConnecting ? "Connecting…" : "Connect"}
               </Button>
               {relayEnvironment ? (
                 <CloudEnvironmentRevocationAction
@@ -1834,7 +1830,10 @@ export function ConnectionsSettings() {
     reportFailure: false,
   });
   const removeEnvironment = useAtomCommand(environmentCatalog.remove, { reportFailure: false });
-  const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
+  const connectEnvironment = useAtomCommand(environmentCatalog.connect, { reportFailure: false });
+  const disconnectEnvironment = useAtomCommand(environmentCatalog.disconnect, {
+    reportFailure: false,
+  });
   const selectEnvironmentRoute = useAtomCommand(environmentCatalog.selectRoute, {
     reportFailure: false,
   });
@@ -2339,7 +2338,7 @@ export function ConnectionsSettings() {
   const handleConnectSavedBackend = useCallback(
     async (environmentId: EnvironmentId) => {
       setSavedBackendError(null);
-      const result = await retryEnvironment(environmentId);
+      const result = await connectEnvironment(environmentId);
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         const message = error instanceof Error ? error.message : "Failed to connect backend.";
@@ -2353,7 +2352,27 @@ export function ConnectionsSettings() {
         );
       }
     },
-    [retryEnvironment],
+    [connectEnvironment],
+  );
+
+  const handleDisconnectSavedBackend = useCallback(
+    async (environmentId: EnvironmentId) => {
+      setSavedBackendError(null);
+      const result = await disconnectEnvironment(environmentId);
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        const message = error instanceof Error ? error.message : "Failed to disconnect backend.";
+        setSavedBackendError(message);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not disconnect backend",
+            description: message,
+          }),
+        );
+      }
+    },
+    [disconnectEnvironment],
   );
 
   const handleSelectSavedBackendRoute = useCallback(
@@ -3577,6 +3596,7 @@ export function ConnectionsSettings() {
             removingEnvironmentId={removingSavedEnvironmentId}
             switchingRouteEnvironmentIds={switchingRouteEnvironmentIds}
             onConnect={handleConnectSavedBackend}
+            onDisconnect={handleDisconnectSavedBackend}
             onRemove={handleRemoveSavedBackend}
             onSelectRoute={handleSelectSavedBackendRoute}
           />

@@ -118,6 +118,24 @@ export function createEnvironmentCatalogAtoms<R, E>(
         Effect.flatMap((registry) => registry.remove(environmentId)),
       ),
   });
+  const connect = createRuntimeCommand(runtime, {
+    label: "environment-catalog:connect",
+    scheduler: commandScheduler,
+    concurrency: serial,
+    execute: (environmentId: EnvironmentIdType) =>
+      EnvironmentRegistry.EnvironmentRegistry.pipe(
+        Effect.flatMap((registry) => registry.connect(environmentId)),
+      ),
+  });
+  const disconnect = createRuntimeCommand(runtime, {
+    label: "environment-catalog:disconnect",
+    scheduler: commandScheduler,
+    concurrency: serial,
+    execute: (environmentId: EnvironmentIdType) =>
+      EnvironmentRegistry.EnvironmentRegistry.pipe(
+        Effect.flatMap((registry) => registry.disconnect(environmentId)),
+      ),
+  });
   const selectRoute = createRuntimeCommand(runtime, {
     label: "environment-catalog:select-route",
     scheduler: commandScheduler,
@@ -156,6 +174,8 @@ export function createEnvironmentCatalogAtoms<R, E>(
     stateAtom,
     register,
     selectRoute,
+    connect,
+    disconnect,
     remove,
     removeRelayEnvironments,
     retryNow,
