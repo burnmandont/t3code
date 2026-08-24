@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  getActiveThreadSortTimestamp,
   planPinnedMove,
   sortPinnedThreadsByOrderKey,
   sortThreads,
@@ -21,7 +22,7 @@ function makeThread(overrides: Partial<TestThread> = {}): TestThread {
 }
 
 describe("sortThreads", () => {
-  it("falls back to updatedAt and createdAt when latestUserMessageAt is invalid and there are no messages", () => {
+  it("falls back to updatedAt and createdAt when there are no user messages", () => {
     const sorted = sortThreads(
       [
         makeThread({
@@ -47,6 +48,18 @@ describe("sortThreads", () => {
     );
 
     expect(sorted.map((thread) => thread.id)).toEqual(["thread-3", "thread-1", "thread-2"]);
+  });
+
+  it("keeps active cards at creation time until they have a user message", () => {
+    expect(
+      getActiveThreadSortTimestamp(
+        makeThread({
+          createdAt: "2026-03-09T10:00:00.000Z",
+          updatedAt: "2026-03-09T11:00:00.000Z",
+        }),
+        "updated_at",
+      ),
+    ).toBe(Date.parse("2026-03-09T10:00:00.000Z"));
   });
 
   it("falls back to the latest valid user message when latestUserMessageAt is invalid", () => {

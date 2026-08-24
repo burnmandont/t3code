@@ -3,6 +3,7 @@ import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import {
+  getActiveThreadSortTimestamp,
   getThreadSortTimestamp,
   sortThreads,
   toSortableTimestamp,
@@ -538,18 +539,20 @@ export function firstValidTimestamp(
   return null;
 }
 
-// Sidebar sort: static creation order, newest thread on top. Activity NEVER
-// reorders the list — a row holds its position from open until settled, so
-// the screen only moves at lifecycle transitions. Status (including pending
-// approval) is carried by each card's edge strip, not by position.
-export function sortThreadsForSidebar<
-  T extends { readonly id: string; readonly createdAt: string },
->(threads: readonly T[]): T[] {
-  return [...threads].toSorted(
-    (left, right) =>
-      parseTimestampMs(right.createdAt) - parseTimestampMs(left.createdAt) ||
-      left.id.localeCompare(right.id),
-  );
+// Active sidebar cards follow the user's appearance preference. The recency
+// option intentionally uses the latest USER message rather than updatedAt so
+// streaming and background status changes cannot move rows on their own.
+export function sortThreadsForSidebar<T extends { readonly id: string } & ThreadSortInput>(
+  threads: readonly T[],
+  sortOrder: SidebarThreadSortOrder,
+): T[] {
+  return [...threads].toSorted((left, right) => {
+    const rightTimestamp = getActiveThreadSortTimestamp(right, sortOrder);
+    const leftTimestamp = getActiveThreadSortTimestamp(left, sortOrder);
+    const byTimestamp =
+      rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
+    return byTimestamp || left.id.localeCompare(right.id);
+  });
 }
 
 // Pinned-reorder key math and the keyed sort live in client-runtime

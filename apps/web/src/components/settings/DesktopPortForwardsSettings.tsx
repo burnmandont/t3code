@@ -151,7 +151,7 @@ export function DesktopPortForwardsSettings() {
                 }
               />
             </label>
-            <Button size="sm" disabled={!canCreate} onClick={() => void create()}>
+            <Button disabled={!canCreate} onClick={() => void create()}>
               {creating ? "Starting…" : "Start"}
             </Button>
           </div>

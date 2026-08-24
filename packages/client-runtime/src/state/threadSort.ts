@@ -30,7 +30,7 @@ function getFirstSortableTimestamp(...values: Array<string | null | undefined>):
   return null;
 }
 
-function getLatestUserMessageTimestamp(thread: ThreadSortInput): number {
+function getLatestUserMessageTimestamp(thread: ThreadSortInput): number | null {
   if (thread.latestUserMessageAt) {
     const latestUserMessageTimestamp = toSortableTimestamp(thread.latestUserMessageAt);
     if (latestUserMessageTimestamp !== null) {
@@ -54,7 +54,7 @@ function getLatestUserMessageTimestamp(thread: ThreadSortInput): number {
     return latestUserMessageTimestamp;
   }
 
-  return getFirstSortableTimestamp(thread.updatedAt, thread.createdAt) ?? Number.NEGATIVE_INFINITY;
+  return null;
 }
 
 export function getThreadSortTimestamp(
@@ -66,7 +66,28 @@ export function getThreadSortTimestamp(
       getFirstSortableTimestamp(thread.createdAt, thread.updatedAt) ?? Number.NEGATIVE_INFINITY
     );
   }
-  return getLatestUserMessageTimestamp(thread);
+  return (
+    getLatestUserMessageTimestamp(thread) ??
+    getFirstSortableTimestamp(thread.updatedAt, thread.createdAt) ??
+    Number.NEGATIVE_INFINITY
+  );
+}
+
+/** Active-card ordering stays anchored to creation until the user sends a
+    message. Unlike general project recency, background updatedAt transitions
+    must not promote an untouched card. */
+export function getActiveThreadSortTimestamp(
+  thread: ThreadSortInput,
+  sortOrder: SidebarThreadSortOrder,
+): number {
+  if (sortOrder === "created_at") {
+    return getThreadSortTimestamp(thread, sortOrder);
+  }
+  return (
+    getLatestUserMessageTimestamp(thread) ??
+    getFirstSortableTimestamp(thread.createdAt, thread.updatedAt) ??
+    Number.NEGATIVE_INFINITY
+  );
 }
 
 export function sortThreads<T extends { readonly id: string } & ThreadSortInput>(
