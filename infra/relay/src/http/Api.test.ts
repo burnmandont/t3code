@@ -518,7 +518,7 @@ describe("relay routing fallback", () => {
   it.effect("grants sovereign browser CORS only to an exact configured origin", () =>
     Effect.gen(function* () {
       const allowedOrigin = "https://code.example.test";
-      const desktopOrigin = "t3code-dev://app";
+      const desktopOrigin = "sovereign-dev://app";
       const cors = relayCorsForAllowedOrigins([allowedOrigin, desktopOrigin]);
       const httpEffect = yield* HttpRouter.toHttpEffect(Layer.merge(relayNotFoundRoute, cors));
 

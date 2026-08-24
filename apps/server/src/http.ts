@@ -34,16 +34,30 @@ import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { traceRelayRequest } from "./cloud/traceRelayRequest.ts";
 import {
   annotateEnvironmentRequest,
-  failEnvironmentScopeRequired,
   failEnvironmentAuthInvalid,
   failEnvironmentInternal,
+  failEnvironmentScopeRequired,
 } from "./auth/http.ts";
+import { resolveSovereignProviderSelection } from "./cloud/providerSelection.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import { browserApiCorsAllowedHeaders, browserApiCorsAllowedMethods } from "./httpCors.ts";
 
+declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
+
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
-const DESKTOP_RENDERER_ORIGINS = ["t3code://app", "t3code-dev://app"];
+export function resolveDesktopRendererOrigins(sovereignIdentity: boolean): ReadonlyArray<string> {
+  return sovereignIdentity
+    ? ["sovereign://app", "sovereign-dev://app"]
+    : ["t3code://app", "t3code-dev://app"];
+}
+const sovereignBuildSelected =
+  typeof __T3CODE_BUILD_SOVEREIGN__ === "undefined"
+    ? resolveSovereignProviderSelection(undefined)
+    : __T3CODE_BUILD_SOVEREIGN__;
+const DESKTOP_RENDERER_ORIGINS = sovereignBuildSelected
+  ? ["sovereign://app", "sovereign-dev://app"]
+  : ["t3code://app", "t3code-dev://app"];
 const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
 
 export function assetResponseHeaders(filePath: string): Record<string, string> {

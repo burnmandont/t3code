@@ -38,9 +38,11 @@ import {
   resolveDesktopBuildIconAssets,
   resolveDesktopClientRuntimeVersion,
   resolveDesktopProductName,
+  resolveDesktopPackageProtocolSchemes,
   resolveDesktopUpdateChannel,
   resolveDesktopWebAssetBrand,
   resolveResourceMonitorRustTargets,
+  resolveStagePatchFiles,
   resolveWindowsServerAsarIgnoreGlobs,
   resourceMonitorExecutableName,
   resolveGitHubPublishConfig,
@@ -50,6 +52,7 @@ import {
   stageLinuxIconSize,
   stageDesktopDmgBackground,
   stageResourceMonitor,
+  shouldStageClerkPasskeyNativeBinaries,
   STAGE_INSTALL_ARGS,
   ancestorNodeModulesPaths,
   copyDirectoryPreservingSymlinks,
@@ -159,8 +162,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "Sovereign (Alpha)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "Sovereign");
     assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "Sovereign (Nightly)");
+  });
+
+  it("isolates Sovereign package callbacks from T3 protocol handlers", () => {
+    assert.deepStrictEqual(resolveDesktopPackageProtocolSchemes(true), ["sovereign"]);
+    assert.deepStrictEqual(resolveDesktopPackageProtocolSchemes(false), ["t3code", "t3code-dev"]);
   });
 
   it("embeds the exact signed runtime identity in sovereign desktop clients", () => {
@@ -298,6 +306,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       ),
       { effect: "4.0.0-beta.59" },
     );
+    assert.isFalse(shouldStageClerkPasskeyNativeBinaries(true));
+    assert.isTrue(shouldStageClerkPasskeyNativeBinaries(false));
   });
 
   it("carries only staged dependency patch metadata into staged desktop installs", () => {
@@ -331,6 +341,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         { effect: "4.0.0-beta.73" },
       ),
       {},
+    );
+
+    assert.deepStrictEqual(
+      resolveStagePatchFiles({
+        "effect@4.0.0-beta.73": "patches/effect@4.0.0-beta.73.patch",
+        "effect-alias@4.0.0-beta.73": "patches/effect@4.0.0-beta.73.patch",
+        "@pierre/diffs@1.1.20": "patches/@pierre%2Fdiffs@1.1.20.patch",
+      }),
+      ["patches/@pierre%2Fdiffs@1.1.20.patch", "patches/effect@4.0.0-beta.73.patch"],
     );
   });
 
@@ -523,7 +542,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/node_modules/.bin/**",
       ]);
       assert.deepStrictEqual(mac.dmg, {
-        title: "Sovereign (Alpha) 1.2.3 Installer",
+        title: "Sovereign 1.2.3 Installer",
         background: "dmg/dmg-background-latest.png",
         window: { width: 540, height: 412 },
         contents: [
@@ -1175,20 +1194,27 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.notInclude(error.message, secret);
   });
 
-  it.effect("adds passkey entitlements and both renderer protocols to signed macOS builds", () =>
+  it.effect("adds passkey entitlements and only the Sovereign protocol to signed builds", () =>
     Effect.gen(function* () {
-      const config = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false, undefined, {
-        entitlementsPath: "/tmp/entitlements.mac.plist",
-        provisioningProfilePath: "/tmp/t3code.provisionprofile",
-      });
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        true,
+        false,
+        undefined,
+        {
+          entitlementsPath: "/tmp/entitlements.mac.plist",
+          provisioningProfilePath: "/tmp/t3code.provisionprofile",
+        },
+        true,
+      );
 
       const mac = config.mac as Record<string, unknown>;
       assert.equal(config.appId, "com.moondiner.t3code.desktop");
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
-      assert.deepStrictEqual(mac.protocols, [
-        { name: "Sovereign", schemes: ["t3code", "t3code-dev"] },
-      ]);
+      assert.deepStrictEqual(mac.protocols, [{ name: "Sovereign", schemes: ["sovereign"] }]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 

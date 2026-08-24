@@ -2,12 +2,18 @@ import { assert, describe, it } from "vite-plus/test";
 
 import {
   makeDevelopmentLauncherScript,
+  resolveAppProtocolSchemes,
   resolveElectronBinaryPath,
   resolveMacLauncherIconPaths,
   resolveMacLauncherPaths,
 } from "./electron-launcher.mjs";
 
 describe("electron development launcher", () => {
+  it("registers only the Sovereign protocol family", () => {
+    assert.deepEqual(resolveAppProtocolSchemes(false), ["sovereign"]);
+    assert.deepEqual(resolveAppProtocolSchemes(true), ["sovereign-dev"]);
+  });
+
   it("uses captured values only as fallbacks for a live runner environment", () => {
     const script = makeDevelopmentLauncherScript({
       electronBinaryPath: "/repo/node_modules/electron/Electron",

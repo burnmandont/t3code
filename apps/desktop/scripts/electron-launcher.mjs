@@ -19,7 +19,11 @@ export const APP_DISPLAY_NAME = isDevelopment ? "Sovereign (Dev)" : "Sovereign (
 export const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
   : "com.t3tools.t3code";
-const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
+export function resolveAppProtocolSchemes(development = isDevelopment) {
+  return development ? ["sovereign-dev"] : ["sovereign"];
+}
+
+const APP_PROTOCOL_SCHEMES = resolveAppProtocolSchemes();
 const LAUNCHER_VERSION = 15;
 const developmentMacIconPngPath = NodePath.join(
   repoRoot,

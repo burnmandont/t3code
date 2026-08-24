@@ -6,7 +6,17 @@ export interface PublicClientProvisioningConfiguration {
   readonly skipConsent: boolean;
 }
 
-const publicClientRedirectSchemes = new Set(["t3code:", "t3code-dev:"]);
+// Legacy callbacks remain valid at the account boundary during the installed-
+// client migration. Sovereign clients never register or emit these schemes;
+// accepting them here only keeps the currently deployed T3 Code clients able
+// to finish sign-in until the production cutover is complete.
+const publicClientRedirectSchemes = new Set([
+  "sovereign:",
+  "sovereign-dev:",
+  "sovereign-preview:",
+  "t3code:",
+  "t3code-dev:",
+]);
 const loopbackHostnames = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function isAllowedPublicClientUri(parsed: URL): boolean {

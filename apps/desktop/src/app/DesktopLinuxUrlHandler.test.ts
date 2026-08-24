@@ -103,6 +103,17 @@ const emptyRecording = (): RecordedRegistration => ({
 });
 
 describe("DesktopLinuxUrlHandler", () => {
+  it("derives an isolated handler entry name from the selected scheme", () => {
+    assert.equal(
+      DesktopLinuxUrlHandler.resolveUrlHandlerDesktopEntryName("sovereign"),
+      "sovereign-url-handler.desktop",
+    );
+    assert.equal(
+      DesktopLinuxUrlHandler.resolveUrlHandlerDesktopEntryName("sovereign-dev"),
+      "sovereign-dev-url-handler.desktop",
+    );
+  });
+
   it("renders a scheme-handler desktop entry with freedesktop Exec quoting", () => {
     const entry = DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
       displayName: "Sovereign (Nightly)",

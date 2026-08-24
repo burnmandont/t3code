@@ -60,7 +60,7 @@ Generated `*.connect.moondiner.com` environments remain ordinary proxied
 HTTP/WebSocket services and retain their separate traffic limits.
 
 The sovereign relay grants CORS only to `T3_CODE_URL` and the exact desktop
-origins `t3code://app` and `t3code-dev://app`; arbitrary custom schemes and web
+origins `sovereign://app` and `sovereign-dev://app`; arbitrary custom schemes and web
 origins remain denied. Account rate limits use the `X-Real-IP` value
 overwritten by the trusted proxy chain, and signup is fail-closed against
 `T3_ACCOUNT_ALLOWED_EMAILS`. Each TLS proxy hop must validate the upstream
@@ -150,7 +150,7 @@ Orphan reconciliation waits 15 minutes and then uses the allocation generation
 as a compare-and-swap guard against concurrent relinking.
 
 Account-side **Remove from Sovereign Relay** is a durable identity retirement, not
-the reversible local `t3 connect unlink` operation. Retirement commits before
+the reversible local `sovereign connect unlink` operation. Retirement commits before
 FRP allocation teardown, revokes the environment credential, and prevents the
 same user/environment ID row from being reactivated. If immediate teardown
 fails, the API reports cleanup pending and the orphan sweep finishes it without
@@ -164,7 +164,7 @@ That confirmation distinguishes permanent remote revocation from a stale
 allocation that should simply receive replacement connector configuration.
 
 Normal linking can intentionally share an environment across accounts. Use
-`t3 connect link --headless --transfer` for an explicit account transfer. The
+`sovereign connect link --headless --transfer` for an explicit account transfer. The
 environment-signed transfer revokes prior links only when they use the same
 environment signing key, then tears down their managed allocations. Failed
 teardown is safe to retry and is recovered by the maintenance pass.
@@ -292,9 +292,9 @@ vp run build:desktop
 
 Keep all Clerk and relay-client OTLP variables unset for sovereign artifacts.
 The desktop then selects its PKCE OAuth implementation, opens sign-in in the
-system browser, accepts the registered `t3code://app/connect/account/callback`
+system browser, accepts the registered `sovereign://app/connect/account/callback`
 callback, and stores the OAuth state with Electron `safeStorage`. Development
-uses the separately registered `t3code-dev://` scheme.
+uses the separately registered `sovereign-dev://` scheme.
 
 The complete local-client procedure and troubleshooting checks are in
 [`../../docs/operations/sovereign-clients.md`](../../docs/operations/sovereign-clients.md).

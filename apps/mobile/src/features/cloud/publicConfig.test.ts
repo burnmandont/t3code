@@ -113,7 +113,7 @@ describe("resolveCloudPublicConfig", () => {
         issuer: "https://auth.example.test/api/auth",
         clientId: "t3-code",
         resource: "urn:t3:relay",
-        redirectScheme: "t3code-dev",
+        redirectScheme: "sovereign-dev",
       },
       clerk: { publishableKey: "pk_external", jwtTemplate: "external-template" },
       relay: { url: "https://relay.example.test" },
@@ -124,7 +124,7 @@ describe("resolveCloudPublicConfig", () => {
       issuer: "https://auth.example.test/api/auth",
       clientId: "t3-code",
       resource: "urn:t3:relay",
-      redirectScheme: "t3code-dev",
+      redirectScheme: "sovereign-dev",
     });
   });
 

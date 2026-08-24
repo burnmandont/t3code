@@ -23,6 +23,15 @@ describe("ElectronProtocol", () => {
     unhandleMock.mockReset();
   });
 
+  it("selects distinct T3 and Sovereign protocol families", () => {
+    assert.equal(ElectronProtocol.resolveDesktopScheme(false, false), "t3code");
+    assert.equal(ElectronProtocol.resolveDesktopScheme(true, false), "t3code-dev");
+    assert.equal(ElectronProtocol.resolveDesktopScheme(false, true), "sovereign");
+    assert.equal(ElectronProtocol.resolveDesktopScheme(true, true), "sovereign-dev");
+    assert.equal(ElectronProtocol.getSovereignDesktopScheme(false), "sovereign");
+    assert.equal(ElectronProtocol.getSovereignDesktopScheme(true), "sovereign-dev");
+  });
+
   it.effect("proxies the stable renderer origin to the current app server", () =>
     Effect.gen(function* () {
       let handler: ((request: Request) => Promise<Response>) | undefined;

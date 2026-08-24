@@ -65,7 +65,7 @@ export function createDesktopClerkBridge(stateDir: string, isDevelopment: boolea
     storage: storage({ path: stateDir }),
     passkeys: true,
     renderer: {
-      scheme: ElectronProtocol.getDesktopScheme(isDevelopment),
+      scheme: ElectronProtocol.getT3DesktopScheme(isDevelopment),
       host: ElectronProtocol.DESKTOP_HOST,
     },
   });

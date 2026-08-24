@@ -1,7 +1,7 @@
 # Sovereign client continuous delivery
 
 This runbook covers the production release lane triggered by a push to
-`sovereign-direct`. It deliberately separates **publishing a verified build**
+`sovereign/main`. It deliberately separates **publishing a verified build**
 from **interrupting a running remote environment**.
 
 ## Release graph

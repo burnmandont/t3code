@@ -455,7 +455,7 @@ test("dispatches desktop and iOS releases to a separately trusted GitHub builder
   const builder = readSovereignFile("../apple-builder/.github/workflows/release-apple.yml");
 
   assert.match(workflow, /Dispatch Apple release to ephemeral GitHub runners/u);
-  assert.match(workflow, /github[.]ref == 'refs\/heads\/sovereign-direct'/u);
+  assert.match(workflow, /github[.]ref == 'refs\/heads\/sovereign\/main'/u);
   assert.doesNotMatch(workflow, /SOVEREIGN_GITHUB_BUILDER_REPOSITORY/u);
   assert.match(workflow, /SOVEREIGN_GITHUB_REPOSITORY/u);
   assert.match(
@@ -529,12 +529,12 @@ test("rejects Clerk and cloudflared implementations in sovereign artifacts", () 
   assert.match(workflow, /inactive external provider implementation/u);
 });
 
-test("allows only the hosted and exact desktop origins to call the sovereign relay", () => {
+test("allows only hosted and exact current or migration desktop origins to call the relay", () => {
   for (const path of ["../compose.yaml", "../compose.control.yaml"]) {
     const compose = readSovereignFile(path);
     assert.match(
       compose,
-      /T3_RELAY_ALLOWED_ORIGINS: \$\{T3_CODE_URL:-https:\/\/code[.]moondiner[.]com\},t3code:\/\/app,t3code-dev:\/\/app/u,
+      /T3_RELAY_ALLOWED_ORIGINS: \$\{T3_CODE_URL:-https:\/\/code[.]moondiner[.]com\},t3code:\/\/app,t3code-dev:\/\/app,sovereign:\/\/app,sovereign-dev:\/\/app/u,
     );
     assert.doesNotMatch(compose, /T3_RELAY_ALLOWED_ORIGINS: ["']?\*["']?/u);
   }

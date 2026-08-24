@@ -8,9 +8,40 @@ import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
 
+declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
+
 export const DESKTOP_HOST = "app";
-export const DESKTOP_PRODUCTION_SCHEME = "t3code";
-export const DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
+export const T3_DESKTOP_PRODUCTION_SCHEME = "t3code";
+export const T3_DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
+export const SOVEREIGN_DESKTOP_PRODUCTION_SCHEME = "sovereign";
+export const SOVEREIGN_DESKTOP_DEVELOPMENT_SCHEME = "sovereign-dev";
+
+const sovereignBuildSelected =
+  typeof __T3CODE_BUILD_SOVEREIGN__ !== "undefined" && __T3CODE_BUILD_SOVEREIGN__;
+
+export function resolveDesktopScheme(isDevelopment: boolean, sovereignIdentity: boolean): string {
+  if (sovereignIdentity) {
+    return isDevelopment
+      ? SOVEREIGN_DESKTOP_DEVELOPMENT_SCHEME
+      : SOVEREIGN_DESKTOP_PRODUCTION_SCHEME;
+  }
+  return isDevelopment ? T3_DESKTOP_DEVELOPMENT_SCHEME : T3_DESKTOP_PRODUCTION_SCHEME;
+}
+
+export const DESKTOP_PRODUCTION_SCHEME = sovereignBuildSelected
+  ? SOVEREIGN_DESKTOP_PRODUCTION_SCHEME
+  : T3_DESKTOP_PRODUCTION_SCHEME;
+export const DESKTOP_DEVELOPMENT_SCHEME = sovereignBuildSelected
+  ? SOVEREIGN_DESKTOP_DEVELOPMENT_SCHEME
+  : T3_DESKTOP_DEVELOPMENT_SCHEME;
+
+export function getT3DesktopScheme(isDevelopment: boolean): string {
+  return isDevelopment ? T3_DESKTOP_DEVELOPMENT_SCHEME : T3_DESKTOP_PRODUCTION_SCHEME;
+}
+
+export function getSovereignDesktopScheme(isDevelopment: boolean): string {
+  return isDevelopment ? SOVEREIGN_DESKTOP_DEVELOPMENT_SCHEME : SOVEREIGN_DESKTOP_PRODUCTION_SCHEME;
+}
 
 export function getDesktopScheme(isDevelopment: boolean): string {
   return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : DESKTOP_PRODUCTION_SCHEME;

@@ -3,7 +3,7 @@ name: Sovereign CI and deploy
 on:
   push:
     branches:
-      - sovereign-direct
+      - sovereign/main
     paths:
       - .gitea/workflows/sovereign-ci-deploy.yml
       - apps/desktop/**
@@ -261,13 +261,13 @@ jobs:
         run: node infra/sovereign/ci/deploy-and-verify.mjs
 
       - name: Derive immutable Apple client release
-        if: github.ref == 'refs/heads/sovereign-direct' && vars.SOVEREIGN_GITHUB_REPOSITORY != ''
+        if: github.ref == 'refs/heads/sovereign/main' && vars.SOVEREIGN_GITHUB_REPOSITORY != ''
         run: |
           export SOVEREIGN_CLIENT_BASE_VERSION="$(node -p "require('./apps/desktop/package.json').version")"
           node infra/sovereign/ci/derive-client-release.mjs --github-env
 
       - name: Dispatch Apple release to ephemeral GitHub runners
-        if: github.ref == 'refs/heads/sovereign-direct' && vars.SOVEREIGN_GITHUB_REPOSITORY != ''
+        if: github.ref == 'refs/heads/sovereign/main' && vars.SOVEREIGN_GITHUB_REPOSITORY != ''
         env:
           SOVEREIGN_GITHUB_REPOSITORY: ${{ vars.SOVEREIGN_GITHUB_REPOSITORY }}
           SOVEREIGN_GITHUB_BUILDER_TOKEN: ${{ secrets.SOVEREIGN_GITHUB_TOKEN }}

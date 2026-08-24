@@ -123,6 +123,7 @@ const VARIANT_CONFIG = {
   development: {
     appName: "Sovereign Dev",
     scheme: "t3code-dev",
+    sovereignScheme: "sovereign-dev",
     iosBundleIdentifier: "com.t3tools.t3code.dev",
     androidPackage: "com.t3tools.t3code.dev",
     relyingParty: "clerk.t3.codes",
@@ -131,6 +132,7 @@ const VARIANT_CONFIG = {
   preview: {
     appName: "Sovereign Preview",
     scheme: "t3code-preview",
+    sovereignScheme: "sovereign-preview",
     iosBundleIdentifier: "com.t3tools.t3code.preview",
     androidPackage: "com.t3tools.t3code.preview",
     relyingParty: "clerk.t3.codes",
@@ -139,6 +141,7 @@ const VARIANT_CONFIG = {
   production: {
     appName: "Sovereign",
     scheme: "t3code",
+    sovereignScheme: "sovereign",
     iosBundleIdentifier: "com.t3tools.t3code",
     androidPackage: "com.t3tools.t3code",
     relyingParty: "clerk.t3.codes",
@@ -158,6 +161,7 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
+const appScheme = isSovereignBuild ? variant.sovereignScheme : variant.scheme;
 const iosBundleIdentifier = isIosPersonalTeamBuild
   ? personalTeamBundleIdentifier!
   : isSovereignBuild
@@ -253,7 +257,7 @@ const config: ExpoConfig = {
   name: variant.appName,
   slug: isSovereignBuild ? "sovereign" : "t3-code",
   platforms: ["ios", "android"],
-  scheme: variant.scheme,
+  scheme: appScheme,
   version: "1.0.4",
   runtimeVersion: {
     // Fingerprint (not appVersion) so an OTA only reaches binaries whose native
@@ -457,7 +461,7 @@ const config: ExpoConfig = {
       issuer: sovereignOAuthValues.issuer ?? null,
       clientId: sovereignOAuthValues.clientId ?? null,
       resource: sovereignOAuthValues.resource ?? null,
-      redirectScheme: isSovereignBuild ? variant.scheme : null,
+      redirectScheme: isSovereignBuild ? appScheme : null,
     },
     clerk: {
       publishableKey: repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null,

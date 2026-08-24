@@ -29,8 +29,10 @@ runtime. Unauthenticated relay data access returns 401.
   proxy chain for rate-limit identity. Email sign-in is limited to 3 attempts
   per 10 seconds per client and signup to 5 attempts per hour per client.
 - OAuth dynamic client registration is disabled. Provisioned redirect URIs are
-  limited to HTTPS, loopback HTTP, `t3code:`, and `t3code-dev:`; credentials and
-  URL fragments are rejected.
+  limited to HTTPS, loopback HTTP, the current `sovereign:`, `sovereign-dev:`,
+  and `sovereign-preview:` schemes, plus the temporary exact `t3code:` and
+  `t3code-dev:` rollback callbacks. Credentials, arbitrary schemes, and URL
+  fragments are rejected.
 - The OAuth provider has exactly one valid resource audience, the relay. The
   relay independently verifies issuer, exact audience, expiry, EdDSA signature,
   and the `t3:relay` scope.

@@ -1168,6 +1168,10 @@ const stageClerkPasskeyNativeBinaries = Effect.fn("stageClerkPasskeyNativeBinari
   }
 });
 
+export function shouldStageClerkPasskeyNativeBinaries(sovereignIdentity: boolean): boolean {
+  return !sovereignIdentity;
+}
+
 export function createStageWorkspaceConfig(input: {
   readonly platform: typeof BuildPlatform.Type;
   readonly arch: typeof BuildArch.Type;
@@ -1226,6 +1230,12 @@ export function createStagePatchedDependencies(
       Object.hasOwn(dependencies, getPatchedDependencyPackageName(patchKey)),
     ),
   );
+}
+
+export function resolveStagePatchFiles(
+  stagePatchedDependencies: Readonly<Record<string, string>>,
+): readonly string[] {
+  return [...new Set(Object.values(stagePatchedDependencies))].sort();
 }
 
 function getPatchedDependencyPackageName(patchKey: string): string {
@@ -2055,6 +2065,12 @@ export function resolveDesktopProductName(version: string): string {
     : (desktopPackageJson.productName ?? "Sovereign");
 }
 
+export function resolveDesktopPackageProtocolSchemes(
+  sovereignIdentity: boolean,
+): ReadonlyArray<string> {
+  return sovereignIdentity ? ["sovereign"] : ["t3code", "t3code-dev"];
+}
+
 /**
  * Native packagers require the ordinary desktop release version, while the
  * sovereign renderer must address the exact immutable server artifact. Keep
@@ -2098,7 +2114,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         readonly provisioningProfilePath: string;
       }
     | undefined,
+  sovereignIdentity = false,
 ) {
+  const desktopProtocolSchemes = resolveDesktopPackageProtocolSchemes(sovereignIdentity);
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
@@ -2138,7 +2156,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       protocols: [
         {
           name: "Sovereign",
-          schemes: ["t3code", "t3code-dev"],
+          schemes: desktopProtocolSchemes,
         },
       ],
       ...(macPasskeySigning
@@ -2181,11 +2199,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       category: "Development",
       // electron-builder turns these into MimeType=x-scheme-handler/<scheme>;
       // in the .desktop entry (Exec already gets %U), so browsers can hand
-      // t3code:// OAuth callbacks to the app.
+      // OAuth callbacks to the selected desktop identity.
       protocols: [
         {
           name: "Sovereign",
-          schemes: ["t3code", "t3code-dev"],
+          schemes: desktopProtocolSchemes,
         },
       ],
       desktop: {
@@ -3005,6 +3023,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
             provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
           }
         : undefined,
+      sovereignIdentity,
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -3027,8 +3046,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     stageWorkspaceConfigString,
   );
 
-  if (Object.keys(stagePatchedDependencies).length > 0) {
-    yield* fs.copy(path.join(repoRoot, "patches"), path.join(stageAppDir, "patches"));
+  for (const patchFile of resolveStagePatchFiles(stagePatchedDependencies)) {
+    const destination = path.join(stageAppDir, patchFile);
+    yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
+    yield* fs.copyFile(path.join(repoRoot, patchFile), destination);
   }
 
   yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
@@ -3040,7 +3061,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     }),
     { label: "vp install --prod", verbose: options.verbose },
   );
-  yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
+  if (shouldStageClerkPasskeyNativeBinaries(sovereignIdentity)) {
+    yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
+  }
 
   // WSL is Windows-only, so only the Windows artifact carries the server
   // sidecar (which embeds the Linux node-pty prebuild); other platforms

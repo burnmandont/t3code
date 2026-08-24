@@ -11,9 +11,9 @@ describe("sovereign account client flow", () => {
     expect(
       oauthContinuationUrl({
         redirect: true,
-        url: "t3code://app/connect/account/callback?code=authorization-code",
+        url: "sovereign://app/connect/account/callback?code=authorization-code",
       }),
-    ).toBe("t3code://app/connect/account/callback?code=authorization-code");
+    ).toBe("sovereign://app/connect/account/callback?code=authorization-code");
   });
 
   it("does not mistake an ordinary authentication response for an OAuth continuation", () => {

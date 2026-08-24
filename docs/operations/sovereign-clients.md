@@ -98,7 +98,7 @@ through the Mac loopback address.
 Open **Sovereign Dev** in the simulator and accept iOS's one-time development
 client prompt. In the app, open **Settings → Account**, continue to the
 self-hosted account service, and sign in. The callback returns to
-`t3code-dev://app/connect/account/callback`; the account service must allow that
+`sovereign-dev://app/connect/account/callback`; the account service must allow that
 exact redirect URI.
 
 After sign-in, open **Environments**, select the relay-managed environment, and

@@ -5,8 +5,8 @@ import { parseRelayAllowedOrigins } from "./sovereign.ts";
 describe("sovereign relay allowed origins", () => {
   it("preserves exact host-based desktop origins", () => {
     expect(
-      parseRelayAllowedOrigins("https://code.moondiner.com,t3code://app,t3code-dev://app"),
-    ).toEqual(["https://code.moondiner.com", "t3code://app", "t3code-dev://app"]);
+      parseRelayAllowedOrigins("https://code.moondiner.com,sovereign://app,sovereign-dev://app"),
+    ).toEqual(["https://code.moondiner.com", "sovereign://app", "sovereign-dev://app"]);
   });
 
   it("normalizes web origins and removes duplicates", () => {
@@ -15,10 +15,11 @@ describe("sovereign relay allowed origins", () => {
     ).toEqual(["https://code.moondiner.com"]);
   });
 
-  it.each(["t3code-dev://app/path", "t3code-dev://app?query=value", "t3code-dev://user@app"])(
-    "rejects a custom scheme that is not an origin: %s",
-    (origin) => {
-      expect(() => parseRelayAllowedOrigins(origin)).toThrow("Invalid host-based custom origin");
-    },
-  );
+  it.each([
+    "sovereign-dev://app/path",
+    "sovereign-dev://app?query=value",
+    "sovereign-dev://user@app",
+  ])("rejects a custom scheme that is not an origin: %s", (origin) => {
+    expect(() => parseRelayAllowedOrigins(origin)).toThrow("Invalid host-based custom origin");
+  });
 });

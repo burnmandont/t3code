@@ -25,30 +25,30 @@ describe("DesktopSovereignAuth", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("accepts only the exact callback route on the selected desktop origin", () => {
-    const callback = `t3code-dev://app${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=state-1`;
+    const callback = `sovereign-dev://app${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=state-1`;
 
-    assert.equal(parseSovereignCallbackUrl(callback, "t3code-dev"), callback);
+    assert.equal(parseSovereignCallbackUrl(callback, "sovereign-dev"), callback);
     assert.isNull(
       parseSovereignCallbackUrl(
-        `t3code-dev://other${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1`,
-        "t3code-dev",
+        `sovereign-dev://other${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1`,
+        "sovereign-dev",
       ),
     );
     assert.isNull(
-      parseSovereignCallbackUrl("t3code-dev://app/oauth/callback?code=code-1", "t3code-dev"),
+      parseSovereignCallbackUrl("sovereign-dev://app/oauth/callback?code=code-1", "sovereign-dev"),
     );
     assert.isNull(
       parseSovereignCallbackUrl(
         `t3code://app${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1`,
-        "t3code-dev",
+        "sovereign-dev",
       ),
     );
   });
 
   it("finds callbacks in Windows and Linux second-instance command lines", () => {
-    const callback = `t3code://app${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=state-1`;
-    assert.equal(findSovereignCallbackUrl(["electron", "--flag", callback], "t3code"), callback);
-    assert.isNull(findSovereignCallbackUrl(["electron", "https://example.test"], "t3code"));
+    const callback = `sovereign://app${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=state-1`;
+    assert.equal(findSovereignCallbackUrl(["electron", "--flag", callback], "sovereign"), callback);
+    assert.isNull(findSovereignCallbackUrl(["electron", "https://example.test"], "sovereign"));
   });
 
   it("registers development callbacks against the Electron entry script", () => {
@@ -171,10 +171,14 @@ describe("DesktopSovereignAuth", () => {
             yield* identity.ready;
             const authorizeUrl = new URL(
               yield* identity.beginSovereignSignIn({
-                returnUrl: "t3code-dev://app/#/settings/connections",
+                returnUrl: "sovereign-dev://app/#/settings/connections",
               }),
             );
-            const callback = `t3code-dev://app${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=${authorizeUrl.searchParams.get("state")}`;
+            assert.equal(
+              authorizeUrl.searchParams.get("redirect_uri"),
+              `sovereign-dev://app${SOVEREIGN_APP_CALLBACK_PATH}`,
+            );
+            const callback = `sovereign-dev://app${SOVEREIGN_APP_CALLBACK_PATH}?code=code-1&state=${authorizeUrl.searchParams.get("state")}`;
             const openUrl = listeners.get("open-url");
             assert.isDefined(openUrl);
             openUrl?.({ preventDefault: vi.fn() }, callback);

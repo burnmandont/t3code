@@ -33,6 +33,7 @@ const compactEnv = (env: Readonly<Record<string, string | undefined>>): Record<s
   );
 
 export const DesktopConfig = Config.all({
+  appDataDirectoryOverride: trimmedString("T3CODE_DESKTOP_APP_DATA_DIR"),
   appDataDirectory: trimmedString("APPDATA"),
   xdgConfigHome: trimmedString("XDG_CONFIG_HOME"),
   xdgDataHome: trimmedString("XDG_DATA_HOME"),

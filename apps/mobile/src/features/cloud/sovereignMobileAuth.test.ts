@@ -23,7 +23,7 @@ const config = {
   issuer: "https://auth.example.test/api/auth",
   clientId: "t3-code",
   resource: "https://relay.example.test",
-  redirectUri: "t3code-dev://app/connect/account/callback",
+  redirectUri: "sovereign-dev://app/connect/account/callback",
 } as const;
 
 function accessToken(subject: string): string {
@@ -158,7 +158,7 @@ describe("sovereign mobile OAuth", () => {
 
     expect(createRequest).toHaveBeenCalledWith({
       clientId: "t3-code",
-      redirectUri: "t3code-dev://app/connect/account/callback",
+      redirectUri: "sovereign-dev://app/connect/account/callback",
       responseType: "code",
       prompt: "login",
       scopes: ["openid", "profile", "email", "offline_access", "t3:relay"],
@@ -169,7 +169,7 @@ describe("sovereign mobile OAuth", () => {
       {
         clientId: "t3-code",
         code: "authorization-code",
-        redirectUri: "t3code-dev://app/connect/account/callback",
+        redirectUri: "sovereign-dev://app/connect/account/callback",
         extraParams: {
           code_verifier: "pkce-verifier",
           resource: "https://relay.example.test",

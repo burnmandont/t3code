@@ -140,8 +140,9 @@ Provision these callback URLs on the public client:
 http://127.0.0.1:34338/callback
 https://code.example.com/connect/callback
 https://code.example.com/connect/account/callback
-t3code-dev://app/connect/account/callback
-t3code://app/connect/account/callback
+sovereign-dev://app/connect/account/callback
+sovereign-preview://app/connect/account/callback
+sovereign://app/connect/account/callback
 ```
 
 The first supports a browser on the machine running `t3 connect link`. The
@@ -149,8 +150,9 @@ second supports SSH/headless machines: the operator opens the self-hosted web
 app's `/connect` URL on another device, signs in at the sovereign account
 service, and pastes the one-time code back into the terminal. The PKCE verifier
 never leaves the CLI process. The third is the interactive browser app's own
-PKCE callback. The final two return development and packaged Electron sign-ins
-from the system browser to the desktop app. Add `https://code.example.com` to
+PKCE callback. The final three return native sign-ins from the system browser:
+mobile uses all three build variants, while desktop uses development and
+production. Add `https://code.example.com` to
 `T3_ACCOUNT_TRUSTED_ORIGINS` so its token exchange and refresh responses pass
 the account service's exact-origin CORS policy.
 

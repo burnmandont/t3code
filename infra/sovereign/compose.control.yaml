@@ -22,15 +22,15 @@ x-account-environment: &account-environment
   T3_ACCOUNT_ALLOWED_EMAILS: "${T3_ACCOUNT_ALLOWED_EMAILS:-}"
   T3_ACCOUNT_PASSWORD_LOGIN_ENABLED: ${T3_ACCOUNT_PASSWORD_LOGIN_ENABLED:-true}
   T3_ACCOUNT_CLIENT_ID: t3-code
-  T3_ACCOUNT_CLIENT_NAME: Sovereign Sovereign
-  T3_ACCOUNT_CLIENT_REDIRECT_URIS: http://127.0.0.1:34338/callback,${T3_CODE_URL:-https://code.moondiner.com}/connect/callback,${T3_CODE_URL:-https://code.moondiner.com}/connect/account/callback,t3code-dev://app/connect/account/callback,t3code://app/connect/account/callback
+  T3_ACCOUNT_CLIENT_NAME: Sovereign
+  T3_ACCOUNT_CLIENT_REDIRECT_URIS: http://127.0.0.1:34338/callback,${T3_CODE_URL:-https://code.moondiner.com}/connect/callback,${T3_CODE_URL:-https://code.moondiner.com}/connect/account/callback,t3code-dev://app/connect/account/callback,t3code://app/connect/account/callback,sovereign-dev://app/connect/account/callback,sovereign-preview://app/connect/account/callback,sovereign://app/connect/account/callback
   T3_ACCOUNT_CLIENT_POST_LOGOUT_REDIRECT_URIS: ${T3_CODE_URL:-https://code.moondiner.com}
   T3_ACCOUNT_CLIENT_SKIP_CONSENT: "true"
 
 x-relay-environment: &relay-environment
   T3_RELAY_DATABASE_URL: ${T3_RELAY_DATABASE_URL:?required}
   T3_RELAY_ISSUER: ${T3_RELAY_URL:-https://relay.moondiner.com}
-  T3_RELAY_ALLOWED_ORIGINS: ${T3_CODE_URL:-https://code.moondiner.com},t3code://app,t3code-dev://app
+  T3_RELAY_ALLOWED_ORIGINS: ${T3_CODE_URL:-https://code.moondiner.com},t3code://app,t3code-dev://app,sovereign://app,sovereign-dev://app
   T3_OIDC_ISSUER: ${T3_AUTH_URL:-https://auth.moondiner.com}/api/auth
   T3_OIDC_AUDIENCE: ${T3_RELAY_URL:-https://relay.moondiner.com}
   T3_OIDC_JWKS_URL: ${T3_AUTH_URL:-https://auth.moondiner.com}/api/auth/jwks

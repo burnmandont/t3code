@@ -8,17 +8,17 @@ describe("public OAuth client provisioning", () => {
       loadPublicClientProvisioningConfiguration({
         T3_ACCOUNT_CLIENT_ID: " sovereign-t3 ",
         T3_ACCOUNT_CLIENT_REDIRECT_URIS:
-          "https://app.example.test/connect/account/callback,t3code://app/connect/account/callback,https://app.example.test/connect/account/callback",
-        T3_ACCOUNT_CLIENT_POST_LOGOUT_REDIRECT_URIS: "t3code://signed-out",
+          "https://app.example.test/connect/account/callback,sovereign://app/connect/account/callback,https://app.example.test/connect/account/callback",
+        T3_ACCOUNT_CLIENT_POST_LOGOUT_REDIRECT_URIS: "sovereign://signed-out",
       }),
     ).toEqual({
       clientId: "sovereign-t3",
       name: "Sovereign",
       redirectUris: [
         "https://app.example.test/connect/account/callback",
-        "t3code://app/connect/account/callback",
+        "sovereign://app/connect/account/callback",
       ],
-      postLogoutRedirectUris: ["t3code://signed-out"],
+      postLogoutRedirectUris: ["sovereign://signed-out"],
       skipConsent: true,
     });
   });
@@ -31,6 +31,18 @@ describe("public OAuth client provisioning", () => {
       }),
     ).toThrow(/unsafe/u);
   });
+
+  it.each(["sovereign:", "sovereign-dev:", "sovereign-preview:", "t3code:", "t3code-dev:"])(
+    "allows the first-party native scheme %s",
+    (scheme) => {
+      const redirectUri = `${scheme}//app/connect/account/callback`;
+      expect(
+        loadPublicClientProvisioningConfiguration({
+          T3_ACCOUNT_CLIENT_REDIRECT_URIS: redirectUri,
+        }).redirectUris,
+      ).toEqual([redirectUri]);
+    },
+  );
 
   it.each([
     "http://app.example.test/callback",

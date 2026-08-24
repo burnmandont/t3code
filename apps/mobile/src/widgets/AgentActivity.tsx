@@ -146,12 +146,12 @@ export function AgentActivity(
   const activeLabel = allDone ? doneLabel : `${props.activeCount} active`;
   const summary = attentionSuffix || activeLabel;
 
-  // Any registered scheme variant routes back to this app; taps are delivered
-  // to the widget's containing app, so the prod scheme is safe for all builds.
+  // Live Activity cards are a production distribution feature, so their durable
+  // target uses the stable Sovereign production scheme.
   const deepLinkRow = attentionRow ?? row0;
   const deepLink =
     deepLinkRow && deepLinkRow.deepLink.startsWith("/") && !deepLinkRow.deepLink.startsWith("//")
-      ? `t3code://${deepLinkRow.deepLink.slice(1)}`
+      ? `sovereign://${deepLinkRow.deepLink.slice(1)}`
       : null;
 
   // A scannable status glyph per phase — reads faster than colored words and

@@ -1,9 +1,19 @@
 import { expect, it } from "@effect/vitest";
 import { describe } from "vite-plus/test";
 
-import { assetResponseHeaders, isLoopbackHostname, resolveDevRedirectUrl } from "./http.ts";
+import {
+  assetResponseHeaders,
+  isLoopbackHostname,
+  resolveDesktopRendererOrigins,
+  resolveDevRedirectUrl,
+} from "./http.ts";
 
 describe("http dev routing", () => {
+  it("isolates Sovereign and T3 desktop renderer origins", () => {
+    expect(resolveDesktopRendererOrigins(true)).toEqual(["sovereign://app", "sovereign-dev://app"]);
+    expect(resolveDesktopRendererOrigins(false)).toEqual(["t3code://app", "t3code-dev://app"]);
+  });
+
   it("treats localhost and loopback addresses as local", () => {
     expect(isLoopbackHostname("127.0.0.1")).toBe(true);
     expect(isLoopbackHostname("localhost")).toBe(true);

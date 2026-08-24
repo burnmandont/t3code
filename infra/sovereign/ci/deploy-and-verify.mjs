@@ -381,7 +381,7 @@ const checkPublicRouteBoundary = async () => {
     throw new Error("Relay granted CORS to an untrusted origin");
   }
 
-  for (const origin of ["https://code.moondiner.com", "t3code://app", "t3code-dev://app"]) {
+  for (const origin of ["https://code.moondiner.com", "sovereign://app", "sovereign-dev://app"]) {
     const allowedRelayCors = await fetch("https://relay.moondiner.com/v1/environments", {
       method: "OPTIONS",
       headers: {

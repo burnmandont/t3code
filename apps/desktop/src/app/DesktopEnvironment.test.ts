@@ -99,6 +99,22 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("supports an isolated packaged-app data directory", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { isPackaged: true },
+        {
+          T3CODE_DESKTOP_APP_DATA_DIR: " /tmp/sovereign-app-data ",
+          T3CODE_HOME: "/tmp/sovereign-home",
+        },
+      );
+
+      assert.equal(environment.appDataDirectory, "/tmp/sovereign-app-data");
+      assert.equal(environment.baseDir, "/tmp/sovereign-home");
+      assert.equal(environment.stateDir, "/tmp/sovereign-home/userdata");
+    }),
+  );
+
   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({
