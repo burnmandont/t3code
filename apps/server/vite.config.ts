@@ -1,4 +1,5 @@
 import "vite-plus/test/config";
+import * as NodeURL from "node:url";
 import { defineConfig, mergeConfig } from "vite-plus";
 
 import baseConfig from "../../vite.config.ts";
@@ -24,6 +25,9 @@ export { shouldBundleCliDependency };
 const repoEnv = loadRepoEnv();
 const cliBuildChannel = packageJson.version.includes("-nightly.") ? "nightly" : "latest";
 const sovereignProvidersSelected = resolveSovereignProviderSelection(undefined, repoEnv);
+const sovereignConnectorLayerPath = NodeURL.fileURLToPath(
+  new URL("./src/cloud/SovereignConnectorLayer.ts", import.meta.url),
+);
 
 export default mergeConfig(
   baseConfig,
@@ -42,6 +46,14 @@ export default mergeConfig(
       outDir: "dist",
       sourcemap: true,
       clean: true,
+      // Rolldown emits literal dynamic-import chunks before it can prove the
+      // provider-selection branch is dead. Redirect the compatibility module
+      // at pack resolution time so Sovereign artifacts cannot carry
+      // cloudflared download or execution code even when that branch is never
+      // reached.
+      alias: sovereignProvidersSelected
+        ? { "./cloud/CloudflareConnectorLayer.ts": sovereignConnectorLayerPath }
+        : {},
       deps: {
         // Both halves are required. `alwaysBundle` forces the JS dependencies in
         // (declared deps are external by default, which is what this change is
