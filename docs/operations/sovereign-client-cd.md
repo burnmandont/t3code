@@ -9,8 +9,9 @@ from **interrupting a running remote environment**.
 One green production workflow performs these operations in order:
 
 1. The Linux runner typechecks and tests the sovereign closures.
-2. It builds and deploys `t3-observability`, `t3-control`, and `t3-web` from
-   the exact production commit.
+2. It pins the Coolify source branch and commit for `t3-observability`,
+   `t3-control`, and `t3-web`, then builds and deploys all three from that exact
+   production commit.
 3. It signs and publishes the exact commit-addressed Linux remote runtime to
    Gitea and the public GitHub artifact repository.
 

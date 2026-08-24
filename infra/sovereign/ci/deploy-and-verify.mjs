@@ -217,6 +217,25 @@ export const deployResourcesWithRetry = async ({
   }
 };
 
+export const pinCoolifyApplicationSources = async ({
+  resourceUuids,
+  branch,
+  commitSha,
+  updateApplication,
+}) => {
+  if (!/^[0-9a-f]{40}$/u.test(commitSha)) {
+    throw new Error("GITEA_SHA must be an exact 40-character lowercase commit SHA");
+  }
+  await Promise.all(
+    resourceUuids.map((resourceUuid) =>
+      updateApplication(resourceUuid, {
+        git_branch: branch,
+        git_commit_sha: commitSha,
+      }),
+    ),
+  );
+};
+
 export const validateEdgeSecurityHeaders = (headers, label) => {
   const required = [
     ["strict-transport-security", /(?:^|;)\s*max-age=\d+/iu],
@@ -594,6 +613,8 @@ export const verifyProduction = async () => {
 const main = async () => {
   const baseUrl = requiredEnvironmentValue("COOLIFY_URL").replace(/\/$/u, "");
   const token = requiredEnvironmentValue("COOLIFY_TOKEN");
+  const branch = requiredEnvironmentValue("SOVEREIGN_DEPLOY_BRANCH");
+  const commitSha = requiredEnvironmentValue("GITEA_SHA");
   const observabilityUuid = requiredEnvironmentValue("COOLIFY_OBSERVABILITY_UUID");
   const applicationUuids = [
     observabilityUuid,
@@ -604,6 +625,19 @@ const main = async () => {
   if (new Set(applicationUuids).size !== applicationUuids.length) {
     throw new Error("Coolify observability, control, and web resource UUIDs must be different");
   }
+
+  await pinCoolifyApplicationSources({
+    resourceUuids: applicationUuids,
+    branch,
+    commitSha,
+    updateApplication: (resourceUuid, source) =>
+      coolifyJson(`${baseUrl}/api/v1/applications/${encodeURIComponent(resourceUuid)}`, token, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(source),
+      }),
+  });
+  console.log(`Pinned Coolify resources to ${branch}@${commitSha}`);
 
   const timeoutMs = Number(process.env.COOLIFY_DEPLOY_TIMEOUT_MS ?? DEFAULT_DEPLOY_TIMEOUT_MS);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 60_000) {

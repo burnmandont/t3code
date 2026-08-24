@@ -34,6 +34,7 @@ jobs:
       contents: read
     env:
       GITEA_SHA: ${{ github.sha }}
+      SOVEREIGN_DEPLOY_BRANCH: sovereign/main
       COOLIFY_URL: ${{ vars.COOLIFY_URL }}
       COOLIFY_OBSERVABILITY_UUID: ${{ vars.COOLIFY_OBSERVABILITY_UUID }}
       COOLIFY_CONTROL_UUID: ${{ vars.COOLIFY_CONTROL_UUID }}

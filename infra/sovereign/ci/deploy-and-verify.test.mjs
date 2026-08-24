@@ -7,6 +7,7 @@ import {
   CoolifyDeploymentTerminalError,
   deployResourcesWithRetry,
   expectedWebSocketAccept,
+  pinCoolifyApplicationSources,
   unexpectedHostRequestOptions,
   validateEdgeSecurityHeaders,
   validateWebContentSecurityPolicy,
@@ -143,6 +144,39 @@ test("rejects incomplete or unexpected Coolify queue responses", async () => {
       waitForQueuedDeployment: async () => {},
     }),
     /unexpected resource/u,
+  );
+});
+
+test("pins every Coolify resource to the exact production branch commit", async () => {
+  const updates = [];
+  await pinCoolifyApplicationSources({
+    resourceUuids: ["observability", "control", "web"],
+    branch: "sovereign/main",
+    commitSha: "a".repeat(40),
+    updateApplication: async (resourceUuid, source) => updates.push({ resourceUuid, source }),
+  });
+  assert.deepEqual(updates, [
+    {
+      resourceUuid: "observability",
+      source: { git_branch: "sovereign/main", git_commit_sha: "a".repeat(40) },
+    },
+    {
+      resourceUuid: "control",
+      source: { git_branch: "sovereign/main", git_commit_sha: "a".repeat(40) },
+    },
+    {
+      resourceUuid: "web",
+      source: { git_branch: "sovereign/main", git_commit_sha: "a".repeat(40) },
+    },
+  ]);
+  await assert.rejects(
+    pinCoolifyApplicationSources({
+      resourceUuids: ["web"],
+      branch: "sovereign/main",
+      commitSha: "HEAD",
+      updateApplication: async () => {},
+    }),
+    /exact 40-character lowercase commit SHA/u,
   );
 });
 
