@@ -559,7 +559,13 @@ test("dispatches desktop and iOS releases to a separately trusted GitHub builder
   );
   assert.match(builder, /T3CODE_EXPO_UPDATES_URL: ""/u);
   assert.match(builder, /expo prebuild --clean --platform ios/u);
-  assert.match(builder, /-workspace apps\/mobile\/ios\/T3Code[.]xcworkspace/u);
+  assert.match(builder, /workspaces=\(ios\/[*][.]xcworkspace\)/u);
+  assert.match(builder, /Expected exactly one generated iOS workspace/u);
+  assert.match(builder, /test "\$scheme" = "Sovereign"/u);
+  assert.match(builder, /SOVEREIGN_IOS_WORKSPACE/u);
+  assert.match(builder, /SOVEREIGN_IOS_SCHEME/u);
+  assert.match(builder, /-workspace "\$SOVEREIGN_IOS_WORKSPACE"/u);
+  assert.match(builder, /-scheme "\$SOVEREIGN_IOS_SCHEME"/u);
   assert.match(builder, /-destination 'generic\/platform=iOS'/u);
   assert.match(builder, /-allowProvisioningUpdates/u);
   assert.match(builder, /-authenticationKeyPath "\$APPLE_API_KEY"/u);

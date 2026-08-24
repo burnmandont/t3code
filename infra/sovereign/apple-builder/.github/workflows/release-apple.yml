@@ -371,14 +371,29 @@ jobs:
           set -euo pipefail
           EXPO_NO_GIT_STATUS=1 pnpm exec expo prebuild --clean --platform ios
 
+          shopt -s nullglob
+          workspaces=(ios/*.xcworkspace)
+          if [[ "${#workspaces[@]}" -ne 1 ]]; then
+            printf 'Expected exactly one generated iOS workspace, found %s:\n' "${#workspaces[@]}" >&2
+            printf '  %s\n' "${workspaces[@]:-<none>}" >&2
+            exit 1
+          fi
+
+          workspace="$PWD/${workspaces[0]}"
+          scheme="$(basename "${workspaces[0]}" .xcworkspace)"
+          test "$scheme" = "Sovereign"
+          printf 'SOVEREIGN_IOS_WORKSPACE=%s\n' "$workspace" >> "$GITHUB_ENV"
+          printf 'SOVEREIGN_IOS_SCHEME=%s\n' "$scheme" >> "$GITHUB_ENV"
+
       - name: Archive signed iOS application
         shell: bash
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/T3Code.xcarchive"
+          test -d "$SOVEREIGN_IOS_WORKSPACE"
+          archive="$RUNNER_TEMP/Sovereign.xcarchive"
           xcodebuild \
-            -workspace apps/mobile/ios/T3Code.xcworkspace \
-            -scheme T3Code \
+            -workspace "$SOVEREIGN_IOS_WORKSPACE" \
+            -scheme "$SOVEREIGN_IOS_SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$archive" \
