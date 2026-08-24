@@ -22,6 +22,9 @@ RUN pnpm --filter t3code-account typecheck \
     && pnpm --filter t3code-relay typecheck
 
 RUN mkdir -p /out \
+    && pnpm exec esbuild infra/account/src/accountClient.ts \
+      --bundle --platform=browser --format=iife --target=es2022 \
+      --minify --outfile=/out/account-client.js \
     && pnpm exec esbuild infra/account/src/server.ts \
       --bundle --platform=node --format=esm --target=node24 \
       --external:pg-native \
@@ -52,6 +55,7 @@ FROM node:24.13.1-bookworm-slim
 
 ENV NODE_ENV=production
 ENV BETTER_AUTH_TELEMETRY=0
+ENV T3_ACCOUNT_CLIENT_SCRIPT_PATH=/app/account-client.js
 
 WORKDIR /app
 

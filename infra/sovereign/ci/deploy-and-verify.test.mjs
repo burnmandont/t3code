@@ -408,9 +408,16 @@ test("validates logical backups through isolated restores", () => {
 
 test("keeps sovereign browser requests local unless the user opens a URL", () => {
   const dockerfile = readSovereignFile("../Dockerfile.web");
+  const controlDockerfile = readSovereignFile("../Dockerfile.control-plane");
   const webNginx = readSovereignFile("../nginx.conf");
 
   assert.match(dockerfile, /^ENV VITE_REMOTE_FAVICONS=0$/mu);
+  assert.match(controlDockerfile, /infra\/account\/src\/accountClient[.]ts/u);
+  assert.match(controlDockerfile, /--outfile=\/out\/account-client[.]js/u);
+  assert.match(
+    controlDockerfile,
+    /^ENV T3_ACCOUNT_CLIENT_SCRIPT_PATH=\/app\/account-client[.]js$/mu,
+  );
   assert.match(webNginx, /Content-Security-Policy/u);
   assert.match(webNginx, /script-src-attr 'none'/u);
 });
