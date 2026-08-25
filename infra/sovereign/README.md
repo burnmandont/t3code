@@ -21,6 +21,10 @@ The split control manifest expects complete `T3_ACCOUNT_DATABASE_URL` and
 The web manifest has no database or private-network dependency and can be
 deployed without interrupting remote environments.
 
+Upstream imports follow the append-only ownership and rollout model in
+[`../../docs/operations/sovereign-upstream-sync.md`](../../docs/operations/sovereign-upstream-sync.md).
+Do not pull or rebase `upstream/main` directly into the deployed branch.
+
 Enable **Include Source Commit in Build** in the Coolify Advanced settings for
 `t3-web`. The web Dockerfile requires Coolify's `SOURCE_COMMIT` build argument
 and derives the same exact commit-addressed version used by the signed remote
