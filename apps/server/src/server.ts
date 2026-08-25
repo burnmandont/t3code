@@ -114,9 +114,9 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
-  clearPersistedServerRuntimeState,
+  claimPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
-  persistServerRuntimeState,
+  releasePersistedServerRuntimeState,
 } from "./serverRuntimeState.ts";
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
 import * as NetService from "@t3tools/shared/Net";
@@ -555,21 +555,23 @@ export const makeServerLayer = Layer.unwrap(
             config,
             port: address.port,
           });
-          yield* persistServerRuntimeState({
+          yield* claimPersistedServerRuntimeState({
             path: config.serverRuntimeStatePath,
             state,
-          }).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Failed to persist server runtime state", { cause }),
-            ),
-          );
+          });
+          return state;
         }),
-        () =>
-          clearPersistedServerRuntimeState(config.serverRuntimeStatePath).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Failed to clear server runtime state", { cause }),
-            ),
-          ),
+        (state) =>
+          state === undefined
+            ? Effect.void
+            : releasePersistedServerRuntimeState({
+                path: config.serverRuntimeStatePath,
+                state,
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("Failed to release server runtime state", { cause }),
+                ),
+              ),
       ),
     );
     const tailscaleServeLayer = config.tailscaleServeEnabled

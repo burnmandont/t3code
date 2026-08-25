@@ -574,11 +574,14 @@ wait_for_pid_exit() {
     sleep 0.1
   done
 }
+SERVICE_PID=""
+if command -v systemctl >/dev/null 2>&1; then
+  SERVICE_PID="$(systemctl --user show t3code.service --property=MainPID --value 2>/dev/null || true)"
+fi
+case "$SERVICE_PID" in
+  ''|*[!0-9]*|0) SERVICE_PID="" ;;
+esac
 discover_running_runtime() {
-  SERVICE_PID=""
-  if command -v systemctl >/dev/null 2>&1; then
-    SERVICE_PID="$(systemctl --user show t3code.service --property=MainPID --value 2>/dev/null || true)"
-  fi
   node - "$DEFAULT_SERVER_HOME" "$BASE_DIR_FILE" "$DISCOVERED_BASE_DIR_FILE" "$SERVICE_PID" "\${T3CODE_HOME:-}" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
@@ -589,26 +592,26 @@ const servicePid = Number.parseInt(process.argv[5] ?? "", 10);
 const environmentBaseDir = process.argv[6] ?? "";
 const candidates = [];
 const seen = new Set();
-const addBaseDir = (value) => {
+const addBaseDir = (value, serviceOwned = false) => {
   const baseDir = value.trim();
   if (baseDir.length === 0 || seen.has(baseDir)) return;
   seen.add(baseDir);
-  candidates.push(baseDir);
+  candidates.push({ baseDir, serviceOwned });
 };
-const addBaseDirFromPid = (pid) => {
+const addBaseDirFromPid = (pid, serviceOwned = false) => {
   if (!Number.isInteger(pid) || pid <= 0) return;
   try {
     const environment = fs.readFileSync(\`/proc/\${pid}/environ\`, "utf8").split("\\0");
     const value = environment.find((entry) => entry.startsWith("T3CODE_HOME="));
-    if (value) addBaseDir(value.slice("T3CODE_HOME=".length));
+    if (value) addBaseDir(value.slice("T3CODE_HOME=".length), serviceOwned);
   } catch {}
 };
 
+addBaseDirFromPid(servicePid, true);
 addBaseDir(environmentBaseDir);
 try {
   addBaseDir(fs.readFileSync(knownBaseDirPath, "utf8"));
 } catch {}
-addBaseDirFromPid(servicePid);
 addBaseDir(defaultBaseDir);
 
 const isAlive = (pid) => {
@@ -619,8 +622,26 @@ const isAlive = (pid) => {
     return error && typeof error === "object" && error.code === "EPERM";
   }
 };
+const isDescendantOf = (pid, ancestorPid) => {
+  if (!Number.isInteger(pid) || !Number.isInteger(ancestorPid) || ancestorPid <= 0) return false;
+  let currentPid = pid;
+  const visited = new Set();
+  while (currentPid > 0 && !visited.has(currentPid)) {
+    if (currentPid === ancestorPid) return true;
+    visited.add(currentPid);
+    try {
+      const stat = fs.readFileSync(\`/proc/\${currentPid}/stat\`, "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\\s+/u);
+      currentPid = Number.parseInt(fields[1] ?? "", 10);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+};
 
-for (const baseDir of candidates) {
+for (const candidate of candidates) {
+  const { baseDir, serviceOwned } = candidate;
   for (const variant of ["userdata", "dev"]) {
     try {
       const runtime = JSON.parse(
@@ -631,6 +652,7 @@ for (const baseDir of candidates) {
       if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(port) || !isAlive(pid)) {
         continue;
       }
+      if (serviceOwned && !isDescendantOf(pid, servicePid)) continue;
       const origin = new URL(String(runtime.origin ?? ""));
       if (origin.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(origin.hostname)) {
         continue;
@@ -670,6 +692,12 @@ REMOTE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
 REMOTE_PORT="$(cat "$PORT_FILE" 2>/dev/null || true)"
 REMOTE_MANAGED="$(cat "$MANAGED_FILE" 2>/dev/null || true)"
 RUNNER_RUNTIME_PORT="$(discover_running_runtime 2>/dev/null || true)"
+if [ -z "$RUNNER_RUNTIME_PORT" ] && [ -n "$SERVICE_PID" ] && kill -0 "$SERVICE_PID" 2>/dev/null; then
+  # The durable service owns this logical environment. Starting another server
+  # against the same state would compete for its database and relay credential.
+  printf 'The remote t3code.service is active, but its T3 runtime could not be discovered. Repair or restart the service instead of starting a competing SSH server.\n' >&2
+  exit 1
+fi
 DEFAULT_RUNTIME_INFO="$(resolve_default_runtime_port 2>/dev/null || true)"
 DEFAULT_RUNTIME_PID=""
 DEFAULT_REMOTE_PORT=""
@@ -708,11 +736,10 @@ if [ -n "$DEFAULT_REMOTE_PORT" ]; then
       REMOTE_MANAGED="external"
     fi
   else
+    # Runtime metadata is authoritative once selected. A temporarily unready
+    # server must not cause SSH to create a second authority on another port.
     printf 'Existing remote T3 server did not become ready on 127.0.0.1:%s.\n' "$REMOTE_PORT" >&2
-    REMOTE_PORT="$PREVIOUS_REMOTE_PORT"
-    DEFAULT_REMOTE_PORT=""
-    DEFAULT_RUNTIME_PID=""
-    rm -f "$DISCOVERED_BASE_DIR_FILE"
+    exit 1
   fi
 fi
 if [ "$REMOTE_MANAGED" = "external" ]; then

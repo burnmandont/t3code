@@ -179,6 +179,15 @@ bearer credential rather than writing a new pairing record. This is what prevent
 from creating a second logical environment beside an already-running T3 Connect service whose private
 service environment is not inherited by SSH.
 
+Service-owned runtime metadata must name the service process or one of its descendants. An active
+service with missing, stale, foreign-owned, or unready runtime metadata fails SSH preparation closed;
+the launcher never starts a competing server against that logical environment.
+
+The server also treats `server-runtime.json` as a single-owner lease. State mutations are serialized,
+activation fails while another live process owns the descriptor, and shutdown removes the descriptor
+only when it still names that exact runtime. Service updates remain compatible because the launcher
+waits for the active child to exit before activating its trial replacement.
+
 The desktop main process owns this because it can spawn SSH, manage prompts, write launch scripts,
 and clean up forwards. The renderer connects through the forwarded URL like any other environment and
 needs no SSH-specific RPC path.
