@@ -157,6 +157,10 @@ metadata, then validates the recorded server through its environment descriptor.
 a server started by Sovereign Relay even when that service uses a private `T3CODE_HOME` that the SSH login
 shell does not inherit; the forwarded remote port is the port reported by that server.
 
+If the user service is active but its runtime metadata is missing, belongs to another process, or
+does not become ready, SSH stops with a diagnostic instead of starting a second server against the
+same T3 state. Repair or restart `t3code.service`, then reconnect.
+
 The remote host must have a compatible Node.js runtime. Sovereign uses the server package's `engines.node` requirement:
 
 ```text
