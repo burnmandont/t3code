@@ -211,6 +211,18 @@ Validation covers:
 - disconnect, reconnect, forget, revoke, transfer, and offline behavior;
 - thread/history ordering and compatibility across environment reconnects;
 - runtime-only port forwarding creation, failure, stop, and app-quit cleanup;
+- preservation of the typed forwarding transport-adapter boundary and bounded
+  `primary`/`direct`/`relay`/`ssh` desktop telemetry; rerun identical untouched
+  versus integrated desktop-listener latency, 16-way fan-out, and bulk-transfer
+  benchmarks when upstream changes forwarding, authorization IPC, connection
+  routing, WebSocket handling, or desktop observability;
+- SSH environment setup retains both the T3 HTTP `-L` listener and the private
+  loopback SOCKS `-D` listener; an SSH-prepared forward selects
+  `ssh-direct-tcpip-v1`, bypasses ticket/WebSocket/server-bridge work, restricts
+  its destination to remote loopback, and closes on route-generation changes;
+- terminal sustained-output behavior, including the invariant that each PTY
+  callback performs work proportional to new output rather than repeatedly
+  splitting or joining the full retained history;
 - service install, update-in-place, restart, state preservation, and exact
   rollback;
 - database migrations against a production-shaped snapshot and backup/restore
