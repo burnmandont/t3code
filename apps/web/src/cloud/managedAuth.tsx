@@ -1,4 +1,10 @@
-import { ManagedRelay, setManagedRelaySession } from "@t3tools/client-runtime/relay";
+import { useAtomValue } from "@effect/atom-react";
+import {
+  RelayConnectionRegistration,
+  RelayConnectionTarget,
+  type ConnectionCatalogEntry,
+} from "@t3tools/client-runtime/connection";
+import { Discovery, ManagedRelay, setManagedRelaySession } from "@t3tools/client-runtime/relay";
 import {
   reportAtomCommandResult,
   settleAsyncResult,
@@ -10,6 +16,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { environmentCatalog } from "../connection/catalog";
 import { runtime } from "../lib/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { relayEnvironmentDiscovery } from "../state/relay";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useCloudAuth } from "./auth";
 
@@ -33,6 +40,45 @@ export function activateManagedRelayAuthentication(
     accountId,
     readClerkToken,
   });
+}
+
+export function relayRoutesToReconcile(
+  discovery: Discovery.RelayEnvironmentDiscoveryState,
+  routes: ReadonlyMap<string, ReadonlyArray<ConnectionCatalogEntry>>,
+): ReadonlyArray<RelayConnectionRegistration> {
+  return [...discovery.environments.values()].flatMap(({ environment }) => {
+    const savedRoutes = routes.get(environment.environmentId);
+    if (
+      savedRoutes === undefined ||
+      savedRoutes.some((entry) => entry.target._tag === "RelayConnectionTarget")
+    ) {
+      return [];
+    }
+    return [
+      new RelayConnectionRegistration({
+        target: new RelayConnectionTarget({
+          environmentId: environment.environmentId,
+          label: environment.label,
+        }),
+      }),
+    ];
+  });
+}
+
+function ManagedRelayRouteReconciler() {
+  const discovery = useAtomValue(relayEnvironmentDiscovery.stateValueAtom);
+  const routes = useAtomValue(environmentCatalog.routesValueAtom);
+  const registerEnvironment = useAtomCommand(environmentCatalog.register, {
+    reportFailure: false,
+  });
+
+  useEffect(() => {
+    for (const registration of relayRoutesToReconcile(discovery, routes)) {
+      void registerEnvironment(registration);
+    }
+  }, [discovery, registerEnvironment, routes]);
+
+  return null;
 }
 
 export function ManagedRelayAuthProvider({ children }: { readonly children: ReactNode }) {
@@ -109,5 +155,10 @@ export function ManagedRelayAuthProvider({ children }: { readonly children: Reac
 
   useEffect(() => () => deactivateManagedRelayAuthentication(), []);
 
-  return children;
+  return (
+    <>
+      {children}
+      <ManagedRelayRouteReconciler />
+    </>
+  );
 }

@@ -1,4 +1,15 @@
-import { managedRelaySessionAtom, setManagedRelaySession } from "@t3tools/client-runtime/relay";
+import {
+  RelayConnectionTarget,
+  SshConnectionTarget,
+  type ConnectionCatalogEntry,
+} from "@t3tools/client-runtime/connection";
+import {
+  Discovery,
+  managedRelaySessionAtom,
+  setManagedRelaySession,
+} from "@t3tools/client-runtime/relay";
+import { EnvironmentId } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -9,6 +20,7 @@ import {
   deactivateManagedRelayAuthentication,
   ManagedRelayAuthProvider,
   readManagedRelayClerkToken,
+  relayRoutesToReconcile,
 } from "./managedAuth";
 
 const mocks = vi.hoisted(() => ({
@@ -19,6 +31,12 @@ const mocks = vi.hoisted(() => ({
     userId: null as string | null,
   },
   removeRelayEnvironments: vi.fn(async () => ({ _tag: "Success" as const, value: undefined })),
+  registerEnvironment: vi.fn(async () => ({ _tag: "Success" as const, value: undefined })),
+}));
+
+vi.mock("@effect/atom-react", () => ({
+  useAtomValue: (atom: { readonly kind?: string }) =>
+    atom.kind === "discovery" ? Discovery.EMPTY_RELAY_ENVIRONMENT_DISCOVERY_STATE : new Map(),
 }));
 
 vi.mock("./auth", () => ({
@@ -32,7 +50,8 @@ vi.mock("../lib/runtime", () => ({
 }));
 
 vi.mock("../state/use-atom-command", () => ({
-  useAtomCommand: () => mocks.removeRelayEnvironments,
+  useAtomCommand: (command: { readonly kind?: string }) =>
+    command.kind === "register" ? mocks.registerEnvironment : mocks.removeRelayEnvironments,
 }));
 
 vi.mock("@t3tools/client-runtime/state/runtime", () => ({
@@ -49,8 +68,14 @@ vi.mock("@t3tools/client-runtime/state/runtime", () => ({
 
 vi.mock("../connection/catalog", () => ({
   environmentCatalog: {
-    removeRelayEnvironments: {},
+    register: { kind: "register" },
+    removeRelayEnvironments: { kind: "remove" },
+    routesValueAtom: { kind: "routes" },
   },
+}));
+
+vi.mock("../state/relay", () => ({
+  relayEnvironmentDiscovery: { stateValueAtom: { kind: "discovery" } },
 }));
 
 afterEach(() => {
@@ -120,6 +145,62 @@ async function settleTransitions() {
     await Promise.resolve();
   });
 }
+
+const environmentId = EnvironmentId.make("environment-1");
+const relayEnvironment = {
+  environmentId,
+  label: "Development",
+  endpoint: {
+    httpBaseUrl: "https://development.example.test",
+    wsBaseUrl: "wss://development.example.test",
+    providerKind: "cloudflare_tunnel" as const,
+  },
+  linkedAt: "2026-08-27T00:00:00.000Z",
+};
+const discovery = {
+  ...Discovery.EMPTY_RELAY_ENVIRONMENT_DISCOVERY_STATE,
+  environments: new Map([
+    [
+      environmentId,
+      {
+        environment: relayEnvironment,
+        availability: "online" as const,
+        status: Option.none(),
+        error: Option.none(),
+      },
+    ],
+  ]),
+};
+
+describe("managed relay route reconciliation", () => {
+  it("restores Relay beside an existing SSH route for the same environment", () => {
+    const ssh = new SshConnectionTarget({
+      environmentId,
+      label: "Development",
+      connectionId: "ssh:environment-1",
+    });
+    const routes = new Map<string, ReadonlyArray<ConnectionCatalogEntry>>([
+      [environmentId, [{ target: ssh, profile: Option.none() }]],
+    ]);
+
+    expect(relayRoutesToReconcile(discovery, routes).map((entry) => entry.target)).toEqual([
+      new RelayConnectionTarget({ environmentId, label: "Development" }),
+    ]);
+  });
+
+  it("does not auto-save an unrelated discovered environment", () => {
+    expect(relayRoutesToReconcile(discovery, new Map())).toEqual([]);
+  });
+
+  it("does not duplicate an existing Relay route", () => {
+    const relay = new RelayConnectionTarget({ environmentId, label: "Development" });
+    const routes = new Map<string, ReadonlyArray<ConnectionCatalogEntry>>([
+      [environmentId, [{ target: relay, profile: Option.none() }]],
+    ]);
+
+    expect(relayRoutesToReconcile(discovery, routes)).toEqual([]);
+  });
+});
 
 describe("managed relay authentication", () => {
   it("keeps definitively signed-out startup free of relay state", async () => {
