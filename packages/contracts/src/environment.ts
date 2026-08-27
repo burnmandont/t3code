@@ -101,6 +101,10 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   label: TrimmedNonEmptyString,
   platform: ExecutionEnvironmentPlatform,
   serverVersion: TrimmedNonEmptyString,
+  /** Opaque identity of the built server runtime closure. Unlike the release
+      version, this remains stable when a release changes only client code.
+      Optional for compatibility with servers that report only their version. */
+  serverRuntimeId: Schema.optionalKey(TrimmedNonEmptyString),
   /** Optional for compatibility with servers released before protocol
       identity was separated from the exact runtime build version. */
   clientServerProtocolVersion: Schema.optionalKey(

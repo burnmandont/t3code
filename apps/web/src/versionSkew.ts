@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
-import { APP_VERSION } from "./branding";
+import { APP_VERSION, TARGET_SERVER_RUNTIME_ID } from "./branding";
 import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
 
 export interface VersionMismatch {
@@ -18,6 +18,11 @@ export interface VersionMismatch {
 export interface ServerRuntimeDrift {
   readonly clientVersion: string;
   readonly serverVersion: string;
+}
+
+export interface ServerRuntimeIdentityComparison {
+  readonly serverRuntimeId?: string | null;
+  readonly targetServerRuntimeId?: string | null;
 }
 
 export const VERSION_MISMATCH_DISMISSALS_STORAGE_KEY = "t3code:version-mismatch-dismissals:v1";
@@ -84,13 +89,20 @@ export function resolveServerConfigVersionMismatch(
     servers can still be missing server-side fixes from the client's build. */
 export function resolveServerRuntimeDrift(
   serverVersion: string | null | undefined,
+  identity: ServerRuntimeIdentityComparison = {},
 ): ServerRuntimeDrift | null {
   const normalizedClientVersion = normalizeVersion(APP_VERSION);
   const normalizedServerVersion = normalizeVersion(serverVersion);
+  const normalizedServerRuntimeId = normalizeVersion(identity.serverRuntimeId);
+  const normalizedTargetServerRuntimeId = normalizeVersion(identity.targetServerRuntimeId);
+  const hasComparableRuntimeIds =
+    normalizedServerRuntimeId !== null && normalizedTargetServerRuntimeId !== null;
   if (
     !normalizedClientVersion ||
     !normalizedServerVersion ||
-    normalizedClientVersion === normalizedServerVersion
+    (hasComparableRuntimeIds
+      ? normalizedServerRuntimeId === normalizedTargetServerRuntimeId
+      : normalizedClientVersion === normalizedServerVersion)
   ) {
     return null;
   }
@@ -102,8 +114,13 @@ export function resolveServerRuntimeDrift(
 
 export function resolveServerConfigRuntimeDrift(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
+  targetServerRuntimeId: string | null = TARGET_SERVER_RUNTIME_ID,
 ): ServerRuntimeDrift | null {
-  return resolveServerRuntimeDrift(serverConfig?.environment.serverVersion);
+  const serverRuntimeId = serverConfig?.environment.serverRuntimeId;
+  return resolveServerRuntimeDrift(serverConfig?.environment.serverVersion, {
+    ...(serverRuntimeId === undefined ? {} : { serverRuntimeId }),
+    ...(targetServerRuntimeId === null ? {} : { targetServerRuntimeId }),
+  });
 }
 
 /** The update path the connected server offers, or null when it only

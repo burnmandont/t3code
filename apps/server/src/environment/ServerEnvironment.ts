@@ -21,6 +21,13 @@ import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { resolveServerEnvironmentLabel } from "./ServerEnvironmentLabel.ts";
 
+declare const __T3CODE_BUILD_SERVER_RUNTIME_ID__: string | undefined;
+
+const serverRuntimeId =
+  typeof __T3CODE_BUILD_SERVER_RUNTIME_ID__ === "undefined"
+    ? undefined
+    : __T3CODE_BUILD_SERVER_RUNTIME_ID__.trim() || undefined;
+
 export class ServerEnvironmentIdPersistenceError extends Schema.TaggedErrorClass<ServerEnvironmentIdPersistenceError>()(
   "ServerEnvironmentIdPersistenceError",
   {
@@ -150,6 +157,7 @@ export const make = Effect.gen(function* () {
       arch: platformArch(hostArchitecture),
     },
     serverVersion: packageJson.version,
+    ...(serverRuntimeId === undefined ? {} : { serverRuntimeId }),
     clientServerProtocolVersion: CLIENT_SERVER_PROTOCOL_VERSION,
     capabilities: {
       repositoryIdentity: true,

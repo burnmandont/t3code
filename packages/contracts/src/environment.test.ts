@@ -40,6 +40,15 @@ describe("ExecutionEnvironmentDescriptor", () => {
     ).toBe(CLIENT_SERVER_PROTOCOL_VERSION);
   });
 
+  it("preserves a server runtime identity independently from its release version", () => {
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        serverRuntimeId: "sha256:server-closure-1",
+      }).serverRuntimeId,
+    ).toBe("sha256:server-closure-1");
+  });
+
   it("rejects invalid protocol identities", () => {
     expect(() => decodeDescriptor({ ...descriptor, clientServerProtocolVersion: 0 })).toThrow();
   });

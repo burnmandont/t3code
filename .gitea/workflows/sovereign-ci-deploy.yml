@@ -64,6 +64,14 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.10.0 --activate
 
+      - name: Derive server runtime identity
+        run: |
+          server_runtime_id="$(node infra/sovereign/runtime/derive-server-runtime-id.mjs)"
+          test -n "$server_runtime_id"
+          printf 'T3CODE_SERVER_RUNTIME_ID=%s\n' "$server_runtime_id" >> "$GITHUB_ENV"
+          printf 'T3CODE_TARGET_SERVER_RUNTIME_ID=%s\n' "$server_runtime_id" >> "$GITHUB_ENV"
+          printf 'Server runtime ID: %s\n' "$server_runtime_id"
+
       - name: Install sovereign dependency closures
         run: |
           pnpm install --frozen-lockfile --ignore-scripts \
@@ -123,6 +131,7 @@ jobs:
           node --test infra/sovereign/ci/publish-desktop-release.test.mjs
           node --test infra/sovereign/monitor/monitor.test.mjs
           node --test infra/sovereign/runtime/artifact-format.test.mjs
+          node --test infra/sovereign/runtime/derive-server-runtime-id.test.mjs
           node --test infra/sovereign/runtime/publish-runtime-artifact.test.mjs
           node --test infra/sovereign/runtime/render-installer.test.mjs
           node --test infra/sovereign/runtime/publish-github-runtime.test.mjs
@@ -173,6 +182,8 @@ jobs:
           grep -R -Fq 'https://relay.moondiner.com' apps/server/dist/client
           grep -R -Fq "$SOVEREIGN_RUNTIME_VERSION" apps/web/dist
           grep -R -Fq "$SOVEREIGN_RUNTIME_VERSION" apps/server/dist/client
+          grep -R -Fq "$T3CODE_TARGET_SERVER_RUNTIME_ID" apps/web/dist
+          grep -Fq "$T3CODE_SERVER_RUNTIME_ID" apps/server/dist/bin.mjs
           if grep -R -Eq 'pk_(live|test)_[A-Za-z0-9_-]{12,}|xaat-[A-Za-z0-9_-]{8,}' \
             apps/desktop/dist-electron apps/server/dist/client; then
             echo 'Sovereign client artifacts contain an external-service credential pattern.' >&2

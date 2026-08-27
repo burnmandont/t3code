@@ -70,6 +70,9 @@ export default mergeConfig(
       },
       define: {
         __T3CODE_BUILD_SOVEREIGN__: JSON.stringify(sovereignProvidersSelected),
+        __T3CODE_BUILD_SERVER_RUNTIME_ID__: JSON.stringify(
+          process.env.T3CODE_SERVER_RUNTIME_ID?.trim() ?? "",
+        ),
         __T3CODE_BUILD_CHANNEL__: JSON.stringify(cliBuildChannel),
         __T3CODE_BUILD_RELAY_URL__: JSON.stringify(repoEnv.T3CODE_RELAY_URL?.trim() ?? ""),
         __T3CODE_BUILD_HOSTED_APP_URL__: JSON.stringify(

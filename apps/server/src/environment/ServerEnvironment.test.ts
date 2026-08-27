@@ -96,6 +96,7 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.agentActivityPublishing).toBe(false);
       expect(second.capabilities.projectDirectoryListing).toBe(true);
       expect(second.clientServerProtocolVersion).toBe(CLIENT_SERVER_PROTOCOL_VERSION);
+      expect(second.serverRuntimeId).toBeUndefined();
     }),
   );
 

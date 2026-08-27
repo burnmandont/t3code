@@ -24,9 +24,10 @@ release. A separate macOS runner generates the production iOS project from the
 same SHA, signs and archives it, verifies the bundle ID and derived build
 number, and uploads it to App Store Connect.
 
-The signed remote runtime is published automatically. Exact build drift offers
-an explicit server sync action even when the client and server protocols remain
-compatible; protocol drift changes that offer into a compatibility warning.
+The signed remote runtime is published automatically. Server-runtime drift
+offers an explicit sync action even when the client and server protocols remain
+compatible; a client-only release does not. Protocol drift changes that offer
+into a compatibility warning.
 Activation remains explicit. A blind timer would restart agent harnesses in
 the middle of work; automatic remote activation is deferred until the server
 can prove it is idle and preserve the existing trial/rollback protocol.
@@ -37,8 +38,13 @@ change is a signed TestFlight binary and no Expo-hosted update service is used.
 
 ## Coordinated identity
 
-Each client embeds the commit-addressed server build identity alongside the
-separate client/server protocol identity. Apple releases use store-compatible,
+Each client embeds a content-derived target server-runtime ID alongside its
+commit-addressed client release and the separate client/server protocol
+identity. Servers report the same runtime ID. The runtime ID hashes the
+allowlisted server source closure and therefore remains stable across
+desktop/web-only commits; exact versions remain artifact and diagnostic
+identities. Older clients and servers fall back to exact-version comparison
+until both sides advertise runtime IDs. Apple releases use store-compatible,
 monotonically increasing client identifiers:
 
 - desktop version: `major.minor.(patch × 100000 + run number)`;

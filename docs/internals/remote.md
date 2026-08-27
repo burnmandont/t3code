@@ -244,10 +244,11 @@ backend is reachable from an HTTPS browser context.
 ## Version coordination
 
 Remote environments stay online while clients move to newer releases. The environment descriptor
-carries the running server version and may advertise a safe replacement path, so the UI can show the
-right action without making the transport responsible for process management. The connection
-supervisor owns the resulting disconnect and reconnect like any other involuntary close. See
-[server-updates.md](./server-updates.md).
+carries the running server version, an optional content-derived `serverRuntimeId`, and may advertise
+a safe replacement path. A client embeds its target server-runtime ID and compares IDs when both are
+available; this avoids offering a server update after a client-only release. Exact versions remain
+the compatibility fallback for older builds. The connection supervisor owns the resulting disconnect
+and reconnect like any other involuntary close. See [server-updates.md](./server-updates.md).
 
 ## Future work
 

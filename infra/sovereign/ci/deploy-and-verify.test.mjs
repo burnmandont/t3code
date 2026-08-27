@@ -430,8 +430,12 @@ test("binds the hosted client build to Coolify's exact source commit", () => {
 
   assert.match(dockerfile, /^ARG SOURCE_COMMIT$/mu);
   assert.match(dockerfile, /set-runtime-version[.]mjs --print-only/u);
+  assert.match(dockerfile, /derive-server-runtime-id[.]mjs/u);
   assert.match(dockerfile, /SOVEREIGN_RUNTIME_VERSION="\$runtime_version"/u);
-  assert.match(dockerfile, /APP_VERSION="\$runtime_version" pnpm --filter @t3tools\/web build/u);
+  assert.match(
+    dockerfile,
+    /APP_VERSION="\$runtime_version" T3CODE_TARGET_SERVER_RUNTIME_ID="\$server_runtime_id" pnpm --filter @t3tools\/web build/u,
+  );
   for (const compose of [webCompose, bootstrapCompose]) {
     assert.match(compose, /SOURCE_COMMIT: \$\{SOURCE_COMMIT:\?Coolify must include/u);
   }
@@ -499,6 +503,8 @@ test("publishes the credentialless installer and runtime before production deplo
   assert.match(workflow, /SOVEREIGN_GITHUB_PAGES_ORIGIN/u);
   assert.match(workflow, /SOVEREIGN_GITHUB_TOKEN/u);
   assert.match(workflow, /publish-github-runtime[.]mjs/u);
+  assert.match(workflow, /T3CODE_SERVER_RUNTIME_ID/u);
+  assert.match(workflow, /T3CODE_TARGET_SERVER_RUNTIME_ID/u);
 });
 
 test("dispatches desktop and iOS releases to a separately trusted GitHub builder", () => {
@@ -545,6 +551,9 @@ test("dispatches desktop and iOS releases to a separately trusted GitHub builder
   assert.match(builder, /git fetch --depth=1 origin "\$SOURCE_SHA"/u);
   assert.match(builder, /test "\$\(git rev-parse HEAD\)" = "\$SOURCE_SHA"/u);
   assert.match(builder, /--arch "\$\{\{ matrix[.]arch \}\}"/u);
+  assert.match(builder, /derive-server-runtime-id[.]mjs/u);
+  assert.match(builder, /T3CODE_SERVER_RUNTIME_ID/u);
+  assert.match(builder, /T3CODE_TARGET_SERVER_RUNTIME_ID/u);
   assert.match(builder, /hdiutil attach "\$dmg" -readonly -nobrowse -mountpoint/u);
   assert.match(builder, /codesign --verify --deep --strict/u);
   assert.match(builder, /xcrun stapler validate "\$app"/u);

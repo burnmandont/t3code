@@ -228,6 +228,9 @@ Validation covers:
 - database migrations against a production-shaped snapshot and backup/restore
   compatibility;
 - observability, resource telemetry, and disk-I/O bounds affected by the range;
+- the server-runtime source allowlist still covers every server bundle input
+  while excluding client-only trees, and Gitea, Docker, and Apple builders
+  derive and inject the same content identity before release-version rewrites;
 - new web/desktop/mobile against new server, previous clients against new
   server, and new clients against the previous supported server.
 

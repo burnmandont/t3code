@@ -160,6 +160,15 @@ jobs:
               - --filter=t3...
               - --filter=@t3tools/scripts...
 
+      - name: Derive server runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          server_runtime_id="$(node infra/sovereign/runtime/derive-server-runtime-id.mjs)"
+          test -n "$server_runtime_id"
+          printf 'T3CODE_SERVER_RUNTIME_ID=%s\n' "$server_runtime_id" >> "$GITHUB_ENV"
+          printf 'T3CODE_TARGET_SERVER_RUNTIME_ID=%s\n' "$server_runtime_id" >> "$GITHUB_ENV"
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:

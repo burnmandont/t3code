@@ -45,6 +45,34 @@ describe("versionSkew", () => {
     });
   });
 
+  it("ignores client-only release drift when the server runtime identity matches", () => {
+    const serverVersion = "9.9.9+sovereign.gpreviousclient";
+
+    expect(
+      resolveServerRuntimeDrift(serverVersion, {
+        serverRuntimeId: "sha256:unchanged-server-closure",
+        targetServerRuntimeId: "sha256:unchanged-server-closure",
+      }),
+    ).toBeNull();
+  });
+
+  it("reports drift when runtime identities differ even if release versions match", () => {
+    expect(
+      resolveServerRuntimeDrift(APP_VERSION, {
+        serverRuntimeId: "sha256:previous-server-closure",
+        targetServerRuntimeId: "sha256:current-server-closure",
+      }),
+    ).toEqual({ clientVersion: APP_VERSION, serverVersion: APP_VERSION });
+  });
+
+  it("falls back to release versions until both runtime identities are available", () => {
+    expect(
+      resolveServerRuntimeDrift(APP_VERSION, {
+        serverRuntimeId: "sha256:server-closure",
+      }),
+    ).toBeNull();
+  });
+
   it("does not report runtime drift when exact builds match", () => {
     expect(resolveServerRuntimeDrift(APP_VERSION)).toBeNull();
   });
@@ -113,6 +141,25 @@ describe("versionSkew", () => {
       clientVersion: APP_VERSION,
       serverVersion: "9.9.9+sovereign.gabcdef012345",
     });
+  });
+
+  it("uses descriptor runtime identity instead of a client-only release version", () => {
+    expect(
+      resolveServerConfigRuntimeDrift(
+        {
+          environment: {
+            environmentId: EnvironmentId.make("environment-client-only-release"),
+            label: "Remote",
+            platform: { os: "linux", arch: "x64" },
+            serverVersion: "9.9.9+sovereign.gpreviousclient",
+            serverRuntimeId: "sha256:unchanged-server-closure",
+            clientServerProtocolVersion: CLIENT_SERVER_PROTOCOL_VERSION,
+            capabilities: { repositoryIdentity: true },
+          },
+        },
+        "sha256:unchanged-server-closure",
+      ),
+    ).toBeNull();
   });
 
   it("keys dismissals by environment, client version, and server version", () => {
