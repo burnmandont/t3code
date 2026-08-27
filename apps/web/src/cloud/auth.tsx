@@ -179,7 +179,7 @@ function BrowserSovereignCloudAuthProvider({
   return <CloudAuthContext.Provider value={value}>{children}</CloudAuthContext.Provider>;
 }
 
-function DesktopSovereignCloudAuthProvider({
+export function DesktopSovereignCloudAuthProvider({
   config,
   children,
 }: {
@@ -202,6 +202,7 @@ function DesktopSovereignCloudAuthProvider({
       return;
     }
     let cancelled = false;
+    let hydrated = false;
     const applySnapshot = (snapshot: {
       readonly isSignedIn: boolean;
       readonly userId: string | null;
@@ -210,13 +211,19 @@ function DesktopSovereignCloudAuthProvider({
     }) => {
       if (!cancelled) setSession({ isLoaded: true, ...snapshot });
     };
-    const unsubscribe = bridge.onStateChange(applySnapshot);
+    const unsubscribe = bridge.onStateChange((snapshot) => {
+      if (hydrated) applySnapshot(snapshot);
+    });
     void bridge
       .getSnapshot()
-      .then(applySnapshot)
+      .then((snapshot) => {
+        applySnapshot(snapshot);
+        hydrated = true;
+      })
       .catch((cause: unknown) => {
         console.error("[t3-connect] Could not load sovereign desktop session", cause);
         applySnapshot({ isSignedIn: false, userId: null, email: null, name: null });
+        hydrated = true;
       });
     return () => {
       cancelled = true;
