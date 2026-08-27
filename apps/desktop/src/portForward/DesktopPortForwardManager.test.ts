@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   EnvironmentId,
   TCP_PORT_FORWARD_FRAME_ACK,
+  TCP_PORT_FORWARD_FRAME_CLOSE,
   TCP_PORT_FORWARD_FRAME_DATA,
   TCP_PORT_FORWARD_FRAME_WRITE_END,
   TCP_PORT_FORWARD_INITIAL_CREDIT,
@@ -35,6 +36,22 @@ const connectLocal = (port: number) =>
       socket.off("error", onError);
       socket.destroy();
     });
+  });
+
+const listenServer = (server: NodeNet.Server) =>
+  Effect.callback<number>((resume) => {
+    const onError = (cause: Error) => resume(Effect.die(cause));
+    server.once("error", onError);
+    server.listen({ host: "127.0.0.1", port: 0 }, () => {
+      server.off("error", onError);
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        resume(Effect.die(new Error("Missing test server address")));
+        return;
+      }
+      resume(Effect.succeed(address.port));
+    });
+    return Effect.sync(() => server.close());
   });
 
 const awaitSocketClose = (socket: NodeNet.Socket) =>
@@ -137,7 +154,14 @@ it.layer(NodeServices.layer)("DesktopPortForwardManager", (it) => {
         .reduce((total, frame) => total + frame.byteLength - 1, 0);
       expect(dataBytes).toBe(TCP_PORT_FORWARD_INITIAL_CREDIT + 1);
       expect(webSocket.sent.at(-1)?.[0]).toBe(TCP_PORT_FORWARD_FRAME_WRITE_END);
-      yield* Fiber.interrupt(connection);
+      webSocket.receive(Uint8Array.of(TCP_PORT_FORWARD_FRAME_CLOSE));
+      const stats = yield* Fiber.join(connection);
+      expect(stats).toMatchObject({
+        bytesFromLocal: TCP_PORT_FORWARD_INITIAL_CREDIT + 1,
+        bytesFromRemote: 0,
+        closeReason: "remote-close",
+      });
+      expect(stats.firstByteMs).not.toBeNull();
     }),
   );
 
@@ -146,10 +170,74 @@ it.layer(NodeServices.layer)("DesktopPortForwardManager", (it) => {
       const socket = makeConnectionSocket();
       const webSocket = makeConnectionWebSocket(WebSocket.CLOSED);
 
-      yield* DesktopPortForwardManager.runConnection(socket, webSocket.webSocket);
+      const stats = yield* DesktopPortForwardManager.runConnection(socket, webSocket.webSocket);
 
       expect(socket.destroy).toHaveBeenCalled();
+      expect(stats.closeReason).toBe("bridge-not-open");
     }),
+  );
+
+  it.effect("opens a remote loopback stream through a fragmented SOCKS5 reply", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const requests: Array<Uint8Array> = [];
+        const server = NodeNet.createServer((socket) => {
+          socket.once("data", (greeting) => {
+            requests.push(greeting);
+            socket.write(Uint8Array.of(5));
+            socket.write(Uint8Array.of(0));
+            socket.once("data", (request) => {
+              requests.push(request);
+              socket.write(Uint8Array.of(5, 0, 0, 1, 127));
+              socket.write(Uint8Array.of(0, 0, 1, 0, 0));
+              socket.on("data", (data) => socket.write(data));
+            });
+          });
+        });
+        const socksPort = yield* listenServer(server);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            server.close();
+          }),
+        );
+
+        const socket = yield* DesktopPortForwardManager.openSocksTarget({
+          socksPort,
+          remotePort: 5432,
+        });
+        yield* Effect.addFinalizer(() => Effect.sync(() => socket.destroy()));
+        let acceptLocal!: (socket: NodeNet.Socket) => void;
+        const acceptedLocal = new Promise<NodeNet.Socket>((resolve) => {
+          acceptLocal = resolve;
+        });
+        const localServer = NodeNet.createServer({ allowHalfOpen: true }, acceptLocal);
+        const localPort = yield* listenServer(localServer);
+        yield* Effect.addFinalizer(() => Effect.sync(() => localServer.close()));
+        const client = yield* connectLocal(localPort);
+        yield* Effect.addFinalizer(() => Effect.sync(() => client.destroy()));
+        const localSocket = yield* Effect.promise(() => acceptedLocal);
+        const connection = yield* DesktopPortForwardManager.runNativeConnection(
+          localSocket,
+          socket,
+        ).pipe(Effect.forkChild({ startImmediately: true }));
+        const echoed = yield* Effect.promise(
+          () =>
+            new Promise<Buffer>((resolve) => {
+              client.once("data", resolve);
+              client.end("native-ssh");
+            }),
+        );
+        const stats = yield* Fiber.join(connection);
+
+        expect(echoed.toString()).toBe("native-ssh");
+        expect(stats).toMatchObject({
+          bytesFromLocal: 10,
+          bytesFromRemote: 10,
+        });
+        expect([...requests[0]!]).toEqual([5, 1, 0]);
+        expect([...requests[1]!]).toEqual([5, 1, 0, 1, 127, 0, 0, 1, 0x15, 0x38]);
+      }),
+    ),
   );
 
   it.effect("atomically allocates and stops a desktop loopback listener", () =>
@@ -265,7 +353,16 @@ it.layer(NodeServices.layer)("DesktopPortForwardManager", (it) => {
         expect(connecting?.connectingConnections).toBe(1);
         expect(connecting?.activeConnections).toBe(0);
 
-        yield* manager.resolveAuthorization(request.requestId, "not a valid WebSocket URL");
+        yield* manager.resolveAuthorization({
+          _tag: "Authorized",
+          requestId: request.requestId,
+          transport: {
+            _tag: "WebSocketBridge",
+            protocol: "per-connection-v1",
+            route: "ssh",
+            socketUrl: "not a valid WebSocket URL",
+          },
+        });
         yield* Deferred.await(failed);
 
         const [settled] = yield* manager.list;
@@ -297,10 +394,16 @@ it.layer(NodeServices.layer)("DesktopPortForwardManager", (it) => {
 
         yield* manager.resetEnvironmentConnections(environmentId);
         yield* awaitSocketClose(firstSocket);
-        yield* manager.resolveAuthorization(
-          firstAuthorization.requestId,
-          "ws://127.0.0.1:1/ws/tcp-forward?ticket=stale",
-        );
+        yield* manager.resolveAuthorization({
+          _tag: "Authorized",
+          requestId: firstAuthorization.requestId,
+          transport: {
+            _tag: "WebSocketBridge",
+            protocol: "per-connection-v1",
+            route: "relay",
+            socketUrl: "ws://127.0.0.1:1/ws/tcp-forward?ticket=stale",
+          },
+        });
 
         const [reset] = yield* manager.list;
         expect(reset).toMatchObject({

@@ -646,11 +646,14 @@ fi`,
 
       const first = yield* manager.ensureEnvironment(target);
       assert.equal(first.httpBaseUrl, "http://127.0.0.1:41773/");
+      assert.equal(first.forwardingSocksPort, 41_774);
       const firstTunnelArgs = spawnedCommands.find((args) => args.includes("-N"));
       assert.isDefined(firstTunnelArgs);
       assert.include(firstTunnelArgs, "ControlMaster=no");
       assert.include(firstTunnelArgs, "ControlPath=none");
       assert.include(firstTunnelArgs, "ControlPersist=no");
+      assert.include(firstTunnelArgs, "-D");
+      assert.include(firstTunnelArgs, "127.0.0.1:41774");
 
       yield* manager.disconnectEnvironment(target);
       assert.equal(tunnelKillCount, 1);

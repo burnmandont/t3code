@@ -127,14 +127,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.invoke(IpcChannels.PORT_FORWARD_RESET_ENVIRONMENT_CONNECTIONS_CHANNEL, {
         environmentId,
       }),
-    resolveAuthorization: (requestId, socketUrl, error) => {
-      const normalizedError = error?.trim();
-      return ipcRenderer.invoke(IpcChannels.PORT_FORWARD_RESOLVE_AUTHORIZATION_CHANNEL, {
-        requestId,
-        socketUrl,
-        ...(normalizedError ? { error: normalizedError } : {}),
-      });
-    },
+    resolveAuthorization: (resolution) =>
+      ipcRenderer.invoke(IpcChannels.PORT_FORWARD_RESOLVE_AUTHORIZATION_CHANNEL, resolution),
     onStateChange: (listener) => {
       const wrappedListener = (_event: Electron.IpcRendererEvent, snapshots: unknown) => {
         if (!Array.isArray(snapshots)) return;

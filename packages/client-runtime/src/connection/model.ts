@@ -133,6 +133,7 @@ export interface PreparedConnection {
   readonly socketUrl: string;
   readonly httpAuthorization: PreparedHttpAuthorization | null;
   readonly target: ConnectionTarget;
+  readonly sshForwardingSocksPort?: number;
 }
 
 export type SupervisorConnectionPhase =

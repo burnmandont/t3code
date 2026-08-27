@@ -67,11 +67,36 @@ export const DesktopPortForwardAuthorizationRequest = Schema.Struct({
 export type DesktopPortForwardAuthorizationRequest =
   typeof DesktopPortForwardAuthorizationRequest.Type;
 
-export const DesktopPortForwardAuthorizationResolution = Schema.Struct({
-  requestId: TrimmedNonEmptyString,
-  socketUrl: Schema.NullOr(Schema.String),
-  error: Schema.optionalKey(TrimmedNonEmptyString),
-});
+export const DesktopPortForwardRoute = Schema.Literals(["primary", "direct", "relay", "ssh"]);
+export type DesktopPortForwardRoute = typeof DesktopPortForwardRoute.Type;
+
+export const DesktopPortForwardTransport = Schema.Union([
+  Schema.TaggedStruct("WebSocketBridge", {
+    protocol: Schema.Literal("per-connection-v1"),
+    route: DesktopPortForwardRoute,
+    socketUrl: Schema.String,
+  }),
+  Schema.TaggedStruct("SshSocks", {
+    protocol: Schema.Literal("ssh-direct-tcpip-v1"),
+    route: Schema.Literal("ssh"),
+    socksPort: TcpPort,
+    remoteHost: TcpPortForwardHost,
+    remotePort: TcpPort,
+  }),
+]);
+export type DesktopPortForwardTransport = typeof DesktopPortForwardTransport.Type;
+
+export const DesktopPortForwardAuthorizationResolution = Schema.Union([
+  Schema.TaggedStruct("Authorized", {
+    requestId: TrimmedNonEmptyString,
+    transport: DesktopPortForwardTransport,
+  }),
+  Schema.TaggedStruct("Rejected", {
+    requestId: TrimmedNonEmptyString,
+    route: Schema.NullOr(DesktopPortForwardRoute),
+    error: TrimmedNonEmptyString,
+  }),
+]);
 export type DesktopPortForwardAuthorizationResolution =
   typeof DesktopPortForwardAuthorizationResolution.Type;
 
@@ -90,11 +115,7 @@ export interface DesktopPortForwardBridge {
   stop: (id: DesktopPortForwardId) => Promise<void>;
   stopEnvironment: (environmentId: EnvironmentId) => Promise<void>;
   resetEnvironmentConnections: (environmentId: EnvironmentId) => Promise<void>;
-  resolveAuthorization: (
-    requestId: string,
-    socketUrl: string | null,
-    error?: string,
-  ) => Promise<void>;
+  resolveAuthorization: (resolution: DesktopPortForwardAuthorizationResolution) => Promise<void>;
   onStateChange: (
     listener: (forwards: ReadonlyArray<DesktopPortForwardSnapshot>) => void,
   ) => () => void;

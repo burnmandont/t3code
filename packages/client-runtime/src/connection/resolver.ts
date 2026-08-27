@@ -254,6 +254,9 @@ const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(funct
           socketUrl: authorized.socketUrl,
           httpAuthorization: authorized.httpAuthorization,
           target,
+          ...(prepared.bootstrap.forwardingSocksPort === undefined
+            ? {}
+            : { sshForwardingSocksPort: prepared.bootstrap.forwardingSocksPort }),
         } satisfies PreparedConnection;
       },
     );

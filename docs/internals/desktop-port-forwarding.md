@@ -28,10 +28,10 @@ broaden the environment's network exposure:
 ```text
 desktop loopback listener
   -> Electron PortForwardManager
-  -> dedicated authenticated binary WebSocket
-  -> selected T3 environment endpoint
-  -> remote T3 TCP bridge
-  -> remote loopback service
+  -> selected forwarding transport adapter
+     -> SSH SOCKS/direct-tcpip -> remote loopback service
+     -> authenticated WebSocket -> remote T3 TCP bridge
+        -> remote loopback service
 ```
 
 The ticket contract represents the remote loopback boundary as `127.0.0.1`,
@@ -39,10 +39,27 @@ not as permission to dial an arbitrary host. At the final bridge boundary, the
 server tries both `127.0.0.1` and `::1` so a service using the platform's
 `localhost` default works whether it selected IPv4 or IPv6.
 
-Use one dedicated WebSocket per accepted TCP connection for the first version.
-This keeps framing, half-close behavior, cancellation, and backpressure simpler
-than a new multiplexing protocol and avoids head-of-line blocking the ordinary
-T3 control connection. Multiplex only if measured connection counts justify it.
+The authorization boundary returns a prepared transport descriptor rather
+than an untyped socket URL. The descriptor identifies the selected route as
+`primary`, `direct`, `relay`, or `ssh`, and identifies the wire protocol. The
+Electron manager owns listener and connection lifecycle; a transport adapter
+owns connection setup, I/O, and close behavior. Keep this boundary intact when
+upstream changes touch authorization IPC or the manager.
+
+Two adapters are implemented:
+
+- `ssh-direct-tcpip-v1` connects through a private SOCKS5 listener supplied by
+  the existing desktop-owned OpenSSH process. Node streams provide native
+  backpressure and half-close behavior; payload bytes do not enter the T3
+  server.
+- `per-connection-v1` uses one dedicated authenticated WebSocket per accepted
+  TCP connection. It remains the compatibility path for primary, direct, and
+  relay routes, and for an SSH preparation that does not advertise its SOCKS
+  listener.
+
+The WebSocket adapter keeps framing, cancellation, and backpressure separate
+from the ordinary T3 control connection. It is not the intended final
+transport for every route.
 
 Relay connections refresh their DPoP credential before it expires. If a ticket
 request is nevertheless rejected, concurrent forward attempts share one
@@ -64,9 +81,39 @@ capability. The implementation is independent of the selected route:
 
 - T3 Connect environments use the authenticated WebSocket bridge through the
   relay route.
-- SSH environments use the same bridge through the desktop-managed SSH HTTP
-  tunnel.
+- SSH environments use OpenSSH `direct-tcpip` channels through the existing
+  desktop-managed SSH process. The process retains its `-L` listener for T3
+  HTTP/RPC and adds a private loopback `-D` listener for forwarded TCP streams.
 - Local environments do not need a tunnel.
+
+A future direct/relay adapter may multiplex independent streams on one
+dedicated forwarding WebSocket. It must not put forwarding payloads on the
+ordinary RPC connection, and a slow stream must not consume another stream's
+flow-control credit. The adapter is selected only from the prepared connection
+route; never infer it from a hostname or URL.
+
+## Telemetry and performance gates
+
+Desktop connection spans are the route-aware source of truth because native
+SSH forwarding bypasses the server bridge entirely. Each
+`desktop.portForward.connection` span records only bounded route, transport,
+outcome, failure-operation, and close-reason values, plus authorization,
+transport-connect, first-byte and total duration and directional byte counts.
+Do not attach environment IDs, forward IDs, ports, endpoint URLs, tickets, or
+payload content.
+
+Server-side bridge telemetry can describe the WebSocket bridge but cannot
+reliably infer whether the desktop reached it through direct, relay, or SSH.
+Do not manufacture a server route label from request addresses. Route-aware
+aggregation belongs at the desktop adapter boundary.
+
+Performance changes follow a before/after gate using the same harness and an
+isolated server. Measure at least single-connection open-and-echo latency,
+16-connection fan-out, and sustained 16 MiB throughput. Compare multiple
+interleaved runs against the untouched source boundary. Machine-specific
+numbers belong in the owning issue or PR; the durable invariant is that
+telemetry stays off the per-byte export/logging path and does not cause a
+material regression.
 
 ## Multi-environment ownership
 
@@ -143,8 +190,10 @@ The first release must be deliberately narrow:
 - Bind only desktop loopback, never `0.0.0.0` or a LAN address.
 - Dial only remote loopback, never arbitrary LAN, container-network, or public
   destinations.
-- Authorize each connection with a short-lived, single-use,
-  environment-scoped ticket bound to destination and expiration.
+- Authorize each WebSocket-bridge connection with a short-lived, single-use,
+  environment-scoped ticket bound to destination and expiration. Native SSH
+  streams inherit the already-authenticated OpenSSH process and remain limited
+  by the typed contract to remote loopback.
 - Enforce port validation, bounded buffers, flow control, connection limits,
   idle timeouts, and deterministic half-close/cancellation behavior.
 - Log metadata and lifecycle only; never log forwarded bytes or credentials.

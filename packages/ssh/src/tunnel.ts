@@ -76,6 +76,7 @@ interface SshTunnelEntry {
   readonly remotePort: number;
   readonly remoteServerKind: "external" | "managed" | null;
   readonly localPort: number;
+  readonly socksPort: number;
   readonly httpBaseUrl: string;
   readonly wsBaseUrl: string;
   readonly process: ChildProcessSpawner.ChildProcessHandle;
@@ -1181,9 +1182,12 @@ export const resolveLoopbackSshHttpBaseUrl = Effect.fn("ssh/tunnel.resolveLoopba
   },
 );
 
-const reserveLocalTunnelPort = Effect.fn("ssh/tunnel.reserveLocalTunnelPort")(function* () {
+const reserveLocalTunnelPorts = Effect.fn("ssh/tunnel.reserveLocalTunnelPorts")(function* () {
   const net = yield* NetService.NetService;
-  return yield* net.reserveLoopbackPort();
+  const localPort = yield* net.reserveLoopbackPort();
+  const preferredSocksPort = localPort === 65_535 ? localPort - 1 : localPort + 1;
+  const socksPort = yield* net.findAvailablePort(preferredSocksPort);
+  return { localPort, socksPort };
 });
 
 const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: {
@@ -1191,6 +1195,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
   readonly resolvedTarget: DesktopSshEnvironmentTarget;
   readonly remotePort: number;
   readonly localPort: number;
+  readonly socksPort: number;
   readonly httpBaseUrl: string;
   readonly wsBaseUrl: string;
   readonly authOptions: SshAuthOptions;
@@ -1245,6 +1250,8 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
     "-N",
     "-L",
     `${input.localPort}:127.0.0.1:${input.remotePort}`,
+    "-D",
+    `127.0.0.1:${input.socksPort}`,
     hostSpec,
   ];
   const sshCommand = yield* resolveSshCommand;
@@ -1255,6 +1262,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
     ...sshTargetLogFields(input.resolvedTarget),
     command: tunnelCommand,
     localPort: input.localPort,
+    socksPort: input.socksPort,
     remotePort: input.remotePort,
     remoteServerKind: input.remoteServerKind,
     httpBaseUrl: input.httpBaseUrl,
@@ -1290,6 +1298,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
     command: tunnelCommand,
     pid: child.pid,
     localPort: input.localPort,
+    socksPort: input.socksPort,
     remotePort: input.remotePort,
     httpBaseUrl: input.httpBaseUrl,
   });
@@ -1299,6 +1308,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
     remotePort: input.remotePort,
     remoteServerKind: input.remoteServerKind,
     localPort: input.localPort,
+    socksPort: input.socksPort,
     httpBaseUrl: input.httpBaseUrl,
     wsBaseUrl: input.wsBaseUrl,
     process: child,
@@ -1336,6 +1346,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
         command: tunnelCommand,
         pid: child.pid,
         localPort: input.localPort,
+        socksPort: input.socksPort,
         remotePort: input.remotePort,
         httpBaseUrl: input.httpBaseUrl,
         exitCode,
@@ -1356,6 +1367,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
         command: tunnelCommand,
         pid: child.pid,
         localPort: input.localPort,
+        socksPort: input.socksPort,
         remotePort: input.remotePort,
         httpBaseUrl: input.httpBaseUrl,
       }),
@@ -1608,13 +1620,14 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
       remotePort,
       remoteServerKind: remoteLaunch.remoteServerKind,
     });
-    const localPort = yield* reserveLocalTunnelPort();
+    const { localPort, socksPort } = yield* reserveLocalTunnelPorts();
     const httpBaseUrl = `http://127.0.0.1:${localPort}/`;
     const wsBaseUrl = `ws://127.0.0.1:${localPort}/`;
     yield* Effect.logDebug("ssh.environment.localPort.reserved", {
       ...sshTargetLogFields(input.resolvedTarget),
       key: input.key,
       localPort,
+      socksPort,
       remotePort,
     });
     const entryScope = yield* Scope.make("sequential");
@@ -1627,6 +1640,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
           resolvedTarget: input.resolvedTarget,
           remotePort,
           localPort,
+          socksPort,
           httpBaseUrl,
           wsBaseUrl,
           authOptions,
@@ -1693,6 +1707,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
       ...sshTargetLogFields(input.resolvedTarget),
       key: input.key,
       localPort,
+      socksPort,
       remotePort,
     });
     return tunnelEntry;
@@ -1823,6 +1838,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
       key,
       localPort: entry.localPort,
       remotePort: entry.remotePort,
+      forwardingSocksPort: entry.socksPort,
       remoteServerKind: entry.remoteServerKind,
       issuedPairingToken: pairingToken !== null,
     });
@@ -1832,6 +1848,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
       wsBaseUrl: entry.wsBaseUrl,
       pairingToken,
       remotePort: entry.remotePort,
+      forwardingSocksPort: entry.socksPort,
       ...(entry.remoteServerKind ? { remoteServerKind: entry.remoteServerKind } : {}),
     };
   });

@@ -89,7 +89,7 @@ import type {
   OrchestrationSubscribeThreadInput,
   OrchestrationThreadStreamItem,
 } from "./orchestration.ts";
-import { EnvironmentId } from "./baseSchemas.ts";
+import { EnvironmentId, PortSchema } from "./baseSchemas.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
@@ -326,6 +326,7 @@ export interface DesktopSshEnvironmentBootstrap {
   wsBaseUrl: string;
   pairingToken: string | null;
   remotePort?: number;
+  forwardingSocksPort?: number;
   remoteServerKind?: "external" | "managed";
 }
 
@@ -335,6 +336,7 @@ export const DesktopSshEnvironmentBootstrapSchema = Schema.Struct({
   wsBaseUrl: Schema.String,
   pairingToken: Schema.NullOr(Schema.String),
   remotePort: Schema.optionalKey(Schema.Number),
+  forwardingSocksPort: Schema.optionalKey(PortSchema),
   remoteServerKind: Schema.optionalKey(Schema.Literals(["external", "managed"])),
 });
 

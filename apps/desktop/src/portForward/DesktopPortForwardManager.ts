@@ -1,8 +1,10 @@
 import {
   DesktopPortForwardId,
   type DesktopPortForwardAuthorizationRequest,
+  type DesktopPortForwardAuthorizationResolution,
   type DesktopPortForwardCreateInput,
   type DesktopPortForwardSnapshot,
+  type DesktopPortForwardTransport,
   TCP_PORT_FORWARD_FRAME_ACK,
   TCP_PORT_FORWARD_FRAME_CLOSE,
   TCP_PORT_FORWARD_FRAME_DATA,
@@ -41,13 +43,36 @@ interface ManagedForward {
   generation: number;
   readonly server: NodeNet.Server;
   readonly sockets: Set<NodeNet.Socket>;
-  readonly webSockets: Set<WebSocket>;
+  readonly transports: Set<ActivePortForwardTransport>;
 }
 
 interface PendingAuthorization {
   readonly forwardId: DesktopPortForwardId;
   readonly generation: number;
-  readonly deferred: Deferred.Deferred<string, DesktopPortForwardError>;
+  readonly deferred: Deferred.Deferred<DesktopPortForwardTransport, DesktopPortForwardError>;
+}
+
+export type DesktopPortForwardCloseReason =
+  | "bridge-closed"
+  | "bridge-error"
+  | "bridge-not-open"
+  | "idle-timeout"
+  | "local-closed"
+  | "local-error"
+  | "protocol-error"
+  | "remote-close"
+  | "remote-error";
+
+export interface DesktopPortForwardConnectionStats {
+  readonly bytesFromLocal: number;
+  readonly bytesFromRemote: number;
+  readonly closeReason: DesktopPortForwardCloseReason;
+  readonly firstByteMs: number | null;
+}
+
+interface ActivePortForwardTransport {
+  readonly close: () => void;
+  readonly run: (socket: NodeNet.Socket) => Effect.Effect<DesktopPortForwardConnectionStats, never>;
 }
 
 export class DesktopPortForwardError extends Schema.TaggedErrorClass<DesktopPortForwardError>()(
@@ -56,6 +81,7 @@ export class DesktopPortForwardError extends Schema.TaggedErrorClass<DesktopPort
     operation: Schema.Literals([
       "authorize",
       "connect-bridge",
+      "connect-ssh",
       "create",
       "listen",
       "resolve-listener-address",
@@ -66,6 +92,7 @@ export class DesktopPortForwardError extends Schema.TaggedErrorClass<DesktopPort
     localPort: Schema.optionalKey(Schema.Number),
     cause: Schema.optionalKey(Schema.Defect()),
     detail: Schema.optionalKey(Schema.String),
+    route: Schema.optionalKey(Schema.Literals(["primary", "direct", "relay", "ssh"])),
   },
 ) {
   override get message(): string {
@@ -203,11 +230,181 @@ const openWebSocket = (socketUrl: string) =>
     });
   });
 
+const appendBytes = (left: Uint8Array, right: Uint8Array): Uint8Array => {
+  if (left.byteLength === 0) return right;
+  const combined = new Uint8Array(left.byteLength + right.byteLength);
+  combined.set(left);
+  combined.set(right, left.byteLength);
+  return combined;
+};
+
+export const openSocksTarget = (input: {
+  readonly socksPort: number;
+  readonly remotePort: number;
+}) =>
+  Effect.callback<NodeNet.Socket, DesktopPortForwardError>((resume) => {
+    const socket = NodeNet.createConnection({
+      host: "127.0.0.1",
+      port: input.socksPort,
+      allowHalfOpen: true,
+    });
+    let stage: "greeting" | "connect" = "greeting";
+    let pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+    let settled = false;
+
+    const fail = (detail: string, cause?: unknown) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resume(
+        Effect.fail(
+          new DesktopPortForwardError({
+            operation: "connect-ssh",
+            detail,
+            ...(cause === undefined ? {} : { cause }),
+          }),
+        ),
+      );
+    };
+    const succeed = (consumed: number) => {
+      if (settled) return;
+      settled = true;
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.setTimeout(0);
+      const remaining = pending.subarray(consumed);
+      socket.pause();
+      if (remaining.byteLength > 0) socket.unshift(remaining);
+      resume(Effect.succeed(socket));
+    };
+    const onError = (cause: Error) => fail("Could not connect through the SSH proxy.", cause);
+    const onData = (chunk: Buffer) => {
+      pending = appendBytes(pending, chunk);
+      if (stage === "greeting") {
+        if (pending.byteLength < 2) return;
+        if (pending[0] !== 5 || pending[1] !== 0) {
+          fail("The SSH proxy rejected SOCKS5 negotiation.");
+          return;
+        }
+        pending = pending.subarray(2);
+        stage = "connect";
+        const request = Uint8Array.of(
+          5,
+          1,
+          0,
+          1,
+          127,
+          0,
+          0,
+          1,
+          (input.remotePort >>> 8) & 0xff,
+          input.remotePort & 0xff,
+        );
+        socket.write(request);
+      }
+      if (stage !== "connect" || pending.byteLength < 4) return;
+      if (pending[0] !== 5 || pending[1] !== 0 || pending[2] !== 0) {
+        fail(`The SSH proxy rejected the target connection (code ${pending[1] ?? -1}).`);
+        return;
+      }
+      let responseLength: number;
+      switch (pending[3]) {
+        case 1:
+          responseLength = 10;
+          break;
+        case 3:
+          if (pending.byteLength < 5) return;
+          responseLength = 7 + (pending[4] ?? 0);
+          break;
+        case 4:
+          responseLength = 22;
+          break;
+        default:
+          fail("The SSH proxy returned an invalid SOCKS5 address type.");
+          return;
+      }
+      if (pending.byteLength >= responseLength) succeed(responseLength);
+    };
+
+    socket.once("connect", () => socket.write(Uint8Array.of(5, 1, 0)));
+    socket.on("data", onData);
+    socket.once("error", onError);
+    socket.setTimeout(10_000, () => fail("Timed out connecting through the SSH proxy."));
+
+    return Effect.sync(() => {
+      settled = true;
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.destroy();
+    });
+  });
+
+export const runNativeConnection = (
+  localSocket: NodeNet.Socket,
+  remoteSocket: NodeNet.Socket,
+): Effect.Effect<DesktopPortForwardConnectionStats, never> =>
+  Effect.callback<DesktopPortForwardConnectionStats>((resume) => {
+    const startedAt = performance.now();
+    let bytesFromLocal = 0;
+    let bytesFromRemote = 0;
+    let firstByteMs: number | null = null;
+    let closed = false;
+    const recordFirstByte = () => {
+      firstByteMs ??= performance.now() - startedAt;
+    };
+    const finish = (closeReason: DesktopPortForwardCloseReason) => {
+      if (closed) return;
+      closed = true;
+      localSocket.destroy();
+      remoteSocket.destroy();
+      resume(Effect.succeed({ bytesFromLocal, bytesFromRemote, closeReason, firstByteMs }));
+    };
+    const onLocalData = (chunk: Buffer) => {
+      recordFirstByte();
+      bytesFromLocal += chunk.byteLength;
+    };
+    const onRemoteData = (chunk: Buffer) => {
+      recordFirstByte();
+      bytesFromRemote += chunk.byteLength;
+    };
+    const onLocalError = () => finish("local-error");
+    const onRemoteError = () => finish("remote-error");
+    const onLocalClose = () => finish("local-closed");
+    const onRemoteClose = () => finish("remote-close");
+
+    localSocket.on("data", onLocalData);
+    remoteSocket.on("data", onRemoteData);
+    localSocket.once("error", onLocalError);
+    remoteSocket.once("error", onRemoteError);
+    localSocket.once("close", onLocalClose);
+    remoteSocket.once("close", onRemoteClose);
+    localSocket.setTimeout(IDLE_TIMEOUT_MS, () => finish("idle-timeout"));
+    remoteSocket.setTimeout(IDLE_TIMEOUT_MS, () => finish("idle-timeout"));
+    localSocket.pipe(remoteSocket);
+    remoteSocket.pipe(localSocket);
+    localSocket.resume();
+    remoteSocket.resume();
+
+    return Effect.sync(() => {
+      localSocket.unpipe(remoteSocket);
+      remoteSocket.unpipe(localSocket);
+      localSocket.off("data", onLocalData);
+      remoteSocket.off("data", onRemoteData);
+      localSocket.off("error", onLocalError);
+      remoteSocket.off("error", onRemoteError);
+      localSocket.off("close", onLocalClose);
+      remoteSocket.off("close", onRemoteClose);
+      localSocket.destroy();
+      remoteSocket.destroy();
+    });
+  });
+
 export const runConnection = (
   socket: NodeNet.Socket,
   webSocket: WebSocket,
-): Effect.Effect<void, never> =>
-  Effect.callback<void>((resume) => {
+): Effect.Effect<DesktopPortForwardConnectionStats, never> =>
+  Effect.callback<DesktopPortForwardConnectionStats>((resume) => {
+    const startedAt = performance.now();
     let credit = TCP_PORT_FORWARD_INITIAL_CREDIT;
     let outstanding = 0;
     let receiveCredit = TCP_PORT_FORWARD_INITIAL_CREDIT;
@@ -216,13 +413,19 @@ export const runConnection = (
     let socketReadEndSent = false;
     let socketWriteEnded = false;
     let closed = false;
+    let bytesFromLocal = 0;
+    let bytesFromRemote = 0;
+    let firstByteMs: number | null = null;
 
     const send = (frame: Uint8Array) => {
       if (webSocket.readyState === WebSocket.OPEN) {
         webSocket.send(frame.slice().buffer as ArrayBuffer);
       }
     };
-    const finish = () => {
+    const recordFirstByte = () => {
+      firstByteMs ??= performance.now() - startedAt;
+    };
+    const finish = (closeReason: DesktopPortForwardCloseReason) => {
       if (closed) return;
       closed = true;
       socket.destroy();
@@ -232,11 +435,11 @@ export const runConnection = (
       ) {
         webSocket.close();
       }
-      resume(Effect.void);
+      resume(Effect.succeed({ bytesFromLocal, bytesFromRemote, closeReason, firstByteMs }));
     };
     const protocolFailure = () => {
       send(controlFrame(TCP_PORT_FORWARD_FRAME_ERROR));
-      finish();
+      finish("protocol-error");
     };
     const flushSocketData = () => {
       while (credit > 0 && pending.byteLength > 0) {
@@ -260,6 +463,8 @@ export const runConnection = (
       socket.pause();
     };
     const onSocketData = (chunk: Buffer) => {
+      recordFirstByte();
+      bytesFromLocal += chunk.byteLength;
       if (pending.byteLength === 0) {
         pending = chunk;
       } else {
@@ -274,13 +479,13 @@ export const runConnection = (
       socketReadEnded = true;
       flushSocketData();
     };
-    const onSocketError = () => finish();
+    const onSocketError = () => finish("local-error");
     const onSocketClose = () => {
       send(controlFrame(TCP_PORT_FORWARD_FRAME_CLOSE));
-      finish();
+      finish("local-closed");
     };
-    const onWebSocketClose = () => finish();
-    const onWebSocketError = () => finish();
+    const onWebSocketClose = () => finish("bridge-closed");
+    const onWebSocketError = () => finish("bridge-error");
     const onWebSocketMessage = (event: MessageEvent) => {
       if (!(event.data instanceof ArrayBuffer)) {
         protocolFailure();
@@ -299,9 +504,11 @@ export const runConnection = (
             protocolFailure();
             return;
           }
+          recordFirstByte();
+          bytesFromRemote += payload.byteLength;
           receiveCredit -= payload.byteLength;
           socket.write(payload, (error) => {
-            if (error) finish();
+            if (error) finish("local-error");
             else {
               receiveCredit += payload.byteLength;
               send(ackFrame(payload.byteLength));
@@ -340,14 +547,14 @@ export const runConnection = (
             protocolFailure();
             return;
           }
-          finish();
+          finish("remote-close");
           return;
         case TCP_PORT_FORWARD_FRAME_ERROR:
           if (frame.byteLength > 513) {
             protocolFailure();
             return;
           }
-          finish();
+          finish("remote-error");
           return;
         default:
           protocolFailure();
@@ -361,8 +568,8 @@ export const runConnection = (
     webSocket.addEventListener("message", onWebSocketMessage);
     webSocket.addEventListener("close", onWebSocketClose, { once: true });
     webSocket.addEventListener("error", onWebSocketError, { once: true });
-    socket.setTimeout(IDLE_TIMEOUT_MS, finish);
-    if (webSocket.readyState !== WebSocket.OPEN) finish();
+    socket.setTimeout(IDLE_TIMEOUT_MS, () => finish("idle-timeout"));
+    if (webSocket.readyState !== WebSocket.OPEN) finish("bridge-not-open");
 
     return Effect.sync(() => {
       socket.off("data", onSocketData);
@@ -376,6 +583,27 @@ export const runConnection = (
       webSocket.close();
     });
   });
+
+export const connectTransport = Effect.fn("DesktopPortForwardTransport.connect")(function* (
+  descriptor: DesktopPortForwardTransport,
+) {
+  switch (descriptor._tag) {
+    case "WebSocketBridge": {
+      const webSocket = yield* openWebSocket(descriptor.socketUrl);
+      return {
+        close: () => webSocket.close(),
+        run: (socket: NodeNet.Socket) => runConnection(socket, webSocket),
+      };
+    }
+    case "SshSocks": {
+      const remoteSocket = yield* openSocksTarget(descriptor);
+      return {
+        close: () => remoteSocket.destroy(),
+        run: (socket: NodeNet.Socket) => runNativeConnection(socket, remoteSocket),
+      };
+    }
+  }
+});
 
 export class DesktopPortForwardManager extends Context.Service<
   DesktopPortForwardManager,
@@ -392,9 +620,7 @@ export class DesktopPortForwardManager extends Context.Service<
       environmentId: DesktopPortForwardSnapshot["environmentId"],
     ) => Effect.Effect<void>;
     readonly resolveAuthorization: (
-      requestId: string,
-      socketUrl: string | null,
-      error?: string,
+      resolution: DesktopPortForwardAuthorizationResolution,
     ) => Effect.Effect<void>;
     readonly subscribeStateChanges: (
       listener: StateListener,
@@ -454,7 +680,7 @@ export const make = Effect.gen(function* () {
     const requestId = yield* crypto.randomUUIDv4.pipe(
       Effect.mapError((cause) => new DesktopPortForwardError({ operation: "authorize", cause })),
     );
-    const deferred = yield* Deferred.make<string, DesktopPortForwardError>();
+    const deferred = yield* Deferred.make<DesktopPortForwardTransport, DesktopPortForwardError>();
     yield* Ref.update(pendingAuthorizations, (current) =>
       new Map(current).set(requestId, {
         forwardId: forward.snapshot.id,
@@ -501,6 +727,7 @@ export const make = Effect.gen(function* () {
   const handleConnection = (forward: ManagedForward, socket: NodeNet.Socket) => {
     let connectionState: "connecting" | "connected" = "connecting";
     const generation = forward.generation;
+    const acceptedAt = performance.now();
     return Effect.gen(function* () {
       const accepted = yield* Ref.modify(forwards, (current) => {
         const activeTotal = [...current.values()].reduce(
@@ -531,14 +758,23 @@ export const make = Effect.gen(function* () {
         }),
         generation,
       );
-      const socketUrl = yield* authorize(forward, generation);
+      const authorizationStartedAt = performance.now();
+      const descriptor = yield* authorize(forward, generation);
+      const authorizationMs = performance.now() - authorizationStartedAt;
+      yield* Effect.annotateCurrentSpan({
+        "portForward.route": descriptor.route,
+        "portForward.transport": descriptor.protocol,
+        "portForward.authorizationMs": authorizationMs,
+      });
       if (forward.generation !== generation || !forward.sockets.has(socket)) return;
-      const webSocket = yield* openWebSocket(socketUrl);
+      const transportStartedAt = performance.now();
+      const transport = yield* connectTransport(descriptor);
+      const transportConnectMs = performance.now() - transportStartedAt;
       if (forward.generation !== generation || !forward.sockets.has(socket)) {
-        webSocket.close();
+        transport.close();
         return;
       }
-      forward.webSockets.add(webSocket);
+      forward.transports.add(transport);
       yield* updateSnapshot(
         forward.snapshot.id,
         (snapshot) => ({
@@ -549,17 +785,41 @@ export const make = Effect.gen(function* () {
         generation,
       );
       connectionState = "connected";
-      yield* runConnection(socket, webSocket);
-      forward.webSockets.delete(webSocket);
+      const stats = yield* transport.run(socket);
+      forward.transports.delete(transport);
+      const outcome =
+        stats.closeReason === "local-closed" ||
+        stats.closeReason === "remote-close" ||
+        stats.closeReason === "bridge-closed"
+          ? "success"
+          : "failure";
+      yield* Effect.annotateCurrentSpan({
+        "portForward.outcome": outcome,
+        "portForward.transportConnectMs": transportConnectMs,
+        "portForward.connectionMs": performance.now() - acceptedAt,
+        "portForward.bytesFromLocal": stats.bytesFromLocal,
+        "portForward.bytesFromRemote": stats.bytesFromRemote,
+        "portForward.closeReason": stats.closeReason,
+        ...(stats.firstByteMs === null ? {} : { "portForward.firstByteMs": stats.firstByteMs }),
+      });
     }).pipe(
       Effect.catch((error) =>
-        updateSnapshot(
-          forward.snapshot.id,
-          (snapshot) => ({
-            ...snapshot,
-            lastError: error.message,
-          }),
-          generation,
+        Effect.annotateCurrentSpan({
+          "portForward.outcome": "failure",
+          "portForward.failureOperation": error.operation,
+          "portForward.connectionMs": performance.now() - acceptedAt,
+          ...(error.route === undefined ? {} : { "portForward.route": error.route }),
+        }).pipe(
+          Effect.andThen(
+            updateSnapshot(
+              forward.snapshot.id,
+              (snapshot) => ({
+                ...snapshot,
+                lastError: error.message,
+              }),
+              generation,
+            ),
+          ),
         ),
       ),
       Effect.ensuring(
@@ -580,6 +840,7 @@ export const make = Effect.gen(function* () {
           );
         }),
       ),
+      Effect.withSpan("desktop.portForward.connection"),
     );
   };
 
@@ -612,7 +873,7 @@ export const make = Effect.gen(function* () {
       activeConnections: 0,
       lastError: null,
     };
-    managed = { snapshot, generation: 0, server, sockets: new Set(), webSockets: new Set() };
+    managed = { snapshot, generation: 0, server, sockets: new Set(), transports: new Set() };
     yield* Ref.update(forwards, (current) => new Map(current).set(id, managed!));
     yield* publishState;
     return snapshot;
@@ -626,9 +887,9 @@ export const make = Effect.gen(function* () {
       managed.generation += 1;
       managed.server.close();
       for (const socket of managed.sockets) socket.destroy();
-      for (const webSocket of managed.webSockets) webSocket.close();
+      for (const transport of managed.transports) transport.close();
       managed.sockets.clear();
-      managed.webSockets.clear();
+      managed.transports.clear();
     });
     const interrupted = yield* Ref.modify(pendingAuthorizations, (current) => {
       const next = new Map(current);
@@ -693,7 +954,7 @@ export const make = Effect.gen(function* () {
             readonly id: DesktopPortForwardId;
             readonly generation: number;
             readonly sockets: ReadonlyArray<NodeNet.Socket>;
-            readonly webSockets: ReadonlyArray<WebSocket>;
+            readonly transports: ReadonlyArray<ActivePortForwardTransport>;
           }> = [];
           let changed = false;
           for (const managed of current.values()) {
@@ -703,11 +964,11 @@ export const make = Effect.gen(function* () {
               id: managed.snapshot.id,
               generation: managed.generation,
               sockets: [...managed.sockets],
-              webSockets: [...managed.webSockets],
+              transports: [...managed.transports],
             });
             managed.generation += 1;
             managed.sockets.clear();
-            managed.webSockets.clear();
+            managed.transports.clear();
             managed.snapshot = {
               ...managed.snapshot,
               connectingConnections: 0,
@@ -749,31 +1010,30 @@ export const make = Effect.gen(function* () {
         yield* Effect.sync(() => {
           for (const entry of retired) {
             for (const socket of entry.sockets) socket.destroy();
-            for (const webSocket of entry.webSockets) webSocket.close();
+            for (const transport of entry.transports) transport.close();
           }
         });
         yield* publishState;
       });
 
   const resolveAuthorization: DesktopPortForwardManager["Service"]["resolveAuthorization"] = (
-    requestId,
-    socketUrl,
-    error,
+    resolution,
   ) =>
     Effect.gen(function* () {
       const current = yield* Ref.get(pendingAuthorizations);
-      const authorization = current.get(requestId);
+      const authorization = current.get(resolution.requestId);
       if (authorization === undefined) return;
-      if (socketUrl === null) {
+      if (resolution._tag === "Rejected") {
         yield* Deferred.fail(
           authorization.deferred,
           new DesktopPortForwardError({
             operation: "authorize",
-            detail: error ?? "The environment could not authorize this connection.",
+            detail: resolution.error,
+            ...(resolution.route === null ? {} : { route: resolution.route }),
           }),
         );
       } else {
-        yield* Deferred.succeed(authorization.deferred, socketUrl);
+        yield* Deferred.succeed(authorization.deferred, resolution.transport);
       }
     });
 
