@@ -125,10 +125,13 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { Kbd } from "./ui/kbd";
 import {
+  completeDesktopUpdatePendingAction,
+  type DesktopUpdatePendingAction,
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
   getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
+  reconcileDesktopUpdatePendingAction,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
   shouldToastDesktopUpdateActionResult,
@@ -3071,7 +3074,8 @@ export default function LegacySidebar() {
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
   const desktopUpdateState = useDesktopUpdateState();
-  const [desktopUpdateActionPending, setDesktopUpdateActionPending] = useState(false);
+  const [desktopUpdatePendingAction, setDesktopUpdatePendingAction] =
+    useState<DesktopUpdatePendingAction | null>(null);
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const platform = navigator.platform;
@@ -3528,6 +3532,10 @@ export default function LegacySidebar() {
   const desktopUpdateButtonAction = desktopUpdateState
     ? resolveDesktopUpdateButtonAction(desktopUpdateState)
     : "none";
+  const desktopUpdateActionPending =
+    reconcileDesktopUpdatePendingAction(desktopUpdatePendingAction, desktopUpdateButtonAction) !==
+    null;
+
   const showArm64IntelBuildWarning =
     isElectron && shouldShowArm64IntelBuildWarning(desktopUpdateState);
   const arm64IntelBuildWarningDescription =
@@ -3550,9 +3558,8 @@ export default function LegacySidebar() {
       return;
     }
 
-    setDesktopUpdateActionPending(true);
-
     if (desktopUpdateButtonAction === "download") {
+      setDesktopUpdatePendingAction("download");
       void bridge
         .downloadUpdate()
         .then((result) => {
@@ -3579,18 +3586,25 @@ export default function LegacySidebar() {
             }),
           );
         })
-        .finally(() => setDesktopUpdateActionPending(false));
+        .finally(() =>
+          setDesktopUpdatePendingAction((current) =>
+            completeDesktopUpdatePendingAction(current, "download"),
+          ),
+        );
       return;
     }
 
     if (desktopUpdateButtonAction === "install") {
+      setDesktopUpdatePendingAction("install");
       let confirmed = false;
       try {
         confirmed = await ensureLocalApi().dialogs.confirm(
           getDesktopUpdateInstallConfirmationMessage(desktopUpdateState),
         );
       } catch (error) {
-        setDesktopUpdateActionPending(false);
+        setDesktopUpdatePendingAction((current) =>
+          completeDesktopUpdatePendingAction(current, "install"),
+        );
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -3601,7 +3615,9 @@ export default function LegacySidebar() {
         return;
       }
       if (!confirmed) {
-        setDesktopUpdateActionPending(false);
+        setDesktopUpdatePendingAction((current) =>
+          completeDesktopUpdatePendingAction(current, "install"),
+        );
         return;
       }
       void bridge
@@ -3627,7 +3643,11 @@ export default function LegacySidebar() {
             }),
           );
         })
-        .finally(() => setDesktopUpdateActionPending(false));
+        .finally(() =>
+          setDesktopUpdatePendingAction((current) =>
+            completeDesktopUpdatePendingAction(current, "install"),
+          ),
+        );
     }
   }, [
     desktopUpdateActionPending,

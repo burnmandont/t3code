@@ -8,11 +8,14 @@ import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   canCheckForUpdate,
+  completeDesktopUpdatePendingAction,
+  type DesktopUpdatePendingAction,
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
+  reconcileDesktopUpdatePendingAction,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
   shouldToastDesktopUpdateActionResult,
@@ -142,7 +145,7 @@ export function SidebarUpdatePill({ expanded = false }: { expanded?: boolean }) 
 
 function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
   const state = useDesktopUpdateState();
-  const [isActionPending, setIsActionPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<DesktopUpdatePendingAction | null>(null);
   const [checkAnimationKey, setCheckAnimationKey] = useState(0);
   const [isCheckAnimationLatched, setIsCheckAnimationLatched] = useState(false);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
@@ -156,6 +159,8 @@ function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
   }, [prefersReducedMotion, state?.status]);
 
   const action = state ? resolveDesktopUpdateButtonAction(state) : "none";
+  const isActionPending = reconcileDesktopUpdatePendingAction(pendingAction, action) !== null;
+
   const isDownloading = state?.status === "downloading";
   const showCheckIcon = shouldShowDesktopUpdateCheckIcon({
     isAnimationLatched: isCheckAnimationLatched,
@@ -185,9 +190,8 @@ function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
     if (!bridge || !state) return;
     if (disabled || isActionPending) return;
 
-    setIsActionPending(true);
-
     if (action === "download") {
+      setPendingAction("download");
       void bridge
         .downloadUpdate()
         .then((result) => {
@@ -214,18 +218,21 @@ function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
             }),
           );
         })
-        .finally(() => setIsActionPending(false));
+        .finally(() =>
+          setPendingAction((current) => completeDesktopUpdatePendingAction(current, "download")),
+        );
       return;
     }
 
     if (action === "install") {
+      setPendingAction("install");
       let confirmed = false;
       try {
         confirmed = await ensureLocalApi().dialogs.confirm(
           getDesktopUpdateInstallConfirmationMessage(state),
         );
       } catch (error) {
-        setIsActionPending(false);
+        setPendingAction((current) => completeDesktopUpdatePendingAction(current, "install"));
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -236,7 +243,7 @@ function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
         return;
       }
       if (!confirmed) {
-        setIsActionPending(false);
+        setPendingAction((current) => completeDesktopUpdatePendingAction(current, "install"));
         return;
       }
       void bridge
@@ -262,10 +269,13 @@ function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
             }),
           );
         })
-        .finally(() => setIsActionPending(false));
+        .finally(() =>
+          setPendingAction((current) => completeDesktopUpdatePendingAction(current, "install")),
+        );
       return;
     }
 
+    setPendingAction("check");
     if (!prefersReducedMotion) {
       setIsCheckAnimationLatched(true);
       setCheckAnimationKey((key) => key + 1);
@@ -292,7 +302,9 @@ function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
           }),
         );
       })
-      .finally(() => setIsActionPending(false));
+      .finally(() =>
+        setPendingAction((current) => completeDesktopUpdatePendingAction(current, "check")),
+      );
   }, [action, disabled, isActionPending, prefersReducedMotion, state]);
 
   const handleCheckAnimationIteration = useCallback(() => {
@@ -324,7 +336,7 @@ function SidebarUpdateControl({ expanded }: { expanded: boolean }) {
               aria-label={tooltip}
               aria-disabled={disabled || isActionPending || undefined}
               disabled={disabled || isActionPending}
-              className="flex h-8 w-full items-center gap-2 rounded-lg bg-update-surface px-2 text-left text-sm font-medium text-update-foreground outline-hidden ring-ring transition-colors enabled:cursor-pointer enabled:hover:bg-update/22 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex h-8 w-full items-center gap-2 rounded-[var(--control-radius)] bg-update-surface px-2 text-left text-sm font-medium text-update-foreground outline-hidden ring-ring transition-colors enabled:cursor-pointer enabled:hover:bg-update/22 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
               onClick={handleAction}
             >
               <DesktopUpdateStatusIcon

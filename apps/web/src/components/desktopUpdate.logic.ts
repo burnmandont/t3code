@@ -1,6 +1,7 @@
 import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
 
 export type DesktopUpdateButtonAction = "download" | "install" | "none";
+export type DesktopUpdatePendingAction = "check" | Exclude<DesktopUpdateButtonAction, "none">;
 
 const DESKTOP_RELEASE_TAG_URL = "https://github.com/pingdotgg/t3code/releases/tag";
 
@@ -40,6 +41,20 @@ export function resolveDesktopUpdateButtonAction(
     }
   }
   return "none";
+}
+
+export function reconcileDesktopUpdatePendingAction(
+  pendingAction: DesktopUpdatePendingAction | null,
+  currentAction: DesktopUpdateButtonAction,
+): DesktopUpdatePendingAction | null {
+  return pendingAction === "download" && currentAction !== "download" ? null : pendingAction;
+}
+
+export function completeDesktopUpdatePendingAction(
+  pendingAction: DesktopUpdatePendingAction | null,
+  completedAction: DesktopUpdatePendingAction,
+): DesktopUpdatePendingAction | null {
+  return pendingAction === completedAction ? null : pendingAction;
 }
 
 export function shouldShowDesktopUpdateButton(state: DesktopUpdateState | null): boolean {

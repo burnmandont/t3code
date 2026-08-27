@@ -3,12 +3,14 @@ import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/con
 
 import {
   canCheckForUpdate,
+  completeDesktopUpdatePendingAction,
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
   getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
+  reconcileDesktopUpdatePendingAction,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
   shouldShowDesktopUpdateButton,
@@ -131,6 +133,14 @@ describe("desktop update button state", () => {
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
     expect(getDesktopUpdateButtonTooltip(state)).toContain("42%");
+  });
+
+  it("releases a pending download when the updater advances to install", () => {
+    expect(reconcileDesktopUpdatePendingAction("download", "install")).toBeNull();
+  });
+
+  it("does not let a late download completion release a pending install", () => {
+    expect(completeDesktopUpdatePendingAction("install", "download")).toBe("install");
   });
 });
 

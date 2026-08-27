@@ -27,6 +27,7 @@ interface UpdatesHarnessOptions {
     void,
     ElectronUpdater.ElectronUpdaterCheckForUpdatesError
   >;
+  readonly downloadUpdate?: Effect.Effect<void, ElectronUpdater.ElectronUpdaterDownloadUpdateError>;
   readonly beforeSetUpdateChannel?: Effect.Effect<void>;
   readonly setUpdateChannelError?: DesktopAppSettings.DesktopSettingsWriteError;
   readonly setDisableDifferentialDownload?: Effect.Effect<void>;
@@ -91,7 +92,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
     checkForUpdates: Effect.sync(() => {
       checkCount += 1;
     }).pipe(Effect.andThen(options.checkForUpdates ?? Effect.void)),
-    downloadUpdate: Effect.void,
+    downloadUpdate: options.downloadUpdate ?? Effect.void,
     quitAndInstall: () => Effect.void,
     on: (eventName, listener) =>
       Effect.acquireRelease(
@@ -706,6 +707,45 @@ describe("DesktopUpdates", () => {
         }),
       ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
     }),
+  );
+
+  it.effect(
+    "permits install when the downloaded event arrives before the download RPC settles",
+    () =>
+      Effect.gen(function* () {
+        const downloadStarted = yield* Deferred.make<void>();
+        const releaseDownload = yield* Deferred.make<void>();
+        const harness = makeHarness({
+          downloadUpdate: Deferred.succeed(downloadStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseDownload)),
+          ),
+        });
+
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const updates = yield* DesktopUpdates.DesktopUpdates;
+            yield* updates.configure;
+            harness.emit("update-available", { version: "1.2.4" });
+            yield* flushCallbacks;
+
+            const downloadFiber = yield* updates.download.pipe(Effect.forkScoped);
+            yield* Deferred.await(downloadStarted);
+
+            harness.emit("update-downloaded", { version: "1.2.4" });
+            yield* flushCallbacks;
+
+            const downloadedState = yield* updates.getState;
+            assert.equal(downloadedState.status, "downloaded");
+
+            const installResult = yield* updates.install;
+            assert.isTrue(installResult.accepted);
+
+            yield* Deferred.succeed(releaseDownload, undefined);
+            const downloadResult = yield* Fiber.join(downloadFiber);
+            assert.isTrue(downloadResult.completed);
+          }),
+        ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+      }),
   );
 
   it.effect("clears quitting state after an unexpected install setup failure", () => {

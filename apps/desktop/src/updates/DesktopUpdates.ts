@@ -705,6 +705,7 @@ export const make = Effect.gen(function* () {
         Effect.fn("desktop.updates.applyUpdateDownloaded")(function* (info) {
           const state = yield* Ref.get(updateStateRef);
           yield* setState(reduceDesktopUpdateStateOnDownloadComplete(state, info.version));
+          yield* finishUpdateAction("download");
           yield* logUpdaterInfo("update downloaded", { version: info.version });
         }),
       ),
