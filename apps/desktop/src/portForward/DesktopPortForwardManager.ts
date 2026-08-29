@@ -251,6 +251,7 @@ export const openSocksTarget = (input: {
     let stage: "greeting" | "connect" = "greeting";
     let pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
     let settled = false;
+    const remoteHost = Buffer.from("localhost", "ascii");
 
     const fail = (detail: string, cause?: unknown) => {
       if (settled) return;
@@ -271,6 +272,8 @@ export const openSocksTarget = (input: {
       settled = true;
       socket.off("data", onData);
       socket.off("error", onError);
+      socket.off("end", onEnd);
+      socket.off("close", onClose);
       socket.setTimeout(0);
       const remaining = pending.subarray(consumed);
       socket.pause();
@@ -278,6 +281,8 @@ export const openSocksTarget = (input: {
       resume(Effect.succeed(socket));
     };
     const onError = (cause: Error) => fail("Could not connect through the SSH proxy.", cause);
+    const onEnd = () => fail("The SSH proxy closed before connecting to the target.");
+    const onClose = () => fail("The SSH proxy closed before connecting to the target.");
     const onData = (chunk: Buffer) => {
       pending = appendBytes(pending, chunk);
       if (stage === "greeting") {
@@ -288,18 +293,11 @@ export const openSocksTarget = (input: {
         }
         pending = pending.subarray(2);
         stage = "connect";
-        const request = Uint8Array.of(
-          5,
-          1,
-          0,
-          1,
-          127,
-          0,
-          0,
-          1,
-          (input.remotePort >>> 8) & 0xff,
-          input.remotePort & 0xff,
-        );
+        const request = new Uint8Array(7 + remoteHost.byteLength);
+        request.set([5, 1, 0, 3, remoteHost.byteLength], 0);
+        request.set(remoteHost, 5);
+        request[5 + remoteHost.byteLength] = (input.remotePort >>> 8) & 0xff;
+        request[6 + remoteHost.byteLength] = input.remotePort & 0xff;
         socket.write(request);
       }
       if (stage !== "connect" || pending.byteLength < 4) return;
@@ -329,12 +327,16 @@ export const openSocksTarget = (input: {
     socket.once("connect", () => socket.write(Uint8Array.of(5, 1, 0)));
     socket.on("data", onData);
     socket.once("error", onError);
+    socket.once("end", onEnd);
+    socket.once("close", onClose);
     socket.setTimeout(10_000, () => fail("Timed out connecting through the SSH proxy."));
 
     return Effect.sync(() => {
       settled = true;
       socket.off("data", onData);
       socket.off("error", onError);
+      socket.off("end", onEnd);
+      socket.off("close", onClose);
       socket.destroy();
     });
   });

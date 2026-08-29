@@ -235,7 +235,41 @@ it.layer(NodeServices.layer)("DesktopPortForwardManager", (it) => {
           bytesFromRemote: 10,
         });
         expect([...requests[0]!]).toEqual([5, 1, 0]);
-        expect([...requests[1]!]).toEqual([5, 1, 0, 1, 127, 0, 0, 1, 0x15, 0x38]);
+        expect([...requests[1]!]).toEqual([
+          5,
+          1,
+          0,
+          3,
+          9,
+          ...Buffer.from("localhost", "ascii"),
+          0x15,
+          0x38,
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("fails immediately when the SSH proxy closes during target connection", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = NodeNet.createServer((socket) => {
+          socket.once("data", () => {
+            socket.write(Uint8Array.of(5, 0));
+            socket.once("data", () => socket.end());
+          });
+        });
+        const socksPort = yield* listenServer(server);
+        yield* Effect.addFinalizer(() => Effect.sync(() => server.close()));
+
+        const error = yield* DesktopPortForwardManager.openSocksTarget({
+          socksPort,
+          remotePort: 5432,
+        }).pipe(Effect.flip, Effect.timeout("1 second"));
+
+        expect(error).toMatchObject({
+          operation: "connect-ssh",
+          detail: "The SSH proxy closed before connecting to the target.",
+        });
       }),
     ),
   );
