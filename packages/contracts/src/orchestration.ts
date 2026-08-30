@@ -243,6 +243,7 @@ export const OrchestrationProject = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
+  notes: Schema.optional(Schema.String),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -440,6 +441,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
+  notes: Schema.optional(Schema.String),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -655,6 +657,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   // Absent = leave unchanged; null = clear the override.
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
+  notes: Schema.optional(Schema.String),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
 });
 
@@ -1101,6 +1104,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   // Optional so persisted events from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
+  notes: Schema.optional(Schema.String),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -1114,6 +1118,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
+  notes: Schema.optional(Schema.String),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   updatedAt: IsoDateTime,
 });

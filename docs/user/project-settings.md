@@ -14,3 +14,9 @@ Sovereign supports SVG, PNG, ICO, JPEG, GIF, AVIF, and WebP files. The selected 
 each checkout in the project group and appears on your connected clients.
 
 To use automatic detection again, select **Automatic**.
+
+## Keep project notes
+
+Select **Project notes** in a thread's top bar to open a shared scratchpad for the project. Notes
+are available from every thread in that project and from connected web, desktop, and mobile
+clients. Changes save automatically; on mobile, select **Done** to close and save the note.

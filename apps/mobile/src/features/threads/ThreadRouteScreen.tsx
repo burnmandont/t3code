@@ -13,8 +13,9 @@ import {
   threadHasOlderTurns,
 } from "@t3tools/client-runtime/state/threads";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { Platform, ScrollView, View } from "react-native";
+import { Modal, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
 import { dismissGitActionResult, useGitActionProgress } from "../../state/use-vcs-action-state";
@@ -62,6 +63,7 @@ import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-s
 import { useSelectedThreadRequests } from "../../state/use-selected-thread-requests";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
+import { projectEnvironment } from "../../state/projects";
 import { threadEnvironment } from "../../state/threads";
 import { projectThreadContentPresentation } from "./threadContentPresentation";
 import {
@@ -82,6 +84,8 @@ interface ThreadInspectorSelection {
 }
 
 type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
+
+const localProjectNotes = new Map<string, string>();
 
 function InspectorPaneRoleActivation() {
   useAdaptiveWorkspacePaneRole("inspector");
@@ -214,6 +218,9 @@ function ThreadRouteContent(
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
+  const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: true });
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
   const navigation = useNavigation();
   const params = props.route.params;
   const environmentIdRaw = firstRouteParam(params.environmentId);
@@ -221,6 +228,25 @@ function ThreadRouteContent(
   const threadId = firstRouteParam(params.threadId);
   const routeThreadIdentity =
     environmentIdRaw !== null && threadId !== null ? `${environmentIdRaw}:${threadId}` : null;
+  const openProjectNotes = useCallback(() => {
+    if (!selectedThreadProject) return;
+    setNotesDraft(
+      localProjectNotes.get(selectedThreadProject.id) ?? selectedThreadProject.notes ?? "",
+    );
+    setNotesOpen(true);
+  }, [selectedThreadProject]);
+  const closeProjectNotes = useCallback(() => {
+    setNotesOpen(false);
+    if (!environmentId || !selectedThreadProject) return;
+    const savedNotes =
+      localProjectNotes.get(selectedThreadProject.id) ?? selectedThreadProject.notes ?? "";
+    if (notesDraft === savedNotes) return;
+    localProjectNotes.set(selectedThreadProject.id, notesDraft);
+    void updateProject({
+      environmentId,
+      input: { projectId: selectedThreadProject.id, notes: notesDraft },
+    });
+  }, [environmentId, notesDraft, selectedThreadProject, updateProject]);
   const [inspectorSelection, setInspectorSelection] = useState<ThreadInspectorSelection | null>(
     () => (props.renderInspector ? { routeThreadIdentity, mode: "route" } : null),
   );
@@ -637,6 +663,17 @@ function ThreadRouteContent(
   };
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(threadGitControlProps);
   const compactRightHeaderItems = useThreadGitRightHeaderItems(threadGitControlProps);
+  const notesHeaderItem = useMemo(
+    () =>
+      withNativeGlassHeaderItem({
+        accessibilityLabel: "Project notes",
+        icon: { name: "note.text", type: "sfSymbol" as const },
+        identifier: "thread-project-notes",
+        onPress: openProjectNotes,
+        type: "button" as const,
+      }),
+    [openProjectNotes],
+  );
   const splitLeftHeaderItems = useMemo<NativeHeaderItems>(
     () => [
       {
@@ -682,6 +719,11 @@ function ThreadRouteContent(
     if (Platform.OS !== "android") return [];
 
     const actions: AndroidHeaderAction[] = [];
+    actions.push({
+      accessibilityLabel: "Project notes",
+      icon: "note.text",
+      onPress: openProjectNotes,
+    });
     if (props.onReturnToThread) {
       actions.push({
         accessibilityLabel: "Return to chat",
@@ -722,6 +764,7 @@ function ThreadRouteContent(
     handleOpenTerminal,
     handleOpenGitInspector,
     handleToggleInspector,
+    openProjectNotes,
     props.onReturnToThread,
     selectedThreadCwd,
     selectedThreadProject?.workspaceRoot,
@@ -845,7 +888,10 @@ function ThreadRouteContent(
           // reserved for future breadcrumbs/status).
           unstable_headerRightItems:
             Platform.OS === "ios"
-              ? () => (layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems)
+              ? () => [
+                  notesHeaderItem,
+                  ...(layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems),
+                ]
               : undefined,
           unstable_headerSubtitle: usesNativeHeaderGlass ? headerSubtitle : undefined,
         }}
@@ -859,6 +905,37 @@ function ThreadRouteContent(
           actions={androidHeaderActions}
         />
       ) : null}
+
+      <Modal
+        animationType="slide"
+        presentationStyle="pageSheet"
+        visible={notesOpen}
+        onRequestClose={closeProjectNotes}
+      >
+        <View className="flex-1 bg-background px-5 pb-8 pt-4">
+          <View className="mb-4 flex-row items-center justify-between">
+            <View>
+              <Text className="text-xl font-bold">Project notes</Text>
+              <Text className="mt-1 text-sm text-foreground-muted">
+                Shared by every thread in this project.
+              </Text>
+            </View>
+            <Pressable accessibilityRole="button" onPress={closeProjectNotes} className="px-3 py-2">
+              <Text className="font-semibold text-accent">Done</Text>
+            </Pressable>
+          </View>
+          <TextInput
+            autoFocus
+            multiline
+            textAlignVertical="top"
+            accessibilityLabel="Project notes"
+            className="flex-1 rounded-2xl"
+            placeholder="- [ ] Add a note or to-do…"
+            value={notesDraft}
+            onChangeText={setNotesDraft}
+          />
+        </View>
+      </Modal>
 
       {/* Android surfaces the git/files/inspector actions in its in-flow
           header above, so the fallback action toolbar stays iOS-only. */}

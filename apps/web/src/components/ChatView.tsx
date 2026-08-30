@@ -3271,6 +3271,20 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeProject, persistProjectScripts],
   );
+  const updateProjectNotes = useCallback(
+    (notes: string) => {
+      if (!activeProject) return;
+      void updateProject({
+        environmentId,
+        input: { projectId: activeProject.id, notes },
+      }).then((result) => {
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          toastManager.add({ title: "Could not save project notes", type: "error" });
+        }
+      });
+    },
+    [activeProject, environmentId, updateProject],
+  );
   const updateProjectScript = useCallback(
     async (
       scriptId: string,
@@ -6603,10 +6617,12 @@ function ChatViewContent(props: ChatViewProps) {
             isServerThread={isServerThread}
             changeRequest={activeThreadChangeRequest}
             activeProjectName={activeProject?.title}
+            activeProjectId={activeProject?.id}
             activeProjectCwd={activeProject?.workspaceRoot ?? null}
             activeProjectFaviconPath={activeProject?.faviconPath ?? null}
             openInCwd={gitCwd}
             activeProjectScripts={activeProject?.scripts}
+            activeProjectNotes={activeProject ? (activeProject.notes ?? "") : undefined}
             preferredScriptId={
               activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
             }
@@ -6619,6 +6635,7 @@ function ChatViewContent(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
+            onUpdateProjectNotes={updateProjectNotes}
           />
         </WorkspacePageHeader>
 

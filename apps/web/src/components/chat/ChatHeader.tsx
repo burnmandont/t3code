@@ -46,6 +46,7 @@ import {
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
 import { DesktopPortForwardControl } from "../desktop/DesktopPortForwardControl";
+import { ProjectNotesControl } from "../ProjectNotesControl";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -57,10 +58,12 @@ interface ChatHeaderProps {
   /** PR feeding the settled classification, resolved by ChatView. */
   changeRequest: ChangeRequestSettleSource | null;
   activeProjectName: string | undefined;
+  activeProjectId: string | undefined;
   activeProjectCwd: string | null;
   activeProjectFaviconPath: string | null;
   openInCwd: string | null;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
+  activeProjectNotes: string | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
@@ -75,6 +78,7 @@ interface ChatHeaderProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  onUpdateProjectNotes: (notes: string) => void;
 }
 
 /**
@@ -126,10 +130,12 @@ export const ChatHeader = memo(function ChatHeader({
   isServerThread,
   changeRequest,
   activeProjectName,
+  activeProjectId,
   activeProjectCwd,
   activeProjectFaviconPath,
   openInCwd,
   activeProjectScripts,
+  activeProjectNotes,
   preferredScriptId,
   keybindings,
   availableEditors,
@@ -141,6 +147,7 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  onUpdateProjectNotes,
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const fileScripts = useT3ProjectFileScripts(
@@ -381,6 +388,14 @@ export const ChatHeader = memo(function ChatHeader({
           rightPanelOpen ? "pr-0" : "pr-16",
         )}
       >
+        {activeProjectId !== undefined && activeProjectNotes !== undefined ? (
+          <ProjectNotesControl
+            key={activeProjectId}
+            projectId={activeProjectId}
+            notes={activeProjectNotes}
+            onNotesChange={onUpdateProjectNotes}
+          />
+        ) : null}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}

@@ -254,6 +254,7 @@ export function projectEvent(
                   ...(payload.faviconPath !== undefined
                     ? { faviconPath: payload.faviconPath }
                     : {}),
+                  ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
                   updatedAt: payload.updatedAt,
                 }
