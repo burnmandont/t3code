@@ -3,6 +3,7 @@ import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import {
+  activeThreadAnchorTimestampMs,
   getActiveThreadSortTimestamp,
   getThreadSortTimestamp,
   sortThreads,
@@ -13,10 +14,9 @@ import type { SidebarThreadSummary, Thread } from "../types";
 import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
-import { resolveServerBackedAppStageLabel } from "../branding.logic";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
-export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
+export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
 // Visible sidebar rows are prewarmed into the thread-detail cache so opening a
 // nearby thread usually reuses an already-hot subscription. Each prewarmed
 // thread holds a live, fully hydrated detail subscription (all messages and
@@ -168,13 +168,6 @@ type ThreadStatusInput = Pick<
 export interface ThreadJumpHintVisibilityController {
   sync: (shouldShow: boolean) => void;
   dispose: () => void;
-}
-
-export function resolveSidebarStageBadgeLabel(input: {
-  primaryServerVersion: string | null | undefined;
-  fallbackStageLabel: string;
-}): string {
-  return resolveServerBackedAppStageLabel(input);
 }
 
 export function createThreadJumpHintVisibilityController(input: {
@@ -541,14 +534,44 @@ export function firstValidTimestamp(
 
 // Active sidebar cards follow the user's appearance preference. The recency
 // option intentionally uses the latest USER message rather than updatedAt so
-// streaming and background status changes cannot move rows on their own.
-export function sortThreadsForSidebar<T extends { readonly id: string } & ThreadSortInput>(
-  threads: readonly T[],
-  sortOrder: SidebarThreadSortOrder,
-): T[] {
+// streaming and background status changes cannot move rows on their own. A
+// lifecycle re-entry stamp can still surface a thread that was explicitly
+// un-settled, matching the mobile ordering contract.
+export function sortThreadsForSidebar<
+  T extends {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly updatedAt?: string;
+    readonly latestUserMessageAt?: string | null;
+    readonly messages?: ThreadSortInput["messages"];
+    readonly unsettledAt?: string | null | undefined;
+  },
+>(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "created_at"): T[] {
   return [...threads].toSorted((left, right) => {
-    const rightTimestamp = getActiveThreadSortTimestamp(right, sortOrder);
-    const leftTimestamp = getActiveThreadSortTimestamp(left, sortOrder);
+    const normalizedRight: ThreadSortInput = {
+      createdAt: right.createdAt,
+      updatedAt: right.updatedAt ?? right.createdAt,
+      ...(right.latestUserMessageAt === undefined
+        ? {}
+        : { latestUserMessageAt: right.latestUserMessageAt }),
+      ...(right.messages === undefined ? {} : { messages: right.messages }),
+    };
+    const normalizedLeft: ThreadSortInput = {
+      createdAt: left.createdAt,
+      updatedAt: left.updatedAt ?? left.createdAt,
+      ...(left.latestUserMessageAt === undefined
+        ? {}
+        : { latestUserMessageAt: left.latestUserMessageAt }),
+      ...(left.messages === undefined ? {} : { messages: left.messages }),
+    };
+    const rightTimestamp = Math.max(
+      getActiveThreadSortTimestamp(normalizedRight, sortOrder),
+      activeThreadAnchorTimestampMs(right),
+    );
+    const leftTimestamp = Math.max(
+      getActiveThreadSortTimestamp(normalizedLeft, sortOrder),
+      activeThreadAnchorTimestampMs(left),
+    );
     const byTimestamp =
       rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
     return byTimestamp || left.id.localeCompare(right.id);
@@ -578,16 +601,51 @@ export function searchSidebarThreadsByTitle<T extends { readonly title: string }
   return threads.filter((thread) => thread.title.toLowerCase().includes(normalizedQuery));
 }
 
+export function filterSidebarProjectScopeItems<TItem extends { readonly value: string }>(input: {
+  items: readonly TItem[];
+  activeScopeKey: string | null;
+  query: string;
+  matches: (item: TItem, query: string) => boolean;
+}): readonly TItem[] {
+  const projectItems = input.items.filter((item) => item.value !== "all");
+  const query = input.query.trim();
+  if (query.length > 0) {
+    return projectItems.filter((item) => input.matches(item, query));
+  }
+  return input.activeScopeKey === null ? projectItems : input.items;
+}
+
+export interface SidebarProjectScopeMenuState {
+  readonly open: boolean;
+  readonly query: string;
+}
+
+export type SidebarProjectScopeMenuAction =
+  | { readonly type: "query-changed"; readonly query: string }
+  | { readonly type: "open-changed"; readonly open: boolean }
+  | { readonly type: "project-settings-opened" };
+
+export function reduceSidebarProjectScopeMenuState(
+  state: SidebarProjectScopeMenuState,
+  action: SidebarProjectScopeMenuAction,
+): SidebarProjectScopeMenuState {
+  switch (action.type) {
+    case "query-changed":
+      return { ...state, query: action.query };
+    case "open-changed":
+      return { open: action.open, query: "" };
+    case "project-settings-opened":
+      return { open: false, query: "" };
+  }
+}
+
 type SettledTimestampInput = Pick<
   SidebarThreadSummary,
   "settledAt" | "latestUserMessageAt" | "latestTurn" | "updatedAt"
 >;
 
-/** The timestamp a settled row sorts and labels by: settledAt when stamped
-    (explicit settles), otherwise last activity — the same candidates
-    threadLastActivityAt feeds the auto-settle window (user message plus all
-    latestTurn stamps), so a thread whose last activity was a turn completion
-    doesn't sort by an older message time. updatedAt is the final net. */
+/** The timestamp a settled row sorts and labels by: settledAt when stamped,
+    otherwise the latest message or turn stamp. updatedAt is the final net. */
 export function resolveSettledTimestamp(thread: SettledTimestampInput): string | null {
   const settledAt = firstValidTimestamp(thread.settledAt);
   if (settledAt !== null) return settledAt;

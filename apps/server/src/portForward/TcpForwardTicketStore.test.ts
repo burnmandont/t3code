@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AuthSessionId } from "@t3tools/contracts";
+import { AuthSessionId, EnvironmentId } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
@@ -15,6 +16,11 @@ import * as TcpForwardTicketStore from "./TcpForwardTicketStore.ts";
 const sessionStoreLayer = SessionStore.layer.pipe(
   Layer.provide(SqlitePersistenceMemory),
   Layer.provide(ServerSecretStore.layer),
+  Layer.provide(
+    Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+      getEnvironmentId: Effect.succeed(EnvironmentId.make("tcp-forward-ticket-environment")),
+    }),
+  ),
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-tcp-forward-ticket-test-" })),
 );
 

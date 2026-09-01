@@ -64,7 +64,7 @@ layer("ProjectionThreadActivityRepository", (it) => {
         { concurrency: 1 },
       );
 
-      const userInputRows = yield* repository.listUserInputStateByThreadId({ threadId });
+      const userInputRows = yield* repository.listUserInputLifecycleByThreadId({ threadId });
       assert.deepEqual(
         userInputRows.map((row) => row.activityId),
         [

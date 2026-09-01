@@ -2,7 +2,7 @@ import Constants from "expo-constants";
 import { Image } from "expo-image";
 import { View } from "react-native";
 
-import { useThemeColor } from "../lib/useThemeColor";
+import { useUniwindTheme } from "../lib/useUniwindTheme";
 import { AppText as Text } from "./AppText";
 
 const appVariant = Constants.expoConfig?.extra?.appVariant;
@@ -19,8 +19,9 @@ export function BrandMark(props: { readonly compact?: boolean; readonly stageLab
   const compact = props.compact ?? false;
   const iconSize = compact ? 32 : 44;
   const stageLabel = props.stageLabel ?? DEFAULT_STAGE_LABEL;
-  const markBackgroundColor = useThemeColor("--color-foreground");
-  const markForegroundColor = useThemeColor("--color-background");
+  const theme = useUniwindTheme();
+  const markBackgroundColor = theme["--color-foreground"];
+  const markForegroundColor = theme["--color-background"];
 
   return (
     <View className="flex-row items-center gap-3">

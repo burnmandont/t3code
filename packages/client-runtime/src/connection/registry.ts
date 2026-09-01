@@ -184,6 +184,7 @@ interface EnvironmentServiceScope {
 }
 
 export const make = Effect.gen(function* () {
+  const registryScope = yield* Scope.Scope;
   const storage = yield* Persistence.ConnectionTargetStore;
   const registrations = yield* Persistence.ConnectionRegistrationStore;
   const cache = yield* Persistence.EnvironmentCacheStore;
@@ -325,7 +326,7 @@ export const make = Effect.gen(function* () {
       Effect.uninterruptible(
         Effect.gen(function* () {
           const environmentId = entry.target.environmentId;
-          const scope = yield* Scope.make();
+          const scope = yield* Scope.fork(registryScope);
           const supervisor = yield* EnvironmentSupervisor.make(entry, {
             initiallyDesired: false,
           }).pipe(

@@ -9,9 +9,9 @@ import type {
   ProjectGitStatus,
   ProjectListDirectoryResult,
 } from "@t3tools/contracts";
-import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
+import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { RotateCw } from "lucide-react";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -21,6 +21,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useTheme } from "~/hooks/useTheme";
+import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
@@ -28,6 +29,7 @@ import { useServerConfigs } from "~/state/entities";
 import { useProjectPathSearch } from "~/state/queries";
 
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
+import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
 import { loadProjectDirectory, useProjectDirectoryQuery } from "./projectFilesQueryState";
 
 interface FileBrowserPanelProps {
@@ -40,6 +42,7 @@ interface FileBrowserPanelProps {
   selectedPathRevealId: number;
   onOpenFile: (relativePath: string) => void;
   onRefreshSelectedFile?: () => void;
+  workspaceMutationId: string | null;
 }
 
 const TREE_UNSAFE_CSS = `
@@ -128,6 +131,7 @@ export default function FileBrowserPanel({
   selectedPathRevealId,
   onOpenFile,
   onRefreshSelectedFile,
+  workspaceMutationId,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
@@ -148,6 +152,8 @@ export default function FileBrowserPanel({
   const loadGenerationRef = useRef(0);
   const refreshDirectoryQueriesRef = useRef(false);
   const [loadingDirectoryCount, setLoadingDirectoryCount] = useState(0);
+  const [treeRevision, setTreeRevision] = useState(0);
+  const expandAllRequestedRef = useRef(false);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
   const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
@@ -279,6 +285,20 @@ export default function FileBrowserPanel({
   });
   const search = useFileTreeSearch(model);
   const indexedSearch = useProjectPathSearch({ environmentId, cwd, query: search.value }, 200);
+  const directoryPaths = useMemo(() => {
+    void treeRevision;
+    return [...entryKindsRef.current]
+      .filter(([, kind]) => kind === "directory")
+      .map(([path]) => `${path}/`);
+  }, [treeRevision]);
+  const allDirectoriesExpanded = useFileTreeSelector(model, (currentModel) =>
+    areAllDirectoriesExpanded(currentModel, directoryPaths),
+  );
+  const toggleAllDirectories = () => {
+    const expand = !allDirectoriesExpanded;
+    expandAllRequestedRef.current = expand;
+    setAllDirectoriesExpanded(model, directoryPaths, expand);
+  };
   const handleSearchValueChange = (value: string) => {
     if (value.trim().length === 0) {
       search.close();
@@ -309,6 +329,16 @@ export default function FileBrowserPanel({
 
       for (const entry of result.gitStatus) gitStatusesRef.current.set(entry.path, entry.status);
       model.setGitStatus([...gitStatusesRef.current].map(([path, status]) => ({ path, status })));
+      if (expandAllRequestedRef.current) {
+        setAllDirectoriesExpanded(
+          model,
+          [...entryKindsRef.current]
+            .filter(([, kind]) => kind === "directory")
+            .map(([path]) => `${path}/`),
+          true,
+        );
+      }
+      setTreeRevision((revision) => revision + 1);
     },
     [model],
   );
@@ -359,6 +389,7 @@ export default function FileBrowserPanel({
     loadGenerationRef.current += 1;
     rootResultRef.current = null;
     refreshDirectoryQueriesRef.current = false;
+    expandAllRequestedRef.current = false;
     loadingDirectoriesRef.current.clear();
     setLoadingDirectoryCount(0);
     entryKindsRef.current.clear();
@@ -366,6 +397,7 @@ export default function FileBrowserPanel({
     gitStatusesRef.current.clear();
     model.resetPaths([]);
     model.setGitStatus([]);
+    setTreeRevision((revision) => revision + 1);
   }, [cwd, environmentId, model]);
 
   useEffect(() => {
@@ -383,6 +415,11 @@ export default function FileBrowserPanel({
     rootDirectoryQuery.refresh();
     onRefreshSelectedFile?.();
   }, [onRefreshSelectedFile, rootDirectoryQuery.refresh]);
+  useWorkspaceMutationRefresh({
+    mutationId: workspaceMutationId,
+    refresh: rootDirectoryQuery.refresh,
+    resourceKey: `files:${environmentId}:${cwd}`,
+  });
 
   useEffect(() => {
     const loadExpandedDirectories = () => {
@@ -416,7 +453,10 @@ export default function FileBrowserPanel({
       const path = treePath(entry);
       if (model.getItem(path) === null) additions.set(path, { type: "add", path });
     }
-    if (additions.size > 0) model.batch([...additions.values()]);
+    if (additions.size > 0) {
+      model.batch([...additions.values()]);
+      setTreeRevision((revision) => revision + 1);
+    }
   }, [
     indexedSearch.entries,
     indexedSearch.isPending,
@@ -529,6 +569,32 @@ export default function FileBrowserPanel({
           onValueChange={handleSearchValueChange}
           onClose={search.close}
         />
+        {directoryPaths.length > 0 ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={
+                    allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"
+                  }
+                  onClick={toggleAllDirectories}
+                />
+              }
+            >
+              {allDirectoriesExpanded ? (
+                <ChevronsDownUpIcon className="size-3.5" />
+              ) : (
+                <ChevronsUpDownIcon className="size-3.5" />
+              )}
+            </TooltipTrigger>
+            <TooltipPopup>
+              {allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
       </div>
       {rootDirectoryQuery.error && rootDirectoryQuery.data === null ? (
         <div className="p-4 text-xs leading-relaxed text-destructive">
