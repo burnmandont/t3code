@@ -19,6 +19,7 @@ import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDi
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { DesktopPortForwardAuthorizationBridge } from "../components/desktop/DesktopPortForwardAuthorizationBridge";
+import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -140,6 +141,7 @@ function RootRouteView() {
         <GlassAppearanceSync />
         <FontAppearanceSync />
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
+        {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
         <RelayClientInstallDialog />
         <ConnectOnboardingDialog />
         <SshPasswordPromptDialog />

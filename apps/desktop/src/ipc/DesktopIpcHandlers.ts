@@ -46,6 +46,7 @@ import {
 } from "./methods/window.ts";
 import * as PreviewIpc from "./methods/preview.ts";
 import * as PortForwardIpc from "./methods/portForward.ts";
+import * as AppActivationIpc from "./methods/appActivation.ts";
 import { getWslState, setWslBackendEnabled, setWslDistro, setWslOnly } from "./methods/wsl.ts";
 import {
   beginSovereignSignIn,
@@ -58,6 +59,9 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   const ipc = yield* DesktopIpc.DesktopIpc;
   yield* PreviewIpc.installPreviewEventForwarding();
   yield* PortForwardIpc.installPortForwardEventForwarding();
+
+  yield* ipc.handle(AppActivationIpc.setReady);
+  yield* ipc.handle(AppActivationIpc.complete);
 
   yield* ipc.handleSync(getAppBranding);
   yield* ipc.handleSync(getSystemLocale);
