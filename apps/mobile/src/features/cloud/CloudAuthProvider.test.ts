@@ -36,6 +36,12 @@ vi.mock("../../connection/catalog", () => ({
   },
 }));
 
+vi.mock("./cloud-drafts", () => ({ removeCloudEnvironments: {} }));
+vi.mock("../../state/use-composer-drafts", () => ({
+  getComposerCloudAccountId: vi.fn(async () => null),
+  restoreCloudComposerDrafts: vi.fn(async () => undefined),
+}));
+
 vi.mock("./publicConfig", () => ({
   resolveCloudPublicConfig: vi.fn(() => ({
     oauth: { issuer: null, clientId: null, resource: null, redirectScheme: null },

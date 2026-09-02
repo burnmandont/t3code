@@ -9,6 +9,7 @@ import { ChatAttachment } from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
+  AppendStreamingProjectionThreadMessage,
   GetProjectionThreadMessageInput,
   ProjectionThreadMessageRepository,
   type ProjectionThreadMessageRepositoryShape,
@@ -215,6 +216,13 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadMessageRepository.upsert:query")),
     );
 
+  const appendStreaming: ProjectionThreadMessageRepositoryShape["appendStreaming"] = (row) =>
+    applyProjectionThreadMessageEvent({ ...row, isStreaming: true }).pipe(
+      Effect.mapError(
+        toPersistenceSqlError("ProjectionThreadMessageRepository.appendStreaming:query"),
+      ),
+    );
+
   const getByMessageId: ProjectionThreadMessageRepositoryShape["getByMessageId"] = (input) =>
     getProjectionThreadMessageRow(input).pipe(
       Effect.mapError(
@@ -256,6 +264,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
   return {
     upsert,
     applyEvent,
+    appendStreaming,
     getByMessageId,
     listByThreadId,
     countUserByThreadId,

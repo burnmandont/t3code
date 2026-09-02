@@ -23,17 +23,10 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   }),
 );
 
-function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
-  return (cause: unknown) =>
-    Schema.isSchemaError(cause)
-      ? toPersistenceDecodeError(decodeOperation)(cause)
-      : toPersistenceSqlError(sqlOperation)(cause);
-}
-
-function toProjectionThreadActivity(
-  row: Schema.Schema.Type<typeof ProjectionThreadActivityDbRowSchema>,
-): ProjectionThreadActivity {
-  return {
+const mapActivityRows = (
+  rows: ReadonlyArray<Schema.Schema.Type<typeof ProjectionThreadActivityDbRowSchema>>,
+): ReadonlyArray<ProjectionThreadActivity> =>
+  rows.map((row) => ({
     activityId: row.activityId,
     threadId: row.threadId,
     turnId: row.turnId,
@@ -43,7 +36,13 @@ function toProjectionThreadActivity(
     payload: row.payload,
     ...(row.sequence !== null ? { sequence: row.sequence } : {}),
     createdAt: row.createdAt,
-  };
+  }));
+
+function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
+  return (cause: unknown) =>
+    Schema.isSchemaError(cause)
+      ? toPersistenceDecodeError(decodeOperation)(cause)
+      : toPersistenceSqlError(sqlOperation)(cause);
 }
 
 const makeProjectionThreadActivityRepository = Effect.gen(function* () {
@@ -113,7 +112,7 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
       `,
   });
 
-  const listProjectionThreadUserInputStateRows = SqlSchema.findAll({
+  const listUserInputLifecycleActivityRows = SqlSchema.findAll({
     Request: ListProjectionThreadActivitiesInput,
     Result: ProjectionThreadActivityDbRowSchema,
     execute: ({ threadId }) =>
@@ -196,19 +195,19 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
           "ProjectionThreadActivityRepository.listByThreadId:decodeRows",
         ),
       ),
-      Effect.map((rows) => rows.map(toProjectionThreadActivity)),
+      Effect.map(mapActivityRows),
     );
 
-  const listUserInputStateByThreadId: ProjectionThreadActivityRepositoryShape["listUserInputStateByThreadId"] =
+  const listUserInputLifecycleByThreadId: ProjectionThreadActivityRepositoryShape["listUserInputLifecycleByThreadId"] =
     (input) =>
-      listProjectionThreadUserInputStateRows(input).pipe(
+      listUserInputLifecycleActivityRows(input).pipe(
         Effect.mapError(
           toPersistenceSqlOrDecodeError(
-            "ProjectionThreadActivityRepository.listUserInputStateByThreadId:query",
-            "ProjectionThreadActivityRepository.listUserInputStateByThreadId:decodeRows",
+            "ProjectionThreadActivityRepository.listUserInputLifecycleByThreadId:query",
+            "ProjectionThreadActivityRepository.listUserInputLifecycleByThreadId:decodeRows",
           ),
         ),
-        Effect.map((rows) => rows.map(toProjectionThreadActivity)),
+        Effect.map(mapActivityRows),
       );
 
   const listTaskLifecycleByThreadId: ProjectionThreadActivityRepositoryShape["listTaskLifecycleByThreadId"] =
@@ -220,7 +219,7 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
             "ProjectionThreadActivityRepository.listTaskLifecycleByThreadId:decodeRows",
           ),
         ),
-        Effect.map((rows) => rows.map(toProjectionThreadActivity)),
+        Effect.map(mapActivityRows),
       );
 
   const deleteByThreadId: ProjectionThreadActivityRepositoryShape["deleteByThreadId"] = (input) =>
@@ -233,8 +232,8 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
   return {
     upsert,
     listByThreadId,
-    listUserInputStateByThreadId,
     listTaskLifecycleByThreadId,
+    listUserInputLifecycleByThreadId,
     deleteByThreadId,
   } satisfies ProjectionThreadActivityRepositoryShape;
 });

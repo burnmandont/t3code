@@ -67,17 +67,17 @@ export interface ProjectionThreadActivityRepositoryShape {
     input: ListProjectionThreadActivitiesInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadActivity>, ProjectionRepositoryError>;
 
-  /**
-   * List only activities that participate in pending user-input state.
-   *
-   * Keeps shell-summary refreshes from decoding unrelated tool payloads.
-   */
-  readonly listUserInputStateByThreadId: (
+  /** List task lifecycle rows used to recover task titles after cache loss. */
+  readonly listTaskLifecycleByThreadId: (
     input: ListProjectionThreadActivitiesInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadActivity>, ProjectionRepositoryError>;
 
-  /** List task lifecycle rows used to recover task titles after cache loss. */
-  readonly listTaskLifecycleByThreadId: (
+  /**
+   * List activity rows used to derive pending user-input state.
+   *
+   * Filters in SQLite so unrelated payloads do not enter server memory.
+   */
+  readonly listUserInputLifecycleByThreadId: (
     input: ListProjectionThreadActivitiesInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadActivity>, ProjectionRepositoryError>;
 

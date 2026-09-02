@@ -8,14 +8,17 @@ import * as CliError from "effect/unstable/cli/CliError";
 import * as NetService from "@t3tools/shared/Net";
 import packageJson from "../package.json" with { type: "json" };
 import { authCommand } from "./cli/auth.ts";
+import { appCommand } from "./cli/app.ts";
 import { connectCommand } from "./cli/connect.ts";
 import { pairCommand } from "./cli/pair.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { sharedServerCommandFlags } from "./cli/config.ts";
+import { isEntrypoint } from "./entrypoint.ts";
 import { projectCommand } from "./cli/project.ts";
 import { runServerCommand, serveCommand, startCommand } from "./cli/server.ts";
 import { serviceCommand } from "./cli/service.ts";
 import { servicePreflightCommand } from "./cli/servicePreflight.ts";
+import { themeCommand } from "./cli/theme.ts";
 import { triageCommand } from "./cli/triage.ts";
 import { controlPlaneCommand, environmentCommand } from "./cli/runtimeSettings.ts";
 import { canonicalCliName } from "./cli/branding.ts";
@@ -64,11 +67,13 @@ export const makeCli = ({
     Command.withSubcommands([
       startCommand,
       serveCommand,
+      appCommand,
       pairCommand,
       authCommand,
       projectCommand,
       serviceCommand,
       servicePreflightCommand,
+      themeCommand,
       triageCommand,
       controlPlaneCommand,
       environmentCommand,
@@ -78,7 +83,13 @@ export const makeCli = ({
 
 export const cli = makeCli({ cliName: canonicalCliName });
 
-if (import.meta.main) {
+if (
+  isEntrypoint({
+    moduleUrl: import.meta.url,
+    entryPath: process.argv[1],
+    runtimeMain: import.meta.main,
+  })
+) {
   Command.run(cli, { version: packageJson.version }).pipe(
     Effect.scoped,
     Effect.provide(CliRuntimeLayer),
