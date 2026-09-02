@@ -469,6 +469,36 @@ test("installs dependencies for source trees included by the desktop typecheck",
   assert.match(workflow, /Electron executable missing/u);
 });
 
+test("validates pull requests without production authority", () => {
+  const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-pr.yml");
+
+  assert.match(workflow, /pull_request:\s+branches:\s+- sovereign\/main/su);
+  assert.match(workflow, /group: sovereign-pr-/u);
+  assert.match(workflow, /cancel-in-progress: true/u);
+  assert.match(workflow, /permissions:\s+contents: read/su);
+  assert.match(workflow, /pnpm --filter @t3tools\/contracts typecheck/u);
+  assert.match(workflow, /pnpm --filter @t3tools\/client-runtime test/u);
+  assert.match(workflow, /pnpm --filter t3code-account test/u);
+  assert.match(workflow, /pnpm --filter t3code-relay test/u);
+  assert.match(workflow, /node --test infra\/sovereign\/ci\/deploy-and-verify[.]test[.]mjs/u);
+  assert.match(workflow, /pnpm exec vp run build:desktop/u);
+  assert.match(workflow, /T3CODE_BUILD_NEUTRAL_PUBLIC_RUNTIME: "1"/u);
+  assert.match(
+    workflow,
+    /test ! -e apps\/server\/dist\/client\/[.]well-known\/t3-sovereign[.]json/u,
+  );
+
+  assert.doesNotMatch(workflow, /\$\{\{\s*secrets[.]/u);
+  assert.doesNotMatch(workflow, /COOLIFY_/u);
+  assert.doesNotMatch(workflow, /SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64/u);
+  assert.doesNotMatch(workflow, /SOVEREIGN_PACKAGE_TOKEN/u);
+  assert.doesNotMatch(workflow, /build-runtime-artifact[.]mjs/u);
+  assert.doesNotMatch(workflow, /publish-runtime-artifact[.]mjs/u);
+  assert.doesNotMatch(workflow, /publish-github-runtime[.]mjs/u);
+  assert.doesNotMatch(workflow, /dispatch-apple-release[.]mjs/u);
+  assert.doesNotMatch(workflow, /run: node infra\/sovereign\/ci\/deploy-and-verify[.]mjs/u);
+});
+
 test("publishes a signed complete remote runtime before production deployment", () => {
   const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
   const buildIndex = workflow.indexOf("Build signed complete sovereign runtime");
