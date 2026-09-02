@@ -506,6 +506,7 @@ test("runs filesystem-sensitive server tests without root privileges", () => {
   ]) {
     const workflow = readSovereignFile(workflowPath);
     assert.match(workflow, /useradd --create-home --shell \/bin\/bash sovereign-ci/u);
+    assert.match(workflow, /chown -R sovereign-ci:sovereign-ci apps\/server/u);
     assert.match(workflow, /runuser --preserve-environment -u sovereign-ci/u);
     assert.match(workflow, /env HOME=\/home\/sovereign-ci pnpm --filter t3 test/u);
   }

@@ -117,6 +117,7 @@ jobs:
         run: |
           if [ "$(id -u)" -eq 0 ]; then
             id -u sovereign-ci >/dev/null 2>&1 || useradd --create-home --shell /bin/bash sovereign-ci
+            chown -R sovereign-ci:sovereign-ci apps/server
             runuser --preserve-environment -u sovereign-ci -- \
               env HOME=/home/sovereign-ci pnpm --filter t3 test
           else
