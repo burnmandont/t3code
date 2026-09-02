@@ -499,6 +499,18 @@ test("validates pull requests without production authority", () => {
   assert.doesNotMatch(workflow, /run: node infra\/sovereign\/ci\/deploy-and-verify[.]mjs/u);
 });
 
+test("runs filesystem-sensitive server tests without root privileges", () => {
+  for (const workflowPath of [
+    "../../../.gitea/workflows/sovereign-pr.yml",
+    "../../../.gitea/workflows/sovereign-ci-deploy.yml",
+  ]) {
+    const workflow = readSovereignFile(workflowPath);
+    assert.match(workflow, /useradd --create-home --shell \/bin\/bash sovereign-ci/u);
+    assert.match(workflow, /runuser --preserve-environment -u sovereign-ci/u);
+    assert.match(workflow, /env HOME=\/home\/sovereign-ci pnpm --filter t3 test/u);
+  }
+});
+
 test("publishes a signed complete remote runtime before production deployment", () => {
   const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
   const buildIndex = workflow.indexOf("Build signed complete sovereign runtime");

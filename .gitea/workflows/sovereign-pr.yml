@@ -101,7 +101,13 @@ jobs:
           pnpm --filter @t3tools/contracts test
           pnpm --filter @t3tools/shared test
           pnpm --filter @t3tools/client-runtime test
-          pnpm --filter t3 test
+          if [ "$(id -u)" -eq 0 ]; then
+            id -u sovereign-ci >/dev/null 2>&1 || useradd --create-home --shell /bin/bash sovereign-ci
+            runuser --preserve-environment -u sovereign-ci -- \
+              env HOME=/home/sovereign-ci pnpm --filter t3 test
+          else
+            pnpm --filter t3 test
+          fi
           pnpm --filter t3code-account test
           pnpm --filter t3code-relay test
           pnpm --filter @t3tools/desktop test

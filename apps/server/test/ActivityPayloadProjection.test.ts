@@ -136,8 +136,13 @@ const fixtures = [
 
 describe("projectActivityPayload", () => {
   function comparableActivity(activity: ThreadFeedActivity) {
+    const workEntry = { ...activity.workEntry } as ThreadFeedActivity["workEntry"] & {
+      sourceActivities?: ReadonlyArray<OrchestrationThreadActivity>;
+    };
+    delete workEntry.sourceActivities;
     return {
       ...activity,
+      workEntry,
       fullDetail: activity.getFullDetail(),
       copyText: activity.getCopyText(),
       getFullDetail: undefined,
