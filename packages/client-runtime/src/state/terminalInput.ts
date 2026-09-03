@@ -97,8 +97,43 @@ export function createTerminalInputCommand<A, E>(
       });
     };
 
+    const sendOversizedEntry = (entry: PendingInput<A, E>) => {
+      const { target } = entry;
+      lane.tail = lane.tail.then(async () => {
+        let result: AtomCommandResult<A, E> | undefined;
+        for (let offset = 0; offset < target.input.data.length; ) {
+          let end = Math.min(offset + maxBatchChars, target.input.data.length);
+          const splitsSurrogatePair =
+            end - offset > 1 &&
+            end < target.input.data.length &&
+            target.input.data.charCodeAt(end - 1) >= 0xd800 &&
+            target.input.data.charCodeAt(end - 1) <= 0xdbff &&
+            target.input.data.charCodeAt(end) >= 0xdc00 &&
+            target.input.data.charCodeAt(end) <= 0xdfff;
+          if (splitsSurrogatePair) end -= 1;
+          const data = target.input.data.slice(offset, end);
+          const chunkResult = await send.run(registry, {
+            environmentId: target.environmentId,
+            input: { ...target.input, data },
+          });
+          result = result?._tag === "Failure" ? result : chunkResult;
+          lane.bufferedChars -= data.length;
+          offset = end;
+        }
+        entry.resolve(result!);
+        if (lane.bufferedChars === 0 && lane.pending.length === 0 && lanes.get(key) === lane) {
+          lanes.delete(key);
+        }
+      });
+    };
+
     for (const entry of pending) {
       const chars = entry.target.input.data.length;
+      if (chars > maxBatchChars) {
+        sendGroup();
+        sendOversizedEntry(entry);
+        continue;
+      }
       if (groupChars > 0 && groupChars + chars > maxBatchChars) sendGroup();
       group.push(entry);
       groupChars += chars;

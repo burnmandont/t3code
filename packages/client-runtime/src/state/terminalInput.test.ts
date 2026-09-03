@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { AtomRegistry } from "effect/unstable/reactivity";
 
@@ -65,6 +66,71 @@ describe("terminal input command", () => {
       { terminalId: "term-1", data: "a" },
       { terminalId: "term-2", data: "b" },
     ]);
+    registry.dispose();
+  });
+
+  it("splits a single oversized input into legal ordered writes", async () => {
+    const sent: string[] = [];
+    const data = `${"a".repeat(65_535)}😀b`;
+    const send: AtomCommand<TerminalInputTarget, void, never> = {
+      label: "send",
+      run: async (_registry, input) => {
+        sent.push(input.input.data);
+        return AsyncResult.success(undefined);
+      },
+    };
+    const input = createTerminalInputCommand(send);
+    const registry = AtomRegistry.make();
+
+    const result = await input.run(registry, target(data));
+
+    expect(sent.map((chunk) => chunk.length)).toEqual([65_535, 3]);
+    expect(sent.join("")).toBe(data);
+    expect(result._tag).toBe("Success");
+    registry.dispose();
+  });
+
+  it("preserves surrounding input order when splitting an oversized entry", async () => {
+    const sent: string[] = [];
+    const send: AtomCommand<TerminalInputTarget, void, never> = {
+      label: "send",
+      run: async (_registry, input) => {
+        sent.push(input.input.data);
+        return AsyncResult.success(undefined);
+      },
+    };
+    const input = createTerminalInputCommand(send, { maxBatchChars: 4 });
+    const registry = AtomRegistry.make();
+
+    await Promise.all([
+      input.run(registry, target("ab")),
+      input.run(registry, target("cdefgh")),
+      input.run(registry, target("ij")),
+    ]);
+
+    expect(sent).toEqual(["ab", "cdef", "gh", "ij"]);
+    expect(sent.join("")).toBe("abcdefghij");
+    registry.dispose();
+  });
+
+  it("reports a failed chunk after sending the rest of an oversized input", async () => {
+    const sent: string[] = [];
+    const send: AtomCommand<TerminalInputTarget, void, string> = {
+      label: "send",
+      run: async (_registry, input) => {
+        sent.push(input.input.data);
+        return input.input.data === "efgh"
+          ? AsyncResult.failure(Cause.fail("chunk failed"))
+          : AsyncResult.success(undefined);
+      },
+    };
+    const input = createTerminalInputCommand(send, { maxBatchChars: 4 });
+    const registry = AtomRegistry.make();
+
+    const result = await input.run(registry, target("abcdefghij"));
+
+    expect(sent).toEqual(["abcd", "efgh", "ij"]);
+    expect(result._tag).toBe("Failure");
     registry.dispose();
   });
 
