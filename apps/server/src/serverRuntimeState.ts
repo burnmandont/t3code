@@ -84,7 +84,13 @@ export const makePersistedServerRuntimeState = (input: {
     startedAt: DateTime.formatIso(now),
   }));
 
-const isProcessAlive = (pid: number): boolean => {
+/**
+ * Report whether the pid recorded in a persisted runtime state is still
+ * running. Signal 0 delivers nothing; it only reports whether the pid exists.
+ * EPERM means it exists but belongs to another user, which still counts as
+ * alive.
+ */
+export const isProcessAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;

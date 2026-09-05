@@ -1,6 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFSP from "node:fs/promises";
-import * as NodeOS from "node:os";
 
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -27,9 +26,10 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/path";
 import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 
+import { expandHomePathWith } from "../pathExpansion.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
 
 export class WorkspaceEntriesWindowsPathUnsupportedError extends Schema.TaggedErrorClass<WorkspaceEntriesWindowsPathUnsupportedError>()(
   "WorkspaceEntriesWindowsPathUnsupportedError",
@@ -135,16 +135,6 @@ export class WorkspaceEntries extends Context.Service<
   }
 >()("t3/workspace/WorkspaceEntries") {}
 
-function expandHomePath(input: string, path: Path.Path): string {
-  if (input === "~") {
-    return NodeOS.homedir();
-  }
-  if (input.startsWith("~/") || input.startsWith("~\\")) {
-    return path.join(NodeOS.homedir(), input.slice(2));
-  }
-  return input;
-}
-
 function gitStatusFromCode(code: string): ProjectGitStatus | null {
   if (code === "!!") return "ignored";
   if (code === "??") return "untracked";
@@ -168,7 +158,6 @@ function parseGitStatus(output: string): ReadonlyArray<{
     const status = gitStatusFromCode(code);
     if (status === null) continue;
     entries.push({ path: record.slice(3).replace(/\/$/, ""), status });
-    // In porcelain v1 -z output, a rename is followed by its old path.
     if (code.includes("R")) index += 1;
   }
   return entries;
@@ -188,7 +177,7 @@ const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(fu
   }
 
   if (!isExplicitRelativePath(input.partialPath)) {
-    return path.resolve(expandHomePath(input.partialPath, path));
+    return path.resolve(expandHomePathWith(input.partialPath, path));
   }
 
   if (!input.cwd) {
@@ -196,7 +185,7 @@ const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(fu
       partialPath: input.partialPath,
     });
   }
-  return path.resolve(expandHomePath(input.cwd, path), input.partialPath);
+  return path.resolve(expandHomePathWith(input.cwd, path), input.partialPath);
 });
 
 export const make = Effect.gen(function* () {
@@ -439,9 +428,6 @@ export const make = Effect.gen(function* () {
           "--porcelain=v1",
           "-z",
           "--ignored=matching",
-          // Keep each lazy directory request local. `all` recursively walks
-          // every untracked subtree and defeats both lazy loading and the
-          // server's low-I/O idle behavior.
           "--untracked-files=normal",
           "--",
           target.relativePath || ".",
@@ -457,10 +443,7 @@ export const make = Effect.gen(function* () {
       !gitResult.value.stdoutTruncated
         ? parseGitStatus(gitResult.value.stdout)
         : [];
-    return {
-      entries,
-      gitStatus,
-    };
+    return { entries, gitStatus };
   });
 
   return WorkspaceEntries.of({ browse, list, listDirectory, refresh, search, searchContents });

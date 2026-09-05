@@ -1,22 +1,22 @@
-# Sovereign Relay Relay
+# T3 Connect Relay
 
 > [!NOTE]
-> Sign in to Sovereign Relay from the app under Settings > Connections.
+> Sign in to T3 Connect from the app under Settings > Connections.
 
-The relay is the hosted control plane for Sovereign Relay. It helps clients discover and connect to
+The relay is the hosted control plane for T3 Connect. It helps clients discover and connect to
 remote environments, manages the cloud-side records needed for those connections, and delivers
 optional mobile notifications and Live Activities.
 
-The relay is intentionally not in the hot path for normal Sovereign traffic. After a client connects,
+The relay is intentionally not in the hot path for normal T3 Code traffic. After a client connects,
 regular API and WebSocket traffic goes directly between that client and the selected environment.
-See the [Sovereign Relay architecture overview](../../docs/internals/t3-code-connect-auth-flow.html) for the larger system
+See the [T3 Connect architecture note](../../docs/internals/t3-connect.md) for the larger system
 design.
 
 ## Responsibilities
 
 The relay currently owns:
 
-- Linking Sovereign environments to a cloud account.
+- Linking T3 Code environments to a cloud account.
 - Provisioning and tracking managed environment endpoints.
 - Issuing short-lived credentials used to connect clients to linked environments.
 - Listing linked environments and registered mobile devices for an account.
@@ -73,100 +73,6 @@ vp run typecheck
 
 Backend changes should include tests. Prefer testing the real business logic with external
 dependencies represented at their boundary rather than mocking internal behavior.
-
-## Sovereign Runtime (in progress)
-
-`src/sovereign.ts` runs the existing relay API as a conventional Node service and runs the private
-frps authorization callback on a second listener. It uses ordinary PostgreSQL, the `t3_relay`
-endpoint provider, JWKS-verified OAuth access tokens, and local logs. APNs is disabled by default;
-when explicitly enabled, a PostgreSQL outbox and in-process worker replace Cloudflare Queues while
-the existing provider-token signing, payload validation, stale-state checks, and Apple delivery
-client remain unchanged. The runtime does not read Clerk, Cloudflare, PlanetScale, or Axiom
-configuration. It communicates directly with Apple's APNs endpoints and never uses Expo Push.
-
-The Node process also runs relay maintenance immediately at startup and every five minutes. It
-prunes expired DPoP replay records, terminal agent-activity rows using the same retention policy as
-the upstream Worker, and APNs delivery-attempt audit rows after 30 days. Token exchange and
-terminal/deletion activity events perform their corresponding cleanup opportunistically. Mobile
-sign-out and account switching deregister the departing account's device with a captured credential
-before that credential can be replaced. Event cleanup is best-effort so a maintenance failure never
-rejects an otherwise valid authorization or activity update; the periodic pass logs failures and
-retries on the next cycle. The same reconciliation pass deprovisions allocation rows that no longer
-have an active managed link, including teardown left incomplete by a failed unlink or account
-transfer.
-Background cleanup waits through a 15-minute orphan grace period and uses allocation-generation
-compare-and-swap checks so it cannot tear down a tunnel that is concurrently being linked.
-
-Environment sharing remains the default. To move a machine exclusively to another account, run
-`t3 connect link --transfer` while authorizing the destination account. Transfer intent is bound
-into the signed link challenge and revokes only other users linked with that exact environment
-signing key; an environment-ID collision alone cannot take over an existing link.
-
-Apply the relay schema to an empty database, then start the process:
-
-```sh
-export T3_RELAY_DATABASE_URL='postgres://...'
-vp run --filter t3code-relay sovereign:db:migrate
-vp run --filter t3code-relay sovereign
-```
-
-Required runtime configuration:
-
-- `T3_RELAY_DATABASE_URL`: owned PostgreSQL connection URL.
-- `T3_RELAY_ISSUER`: canonical public relay origin.
-- `T3_RELAY_ALLOWED_ORIGINS`: comma-separated exact browser origins permitted by relay CORS. Native
-  clients do not require CORS; do not use `*` for an Internet-facing sovereign deployment.
-- `T3_RELAY_SIGNING_PRIVATE_KEY` and `T3_RELAY_SIGNING_PUBLIC_KEY`: Ed25519 PKCS#8/SPKI PEM used
-  by the existing relay and environment mint-proof protocol.
-- `T3_OIDC_ISSUER`, `T3_OIDC_AUDIENCE`, and `T3_OIDC_JWKS_URL`: owned OAuth 2.1 issuer, relay
-  resource identifier, and JWKS URL.
-- `T3_MANAGED_ENDPOINT_BASE_DOMAIN`: environment endpoint zone.
-- `T3_FRPS_SERVER_ADDR`: address remote frpc connectors can reach.
-
-Optional sovereign APNs configuration:
-
-- `T3_APNS_ENABLED=true` opts into direct Apple Push Notification service delivery. It is false by
-  default and partial configuration fails relay startup rather than silently dropping pushes.
-- `T3_APNS_ENVIRONMENT` is `sandbox` for development-signed iOS builds and `production` for
-  distribution builds. A device's registered APS environment and bundle id override these defaults.
-- `T3_APNS_TEAM_ID`, `T3_APNS_KEY_ID`, and `T3_APNS_BUNDLE_ID` identify the Apple developer team,
-  APNs `.p8` key, and fallback app bundle.
-- `T3_APNS_PRIVATE_KEY_B64` is the base64-encoded contents of the Apple `.p8` private key.
-- `T3_APNS_DELIVERY_JOB_SIGNING_SECRET` is an independently generated secret of at least 32
-  characters (`openssl rand -hex 32`).
-
-The queue body contains the destination APNs token. Protect the relay database and its backups as
-secrets. Successful jobs are deleted; a job is moved to `dead_letter` after five processing failures
-and records only a bounded error code outside its signed body. Operators should diagnose and delete
-dead-letter rows rather than exporting their payloads.
-
-For a local sovereign relay whose managed wildcard names do not resolve through the host DNS,
-set `T3_MANAGED_ENDPOINT_DIAL_HOST` to the local frps HTTP listener address, such as
-`127.0.0.1`. Relay-to-environment health and credential-mint requests then dial that address while
-preserving the allocated hostname in the HTTP `Host` header used by frps virtual-host routing. The
-public endpoint returned to clients is unchanged. Do not include a port; the configured managed
-endpoint HTTP port remains authoritative.
-
-For a container deployment where the private route also uses a different scheme or port, prefer
-`T3_MANAGED_ENDPOINT_DIAL_ORIGIN`, for example `http://frps:8080`. It replaces only the network
-dial origin. The public managed endpoint URL and its `Host` header remain unchanged. This avoids
-public-DNS hairpinning between a co-located relay and frps.
-
-The remaining variables have local-development defaults in `src/sovereign.ts`. The frps plugin
-listener defaults to `127.0.0.1:4101` and must remain on loopback or a private service network. A
-matching frps configuration is:
-
-```toml
-[[httpPlugins]]
-name = "t3-sovereign-authorization"
-addr = "127.0.0.1:4101"
-path = "/internal/frp/authorize"
-ops = ["Login", "NewProxy", "Ping", "CloseProxy"]
-```
-
-Schema changes are generated into `infra/relay/drizzle`; keep the Drizzle schema, generated
-migration, and snapshot in the same commit. Better Auth account tables will use their own generated
-migration boundary rather than being handwritten into the relay schema.
 
 ## Deployment
 
@@ -253,8 +159,6 @@ and hosted web builds.
 
 See:
 
-- [Sovereign Relay Clerk Setup](../../docs/internals/t3-connect.md) for Clerk keys, JWT templates, and sign-up restrictions
-  setup.
+- [T3 Connect setup](../../docs/operations/connect-setup.md) for Clerk keys, JWT templates, and sign-up restrictions.
 - [Relay Observability](../../docs/operations/relay-observability.md) for deployment tracing and diagnostics.
-- [Sovereign Relay Architecture Overview](../../docs/internals/t3-code-connect-auth-flow.html) for the full link,
-  connect, endpoint, and notification flows.
+- [T3 Connect architecture](../../docs/internals/t3-connect.md) for environment linking and trust boundaries.

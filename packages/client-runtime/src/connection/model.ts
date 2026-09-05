@@ -115,6 +115,8 @@ export class ConnectionBlockedError extends Schema.TaggedErrorClass<ConnectionBl
 
 export type ConnectionAttemptError = ConnectionTransientError | ConnectionBlockedError;
 
+export const DPOP_ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
+
 export type PreparedHttpAuthorization =
   | {
       readonly _tag: "Bearer";

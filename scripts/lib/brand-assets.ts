@@ -39,7 +39,6 @@ export const BRAND_ASSET_PATHS = {
 
   mobileMonochromeMarkPng: "apps/mobile/assets/sovereign-mark.png",
   mobileNotificationMarkPng: "apps/mobile/assets/sovereign-notification-icon.png",
-  marketingIconPng: "apps/marketing/public/icon.png",
 } as const;
 
 export type WebAssetBrand = "development" | "nightly" | "production";

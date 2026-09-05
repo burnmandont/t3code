@@ -13,6 +13,7 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import { KeybindingsConfigError } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
 const encodeKeybindingsConfigJson = Schema.encodeEffect(KeybindingsConfigJson);
@@ -208,6 +209,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("sidebar.toggle"), "mod+b");
       assert.equal(defaultsByCommand.get("rightPanel.toggle"), "mod+alt+b");
       assert.isFalse(defaultsByCommand.has("rightPanel.toggleMaximized"));
+      assert.equal(defaultsByCommand.get("rightPanel.close"), "mod+w");
       assert.equal(defaultsByCommand.get("terminal.splitVertical"), "mod+shift+d");
       assert.equal(defaultsByCommand.get("modelPicker.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("modelPicker.jump.9"), "mod+9");
@@ -511,47 +513,52 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
-  it.effect("fails when config directory is not writable", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
-      yield* writeKeybindingsConfig(keybindingsConfigPath, [
-        { key: "mod+j", command: "terminal.toggle" },
-      ]);
-      const writeFailure = PlatformError.systemError({
-        _tag: "PermissionDenied",
-        module: "FileSystem",
-        method: "writeFileString",
-        pathOrDescriptor: keybindingsConfigPath,
-        description: "Test PermissionDenied write failure.",
-      });
-      const failingFileSystem = FileSystem.FileSystem.of({
-        ...fs,
-        writeFileString: (filePath, contents, options) =>
-          String(filePath).endsWith("/contents.tmp")
-            ? Effect.fail(writeFailure)
-            : fs.writeFileString(filePath, contents, options),
-      });
-
-      const result = yield* Effect.gen(function* () {
-        const keybindings = yield* Keybindings.Keybindings;
-        return yield* keybindings.upsertKeybindingRule({
-          key: "mod+shift+r",
-          command: "script.run-tests.run",
+  // chmod cannot make a directory unwritable on Windows, so the write succeeds.
+  it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
+    "fails when config directory is not writable",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+        yield* writeKeybindingsConfig(keybindingsConfigPath, [
+          { key: "mod+j", command: "terminal.toggle" },
+        ]);
+        const writeFailure = PlatformError.systemError({
+          _tag: "PermissionDenied",
+          module: "FileSystem",
+          method: "writeFileString",
+          pathOrDescriptor: keybindingsConfigPath,
+          description: "Test PermissionDenied write failure.",
         });
-      }).pipe(
-        toDetailResult,
-        Effect.provide(makeKeybindingsLayer()),
-        Effect.provideService(FileSystem.FileSystem, failingFileSystem),
-      );
-      assertFailure(result, "failed to write keybindings config");
+        const failingFileSystem = FileSystem.FileSystem.of({
+          ...fs,
+          writeFileString: (filePath, contents, options) =>
+            String(filePath).endsWith("/contents.tmp")
+              ? Effect.fail(writeFailure)
+              : fs.writeFileString(filePath, contents, options),
+        });
 
-      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
-      const persistedView = persisted.map(({ key, command }) => ({ key, command }));
-      assert.deepEqual(persistedView, [{ key: "mod+j", command: "terminal.toggle" }]);
-    }).pipe(
-      Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3code-keybindings-test-" })),
-    ),
+        const result = yield* Effect.gen(function* () {
+          const keybindings = yield* Keybindings.Keybindings;
+          return yield* keybindings.upsertKeybindingRule({
+            key: "mod+shift+r",
+            command: "script.run-tests.run",
+          });
+        }).pipe(
+          toDetailResult,
+          Effect.provide(makeKeybindingsLayer()),
+          Effect.provideService(FileSystem.FileSystem, failingFileSystem),
+        );
+        assertFailure(result, "failed to write keybindings config");
+
+        const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+        const persistedView = persisted.map(({ key, command }) => ({ key, command }));
+        assert.deepEqual(persistedView, [{ key: "mod+j", command: "terminal.toggle" }]);
+      }).pipe(
+        Effect.provide(
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3code-keybindings-test-" }),
+        ),
+      ),
   );
 
   it.effect("caches loaded resolved config across repeated reads", () =>

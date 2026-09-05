@@ -6,33 +6,42 @@ import type {
   TerminalSummary,
   ThreadId,
 } from "@t3tools/contracts";
+import {
+  appendOutput,
+  DEFAULT_MAX_TERMINAL_BUFFER_BYTES,
+  EMPTY_TERMINAL_OUTPUT_STATE,
+  resetOutput,
+  type TerminalOutputState,
+} from "./terminalOutput.ts";
+
+export {
+  DEFAULT_MAX_TERMINAL_BUFFER_BYTES,
+  INITIAL_TERMINAL_OUTPUT_CURSOR,
+  readTerminalOutputUpdate,
+  terminalOutputText,
+  type TerminalOutputCursor,
+  type TerminalOutputState,
+  type TerminalOutputUpdate,
+} from "./terminalOutput.ts";
 
 export interface TerminalSessionState {
   readonly summary: TerminalSummary | null;
-  readonly buffer: string;
+  readonly output: TerminalOutputState;
   readonly status: TerminalSessionSnapshot["status"] | "closed";
   readonly error: string | null;
   readonly hasRunningSubprocess: boolean;
   readonly updatedAt: string | null;
   readonly version: number;
-  readonly renderVersion: number;
-  readonly renderUpdates: ReadonlyArray<TerminalRenderUpdate>;
-}
-
-export interface TerminalRenderUpdate {
-  readonly version: number;
-  readonly type: "append" | "reset";
-  readonly data: string;
+  readonly lifecycleVersion: number;
 }
 
 export interface TerminalBufferState {
-  readonly buffer: string;
+  readonly output: TerminalOutputState;
   readonly status: TerminalSessionSnapshot["status"] | "closed";
   readonly error: string | null;
   readonly updatedAt: string | null;
   readonly version: number;
-  readonly renderVersion: number;
-  readonly renderUpdates: ReadonlyArray<TerminalRenderUpdate>;
+  readonly lifecycleVersion: number;
 }
 
 export interface KnownTerminalSessionTarget {
@@ -55,67 +64,50 @@ export function selectRunningSubprocessTerminalIds(
 }
 
 export const EMPTY_TERMINAL_BUFFER_STATE = Object.freeze<TerminalBufferState>({
-  buffer: "",
+  output: EMPTY_TERMINAL_OUTPUT_STATE,
   status: "closed",
   error: null,
   updatedAt: null,
   version: 0,
-  renderVersion: 0,
-  renderUpdates: [],
+  lifecycleVersion: 0,
 });
 
 export const EMPTY_TERMINAL_SESSION_STATE = Object.freeze<TerminalSessionState>({
   summary: null,
-  buffer: "",
+  output: EMPTY_TERMINAL_OUTPUT_STATE,
   status: "closed",
   error: null,
   hasRunningSubprocess: false,
   updatedAt: null,
   version: 0,
-  renderVersion: 0,
-  renderUpdates: [],
+  lifecycleVersion: 0,
 });
 
-export const DEFAULT_MAX_TERMINAL_BUFFER_BYTES = 512 * 1024;
-export const DEFAULT_MAX_TERMINAL_RENDER_UPDATES = 64;
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+let terminalAttachGeneration = 0;
 
-function trimBufferToBytes(buffer: string, maxBufferBytes: number): string {
-  if (maxBufferBytes <= 0) {
-    return "";
-  }
-
-  const encoded = textEncoder.encode(buffer);
-  if (encoded.byteLength <= maxBufferBytes) {
-    return buffer;
-  }
-
-  let start = encoded.byteLength - maxBufferBytes;
-  while (start < encoded.length) {
-    const byte = encoded[start];
-    if (byte === undefined || (byte & 0b1100_0000) !== 0b1000_0000) {
-      break;
-    }
-    start += 1;
-  }
-
-  return textDecoder.decode(encoded.subarray(start));
+/** A reinstalled attach stream must not reuse an old renderer's output cursor. */
+export function nextTerminalAttachSeedState(): TerminalBufferState {
+  return {
+    ...EMPTY_TERMINAL_BUFFER_STATE,
+    output: {
+      ...EMPTY_TERMINAL_OUTPUT_STATE,
+      generation: ++terminalAttachGeneration,
+    },
+  };
 }
 
 export function terminalBufferStateFromSnapshot(
   snapshot: TerminalSessionSnapshot,
   maxBufferBytes: number,
+  current: TerminalBufferState = EMPTY_TERMINAL_BUFFER_STATE,
 ): TerminalBufferState {
-  const buffer = trimBufferToBytes(snapshot.history, maxBufferBytes);
   return {
-    buffer,
+    output: resetOutput(current.output, snapshot.history, maxBufferBytes),
     status: snapshot.status,
     error: null,
     updatedAt: snapshot.updatedAt,
-    version: 1,
-    renderVersion: 1,
-    renderUpdates: [{ version: 1, type: "reset", data: buffer }],
+    version: current.version + 1,
+    lifecycleVersion: current.lifecycleVersion,
   };
 }
 
@@ -131,62 +123,13 @@ export function combineTerminalSessionState(
 ): TerminalSessionState {
   return {
     summary,
-    buffer: buffer.buffer,
+    output: buffer.output,
     status: buffer.version > 0 ? buffer.status : (summary?.status ?? buffer.status),
     error: buffer.error,
     hasRunningSubprocess: summary?.hasRunningSubprocess ?? false,
     updatedAt: latestTimestamp(summary?.updatedAt ?? null, buffer.updatedAt),
     version: buffer.version,
-    renderVersion: buffer.renderVersion,
-    renderUpdates: buffer.renderUpdates,
-  };
-}
-
-function appendTerminalRenderUpdate(
-  current: TerminalBufferState,
-  type: TerminalRenderUpdate["type"],
-  data: string,
-): Pick<TerminalBufferState, "renderVersion" | "renderUpdates"> {
-  const update = { version: current.renderVersion + 1, type, data } as const;
-  const renderUpdates =
-    type === "reset"
-      ? [update]
-      : [...current.renderUpdates, update].slice(-DEFAULT_MAX_TERMINAL_RENDER_UPDATES);
-  return { renderVersion: update.version, renderUpdates };
-}
-
-export type TerminalRenderAction =
-  | { readonly type: "none"; readonly version: number }
-  | { readonly type: "append" | "reset"; readonly version: number; readonly data: string };
-
-/** Returns every render delta since the surface's cursor, or a full reset after a gap. */
-export function resolveTerminalRenderAction(
-  state: Pick<TerminalBufferState, "buffer" | "renderVersion" | "renderUpdates">,
-  renderedVersion: number,
-): TerminalRenderAction {
-  if (renderedVersion === state.renderVersion) {
-    return { type: "none", version: renderedVersion };
-  }
-
-  const firstUpdateIndex = state.renderUpdates.findIndex(
-    (update) => update.version === renderedVersion + 1,
-  );
-  if (firstUpdateIndex < 0) {
-    return { type: "reset", version: state.renderVersion, data: state.buffer };
-  }
-
-  const updates = state.renderUpdates.slice(firstUpdateIndex);
-  for (let index = 1; index < updates.length; index += 1) {
-    if (updates[index]!.version !== updates[index - 1]!.version + 1) {
-      return { type: "reset", version: state.renderVersion, data: state.buffer };
-    }
-  }
-  const lastReset = updates.findLastIndex((update) => update.type === "reset");
-  const applicable = lastReset < 0 ? updates : updates.slice(lastReset);
-  return {
-    type: lastReset < 0 ? "append" : "reset",
-    version: state.renderVersion,
-    data: applicable.map((update) => update.data).join(""),
+    lifecycleVersion: buffer.lifecycleVersion,
   };
 }
 
@@ -197,30 +140,30 @@ export function applyTerminalAttachStreamEvent(
 ): TerminalBufferState {
   switch (event.type) {
     case "snapshot":
-    case "restarted": {
-      const snapshot = terminalBufferStateFromSnapshot(event.snapshot, maxBufferBytes);
       return {
-        ...snapshot,
-        version: current.version + 1,
-        ...appendTerminalRenderUpdate(current, "reset", snapshot.buffer),
+        ...terminalBufferStateFromSnapshot(event.snapshot, maxBufferBytes, current),
+        lifecycleVersion:
+          current.version === 0 ? current.lifecycleVersion : current.lifecycleVersion + 1,
       };
-    }
+    case "restarted":
+      return {
+        ...terminalBufferStateFromSnapshot(event.snapshot, maxBufferBytes, current),
+        lifecycleVersion: current.lifecycleVersion + 1,
+      };
     case "output":
       return {
         ...current,
-        buffer: trimBufferToBytes(`${current.buffer}${event.data}`, maxBufferBytes),
+        output: appendOutput(current.output, event.data, maxBufferBytes),
         status: current.status === "closed" ? "running" : current.status,
         error: null,
         version: current.version + 1,
-        ...appendTerminalRenderUpdate(current, "append", event.data),
       };
     case "cleared":
       return {
         ...current,
-        buffer: "",
+        output: resetOutput(current.output, "", maxBufferBytes),
         error: null,
         version: current.version + 1,
-        ...appendTerminalRenderUpdate(current, "reset", ""),
       };
     case "exited":
       return {

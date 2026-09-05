@@ -70,9 +70,6 @@ describe("Sovereign branding assets", () => {
         read(BRAND_ASSET_PATHS.productionWebAppleTouchIconPng),
       ),
     ).toBe(true);
-    expect(
-      read(BRAND_ASSET_PATHS.marketingIconPng).equals(read(BRAND_ASSET_PATHS.productionIosIconPng)),
-    ).toBe(true);
   });
 
   it("does not retain legacy T3 artwork or development asset names", () => {
