@@ -69,6 +69,29 @@ describe("terminal input command", () => {
     registry.dispose();
   });
 
+  it("splits queued input into ordered batches at the configured size", async () => {
+    const sent: string[] = [];
+    const send: AtomCommand<TerminalInputTarget, void, never> = {
+      label: "send",
+      run: async (_registry, input) => {
+        sent.push(input.input.data);
+        return AsyncResult.success(undefined);
+      },
+    };
+    const input = createTerminalInputCommand(send, { maxBatchChars: 3 });
+    const registry = AtomRegistry.make();
+
+    const results = await Promise.all([
+      input.run(registry, target("ab")),
+      input.run(registry, target("cd")),
+      input.run(registry, target("e")),
+    ]);
+
+    expect(sent).toEqual(["ab", "cde"]);
+    expect(results.every(AsyncResult.isSuccess)).toBe(true);
+    registry.dispose();
+  });
+
   it("splits a single oversized input into legal ordered writes", async () => {
     const sent: string[] = [];
     const data = `${"a".repeat(65_535)}😀b`;
