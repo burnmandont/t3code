@@ -282,6 +282,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           autoPull: false,
           faviconPath: null,
           projectIcon: null,
+          notes: "",
           scripts: [
             {
               id: "script-1",
@@ -411,6 +412,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           autoPull: false,
           faviconPath: null,
           projectIcon: null,
+          notes: "",
           scripts: [
             {
               id: "script-1",

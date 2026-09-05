@@ -12,6 +12,7 @@ import { afterEach, vi } from "vite-plus/test";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
+import { canonicalCliName, canonicalServiceUpdateCommand } from "./branding.ts";
 import {
   formatServiceStatus,
   offerServiceDuringOnboarding,
@@ -45,11 +46,11 @@ it("reports the installed service version and host paths", () => {
 it("gives a direct repair command for a stale service", () => {
   assert.include(
     formatServiceStatus({ ...status, current: false }, "0.0.29"),
-    "Next: Run `npx t3@0.0.29 service update`.",
+    `Next: Run \`${canonicalServiceUpdateCommand()}\`.`,
   );
 });
 
-it("explains an incomplete nightly installation and keeps repair on its installed version", () => {
+it("explains an incomplete nightly installation with the canonical repair command", () => {
   const output = formatServiceStatus(
     {
       ...status,
@@ -64,17 +65,15 @@ it("explains an incomplete nightly installation and keeps repair on its installe
   expect(output).toContain("last login session ends");
   expect(output).toContain('sudo loginctl enable-linger "$(id -un)"');
   expect(output).toContain("[service-stopped]");
-  expect(output).toContain("npx t3@0.0.32-nightly.1 service update");
-  expect(output).not.toContain("t3@latest");
+  expect(output).toContain(canonicalServiceUpdateCommand());
 });
 
-it("suggests the newer CLI version when the installed service needs an update", () => {
+it("uses the canonical repair command when the installed service is older", () => {
   const output = formatServiceStatus(
     { ...status, current: false, installedVersion: "0.0.28" },
     "0.0.29",
   );
-  expect(output).toContain("npx t3@0.0.29 service update");
-  expect(output).not.toContain("npx t3@0.0.28 service update");
+  expect(output).toContain(canonicalServiceUpdateCommand());
 });
 
 it("explains where the service is supported", () => {
@@ -90,9 +89,12 @@ it("reports a newer installed service and gives an exact-version repair command"
     "0.0.31",
   );
 
-  assert.include(output, "t3@0.0.32-nightly.1 (newer than this t3@0.0.31 CLI)");
-  assert.include(output, "npx t3@0.0.32-nightly.1 service update");
-  assert.notInclude(output, "npx t3@latest service update");
+  assert.include(
+    output,
+    `${canonicalCliName}@0.0.32-nightly.1 (newer than this ${canonicalCliName}@0.0.31 CLI)`,
+  );
+  assert.include(output, `${canonicalCliName}@0.0.32-nightly.1 service update`);
+  assert.notInclude(output, canonicalServiceUpdateCommand());
 });
 
 const newerServiceStatus = { ...status, current: false, installedVersion: "999.0.0" };

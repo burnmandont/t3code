@@ -367,11 +367,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.delete": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      // Deletion is intentionally idempotent. The shell is independently
+      // projected and cached, so emitting a tombstone for an absent aggregate
+      // lets stale shell rows converge without a special repair command.
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
