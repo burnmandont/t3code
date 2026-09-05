@@ -58,6 +58,7 @@ const clientSettings: ClientSettings = {
   sidebarThreadPreviewCount: 6,
   legacySidebarEnabled: false,
   legacyExpandedSidebarFooter: false,
+  legacySettingsLayoutEnabled: false,
   timestampFormat: "24-hour",
   wordWrap: true,
 };

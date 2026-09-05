@@ -83,7 +83,7 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
-import { isMacPlatform } from "../../lib/utils";
+import { cn, isMacPlatform } from "../../lib/utils";
 import {
   primaryServerConfigAtom,
   primaryServerObservabilityAtom,
@@ -1090,7 +1090,13 @@ export function AppearanceSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="appearance" title="Colors & themes" variant="plain" hideTitle>
+      <SettingsSection
+        id="appearance"
+        title="Colors & themes"
+        legacyTitle="Appearance"
+        variant="plain"
+        hideTitle
+      >
         <div id={searchableSetting("theme").id}>
           <ThemeLibrary
             appearanceMode={appearanceMode}
@@ -1108,7 +1114,7 @@ export function AppearanceSettingsPanel() {
         </div>
       </SettingsSection>
 
-      <SettingsSection id="appearance-interface" title="Interface">
+      <SettingsSection id="appearance-interface" title="Interface" legacyContinuation>
         <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."
@@ -1250,7 +1256,7 @@ export function AppearanceSettingsPanel() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection id="motion" title="Motion">
+      <SettingsSection id="motion" title="Motion" legacyContinuation>
         <SettingsRow
           {...searchableSetting("panel-animations")}
           description="Set how fast panels open and close."
@@ -1878,6 +1884,7 @@ const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
   "legacy-plan-mode",
   "legacy-context-window-indicator",
   "legacy-static-composer",
+  "legacy-settings-layout",
   "legacy-token-streaming",
   "legacy-sidebar",
   "legacy-expanded-sidebar-footer",
@@ -1911,16 +1918,35 @@ function LegacyFeaturesSection() {
   }, [searchTargetId]);
 
   return (
-    <section id="legacy-features" ref={targetRef} tabIndex={-1} className="space-y-2.5">
+    <section
+      id="legacy-features"
+      ref={targetRef}
+      tabIndex={-1}
+      className={settings.legacySettingsLayoutEnabled ? "space-y-3" : "space-y-2.5"}
+    >
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger className="group flex min-h-8 w-full items-center gap-2 px-3 sm:px-4">
-          <h2 className="text-sm font-normal tracking-[-0.005em] text-foreground/70 transition-colors group-hover:text-foreground">
+          <h2
+            className={cn(
+              "transition-colors group-hover:text-foreground",
+              settings.legacySettingsLayoutEnabled
+                ? "text-lg font-semibold tracking-[-0.025em] text-muted-foreground"
+                : "text-sm font-normal tracking-[-0.005em] text-foreground/70",
+            )}
+          >
             Legacy features
           </h2>
           <ChevronRightIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-panel-open:rotate-90" />
         </CollapsibleTrigger>
         <CollapsiblePanel>
-          <div className="relative overflow-visible rounded-xl border border-border/60 bg-card/40 text-foreground shadow-xs/5 [&>*+*]:border-t [&>*+*]:border-border/50 [&>[data-slot=settings-row]]:rounded-none">
+          <div
+            className={cn(
+              "relative overflow-visible text-foreground",
+              settings.legacySettingsLayoutEnabled
+                ? "space-y-1 pt-3"
+                : "rounded-xl border border-border/60 bg-card/40 shadow-xs/5 [&>*+*]:border-t [&>*+*]:border-border/50 [&>[data-slot=settings-row]]:rounded-none",
+            )}
+          >
             <SettingsRow
               {...searchableSetting("legacy-plan-mode")}
               description="Restore Build/Plan, /plan, /default, and Shift+Tab. Off uses build mode."
@@ -1982,6 +2008,19 @@ function LegacyFeaturesSection() {
                     })
                   }
                   aria-label="Static composer (legacy)"
+                />
+              }
+            />
+            <SettingsRow
+              {...searchableSetting("legacy-settings-layout")}
+              description="Restore larger section headers, unboxed rows, and top-level Settings navigation."
+              control={
+                <Switch
+                  checked={settings.legacySettingsLayoutEnabled}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ legacySettingsLayoutEnabled: Boolean(checked) })
+                  }
+                  aria-label="Settings layout (legacy)"
                 />
               }
             />
@@ -2121,7 +2160,7 @@ export function GeneralSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SharedSettingsMismatchAlert />
-      <SettingsSection id="organization" title="Organization">
+      <SettingsSection id="organization" title="Organization" legacyTitle="General">
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."
@@ -2235,7 +2274,7 @@ export function GeneralSettingsPanel() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection id="behavior" title="Behavior">
+      <SettingsSection id="behavior" title="Behavior" legacyContinuation>
         <SettingsRow
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."
@@ -2585,7 +2624,7 @@ export function GeneralSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="projects-and-threads" title="Projects & threads">
+      <SettingsSection id="projects-and-threads" title="Projects & threads" legacyContinuation>
         <SettingsRow
           serverScoped
           {...searchableSetting("new-threads")}
@@ -2692,7 +2731,7 @@ export function GeneralSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="confirmations" title="Confirmations">
+      <SettingsSection id="confirmations" title="Confirmations" legacyContinuation>
         <SettingsRow
           {...searchableSetting("unpin-confirmation")}
           description="Ask before unpinning a thread from the pinned section."
@@ -2814,7 +2853,7 @@ export function GeneralSettingsPanel() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection id="text-generation" title="Text generation">
+      <SettingsSection id="text-generation" title="Text generation" legacyContinuation>
         <SettingsRow
           serverScoped
           {...searchableSetting("text-generation-model")}

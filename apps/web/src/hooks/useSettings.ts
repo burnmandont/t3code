@@ -375,6 +375,13 @@ export function useLegacySidebarEnabled(): boolean {
   return settingsHydrated && legacySidebarEnabled;
 }
 
+/** Whether Settings uses the pre-reorganization presentation and navigation. */
+export function useLegacySettingsLayoutEnabled(): boolean {
+  const settingsHydrated = useClientSettingsHydrated();
+  const legacySettingsLayoutEnabled = useClientSettingsValue().legacySettingsLayoutEnabled;
+  return settingsHydrated && legacySettingsLayoutEnabled;
+}
+
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
   environmentId: EnvironmentId,

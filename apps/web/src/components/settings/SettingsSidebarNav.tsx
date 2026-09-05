@@ -30,6 +30,7 @@ import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
 import { cn } from "../../lib/utils";
+import { useLegacySettingsLayoutEnabled } from "../../hooks/useSettings";
 import {
   SidebarContent,
   SidebarFooter,
@@ -142,6 +143,7 @@ function SettingsSubmenuCollapse({
 }
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
+  const legacyLayout = useLegacySettingsLayoutEnabled();
   const navigate = useNavigate();
   const currentHash = useLocation({ select: (location) => location.hash });
   const resolvedPathname = useRouterState({
@@ -162,13 +164,14 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     (item) => pathname === item.to || pathname.startsWith(`${item.to}/`),
   )?.to;
   const observedVisibilityScope = useMemo(() => {
+    if (legacyLayout) return null;
     const path = SETTINGS_NAV_ITEMS.find(
       (item) =>
         resolvedPathname === item.to || resolvedPathname?.startsWith(`${item.to}/`) === true,
     )?.to;
     const pageSections = path ? SETTINGS_PAGE_SECTIONS[path] : undefined;
     return path && pageSections ? { path, pageSections } : null;
-  }, [resolvedPathname]);
+  }, [legacyLayout, resolvedPathname]);
   const visiblePageSectionIds = getVisibleSettingsSectionIds({
     activePath: activeSettingsPath,
     scope: observedVisibilityScope,
@@ -421,7 +424,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                       <Icon />
                       <span className="truncate">{item.label}</span>
                     </SidebarMenuButton>
-                    {pageSections ? (
+                    {!legacyLayout && pageSections ? (
                       <SettingsSubmenuCollapse open={isActive}>
                         <SidebarMenuSub className="border-l-0">
                           {pageSections.map((section) => (

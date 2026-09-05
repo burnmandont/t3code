@@ -278,6 +278,7 @@ describe("ClientSettings sidebar", () => {
     const settings = decodeClientSettings({});
     expect(settings.legacySidebarEnabled).toBe(false);
     expect(settings.legacyExpandedSidebarFooter).toBe(false);
+    expect(settings.legacySettingsLayoutEnabled).toBe(false);
   });
 
   it("drops the retired sidebar v2 beta keys, resetting everyone to the default", () => {
@@ -303,6 +304,15 @@ describe("ClientSettings sidebar", () => {
     ).toBe(true);
     expect(
       decodeClientSettingsPatch({ legacyExpandedSidebarFooter: true }).legacyExpandedSidebarFooter,
+    ).toBe(true);
+  });
+
+  it("preserves an explicit legacy settings layout opt-in", () => {
+    expect(
+      decodeClientSettings({ legacySettingsLayoutEnabled: true }).legacySettingsLayoutEnabled,
+    ).toBe(true);
+    expect(
+      decodeClientSettingsPatch({ legacySettingsLayoutEnabled: true }).legacySettingsLayoutEnabled,
     ).toBe(true);
   });
 

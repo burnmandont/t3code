@@ -13,6 +13,7 @@ import {
 
 import {
   PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
+  useLegacySettingsLayoutEnabled,
   usePrimarySettingsAvailable,
 } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -162,6 +163,8 @@ export function SettingsSection({
   icon,
   headerAction,
   variant = "grouped",
+  legacyTitle,
+  legacyContinuation = false,
   children,
   className,
   ...sectionProps
@@ -172,28 +175,48 @@ export function SettingsSection({
   icon?: ReactNode;
   headerAction?: ReactNode;
   variant?: "grouped" | "plain";
+  legacyTitle?: string;
+  legacyContinuation?: boolean;
   children: ReactNode;
 }) {
   const targetRef = useSettingsSearchTarget<HTMLElement>(sectionProps.id);
+  const legacyLayout = useLegacySettingsLayoutEnabled();
+  const hideLegacyTitle = legacyContinuation || (hideTitle && legacyTitle === undefined);
+  const titleHidden = legacyLayout ? hideLegacyTitle : hideTitle;
+  const displayedTitle = legacyLayout ? (legacyTitle ?? title) : title;
 
   return (
     <section
       {...sectionProps}
       ref={targetRef}
       tabIndex={sectionProps.id ? -1 : sectionProps.tabIndex}
-      className={cn(!hideTitle && "space-y-2.5", className)}
+      data-settings-legacy-continuation={legacyLayout && legacyContinuation ? "" : undefined}
+      className={cn(
+        legacyLayout ? (hideLegacyTitle ? "space-y-0" : "space-y-3") : !hideTitle && "space-y-2.5",
+        className,
+      )}
     >
-      {hideTitle ? (
-        <h2 className="sr-only">{title}</h2>
+      {titleHidden ? (
+        <h2 className="sr-only">{displayedTitle}</h2>
       ) : (
         <div
           data-settings-scroll-target
-          className="flex min-h-7 items-start justify-between gap-4 px-3 sm:px-4"
+          className={cn(
+            "flex items-start justify-between gap-4 px-3 sm:px-4",
+            legacyLayout ? "min-h-8" : "min-h-7",
+          )}
         >
           <div className="min-w-0">
-            <h2 className="flex min-h-7 items-center gap-2 text-sm font-normal tracking-[-0.005em] text-foreground/70">
+            <h2
+              className={cn(
+                "flex items-center gap-2 text-foreground",
+                legacyLayout
+                  ? "min-h-8 text-lg font-semibold tracking-[-0.025em]"
+                  : "min-h-7 text-sm font-normal tracking-[-0.005em] text-foreground/70",
+              )}
+            >
               {icon}
-              {title}
+              {displayedTitle}
             </h2>
             {description ? (
               <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] leading-[1.45] text-muted-foreground/80">
@@ -205,12 +228,14 @@ export function SettingsSection({
         </div>
       )}
       <div
-        data-settings-scroll-target={hideTitle ? "" : undefined}
+        data-settings-scroll-target={titleHidden ? "" : undefined}
         className={cn(
           "relative overflow-visible text-foreground",
-          variant === "grouped"
-            ? "rounded-xl border border-border/60 bg-card/40 shadow-xs/5 [&>*+*]:border-t [&>*+*]:border-border/50 [&>[data-slot=settings-row]]:rounded-none"
-            : "space-y-1",
+          legacyLayout
+            ? "space-y-1"
+            : variant === "grouped"
+              ? "rounded-xl border border-border/60 bg-card/40 shadow-xs/5 [&>*+*]:border-t [&>*+*]:border-border/50 [&>[data-slot=settings-row]]:rounded-none"
+              : "space-y-1",
         )}
       >
         {children}
@@ -359,6 +384,7 @@ export function SettingsPageContainer({
   className?: string;
   width?: WorkspacePageWidth;
 }) {
+  const legacyLayout = useLegacySettingsLayoutEnabled();
   const navigate = useNavigate();
   const hash = useLocation({ select: (location) => location.hash });
   const highlightTarget = useLocation({
@@ -385,7 +411,14 @@ export function SettingsPageContainer({
         className="topbar-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto"
         data-settings-page-scroll
       >
-        <WorkspacePageContainer width={width} className={cn("gap-8", className)}>
+        <WorkspacePageContainer
+          width={width}
+          className={cn(
+            "gap-8",
+            className,
+            legacyLayout && "gap-0 [&>*+*]:mt-12 [&>[data-settings-legacy-continuation]]:!mt-1",
+          )}
+        >
           {children}
         </WorkspacePageContainer>
       </div>

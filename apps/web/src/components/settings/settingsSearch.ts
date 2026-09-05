@@ -326,6 +326,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["chat input prompt expanded stable blur scroll old"],
   },
   {
+    id: "legacy-settings-layout",
+    title: "Settings layout (legacy)",
+    to: "/settings/general",
+    searchTerms: ["old previous headings spacing cards navigation sections"],
+  },
+  {
     id: "legacy-token-streaming",
     title: "Stream responses live",
     to: "/settings/general",
