@@ -16,6 +16,11 @@ import {
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
 
+declare const __T3CODE_BUILD_SOVEREIGN__: boolean;
+
+const sovereignBuild =
+  typeof __T3CODE_BUILD_SOVEREIGN__ !== "undefined" && __T3CODE_BUILD_SOVEREIGN__;
+
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
 
@@ -49,8 +54,9 @@ const app = <AppRoot router={router} />;
 // clerk-js runtime. Loading only the selected runtime as a split chunk keeps
 // every Clerk byte out of the startup graph for local-mode users, and keeps
 // the bundled clerk-js out of the browser build entirely.
-const managedAuthShellModule =
-  clerkPublishableKey && cloudPublicConfigAvailable
+const managedAuthShellModule = sovereignBuild
+  ? null
+  : clerkPublishableKey && cloudPublicConfigAvailable
     ? isElectron
       ? import("./components/clerk/ElectronManagedAuthShell")
       : import("./components/clerk/BrowserManagedAuthShell")
