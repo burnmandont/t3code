@@ -49,6 +49,8 @@ jobs:
       APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      IOS_DEVELOPMENT_CERTIFICATE_P12: ${{ secrets.IOS_DEVELOPMENT_CERTIFICATE_P12 }}
+      IOS_DEVELOPMENT_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DEVELOPMENT_CERTIFICATE_PASSWORD }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
       GITEA_CLONE_USERNAME: ${{ vars.GITEA_CLONE_USERNAME }}
@@ -69,6 +71,8 @@ jobs:
             APPLE_API_KEY \
             APPLE_API_KEY_ID \
             APPLE_API_ISSUER \
+            IOS_DEVELOPMENT_CERTIFICATE_P12 \
+            IOS_DEVELOPMENT_CERTIFICATE_PASSWORD \
             APPLE_TEAM_ID \
             IOS_BUNDLE_ID \
             GITEA_CLONE_USERNAME \
@@ -373,6 +377,34 @@ jobs:
           printf 'APPLE_API_KEY_ID=%s\n' "$APPLE_API_KEY_ID_VALUE" >> "$GITHUB_ENV"
           printf 'APPLE_API_ISSUER=%s\n' "$APPLE_API_ISSUER_VALUE" >> "$GITHUB_ENV"
 
+      - name: Install persistent iOS signing identity
+        shell: bash
+        env:
+          IOS_DEVELOPMENT_CERTIFICATE_P12: ${{ secrets.IOS_DEVELOPMENT_CERTIFICATE_P12 }}
+          IOS_DEVELOPMENT_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DEVELOPMENT_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/sovereign-ios-development.p12"
+          keychain_path="$RUNNER_TEMP/sovereign-ios-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          printf 'SOVEREIGN_IOS_KEYCHAIN=%s\n' "$keychain_path" >> "$GITHUB_ENV"
+          trap 'rm -f "$certificate_path"' EXIT
+          printf '::add-mask::%s\n' "$keychain_password"
+          printf '%s' "$IOS_DEVELOPMENT_CERTIFICATE_P12" | base64 -D > "$certificate_path"
+          chmod 600 "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$IOS_DEVELOPMENT_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k "$keychain_password" "$keychain_path"
+          security default-keychain -d user -s "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path" | grep -F 'Apple Development:'
+
       - name: Generate production iOS project
         shell: bash
         working-directory: apps/mobile
@@ -441,10 +473,14 @@ jobs:
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_ISSUER"
 
-      - name: Remove temporary App Store Connect key
+      - name: Remove temporary Apple signing material
         if: always()
         shell: bash
         run: |
+          if test -n "${SOVEREIGN_IOS_KEYCHAIN:-}" && \
+            [[ "$SOVEREIGN_IOS_KEYCHAIN" == "$RUNNER_TEMP/"* ]]; then
+            security delete-keychain "$SOVEREIGN_IOS_KEYCHAIN" || true
+          fi
           if test -n "${SOVEREIGN_IOS_API_KEY:-}" && \
             [[ "$SOVEREIGN_IOS_API_KEY" == "$RUNNER_TEMP/"* ]]; then
             rm -f "$SOVEREIGN_IOS_API_KEY"

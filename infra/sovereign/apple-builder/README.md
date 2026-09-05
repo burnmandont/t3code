@@ -16,6 +16,9 @@ default branch, enable Actions, and configure:
 - `APPLE_API_KEY`: App Store Connect API private key contents
 - `APPLE_API_KEY_ID`
 - `APPLE_API_ISSUER`
+- `IOS_DEVELOPMENT_CERTIFICATE_P12`: base64-encoded PKCS#12 export of a persistent
+  Apple Development identity for the Apple team
+- `IOS_DEVELOPMENT_CERTIFICATE_PASSWORD`: password protecting that PKCS#12 export
 - `GITEA_CLONE_TOKEN`: Gitea access token with only the `read:repository` scope
 
 ## Variables
@@ -27,10 +30,11 @@ default branch, enable Actions, and configure:
 Sovereign desktop builds use the hosted OAuth flow, not Clerk's native passkey
 bridge. They therefore do not need a Clerk relying-party domain, Associated
 Domains entitlement, or provisioning profile. The iOS job uses the same hosted
-OAuth configuration and lets Xcode manage its distribution certificate and App
-Store provisioning profiles through the App Store Connect API key. That key
-must have permission to use automatic signing and upload builds for the app and
-its extension targets.
+OAuth configuration. It imports one persistent Apple Development identity so
+ephemeral runners do not consume Apple's development-certificate quota, then
+lets Xcode manage provisioning and distribution through the App Store Connect
+API key. That key must have permission to use automatic signing and upload
+builds for the app and its extension targets.
 
 The publishing job uses its short-lived GitHub Actions token to create releases
 in the same repository. No long-lived release token is stored on GitHub.

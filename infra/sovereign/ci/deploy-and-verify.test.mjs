@@ -573,7 +573,11 @@ test("dispatches desktop and iOS releases to a separately trusted GitHub builder
   assert.match(builder, /APPLE_TEAM_ID/u);
   assert.match(builder, /IOS_BUNDLE_ID/u);
   assert.doesNotMatch(builder, /APPLE_DISTRIBUTION_P12/u);
-  assert.doesNotMatch(builder, /security create-keychain/u);
+  assert.match(builder, /IOS_DEVELOPMENT_CERTIFICATE_P12/u);
+  assert.match(builder, /IOS_DEVELOPMENT_CERTIFICATE_PASSWORD/u);
+  assert.match(builder, /security create-keychain/u);
+  assert.match(builder, /security import "\$certificate_path"/u);
+  assert.match(builder, /security delete-keychain "\$SOVEREIGN_IOS_KEYCHAIN"/u);
   assert.match(builder, /GITEA_CLONE_USERNAME/u);
   assert.match(builder, /GITEA_CLONE_TOKEN/u);
   assert.match(builder, /Verify read-only Gitea source access/u);
