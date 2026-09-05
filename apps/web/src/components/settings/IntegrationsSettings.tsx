@@ -38,6 +38,8 @@ import { PREVIEW_VIEWPORT_PRESETS } from "@t3tools/shared/previewViewport";
 import { InfoIcon, MoreVertical, Plus as PlusIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { APP_BASE_NAME } from "~/branding";
+
 import { ScreenRotationIcon } from "~/browser/ScreenRotationIcon";
 import { resolveEnvironmentOptionLabel } from "~/components/BranchToolbar.logic";
 import { previewBridge } from "~/components/preview/previewBridge";
@@ -506,7 +508,7 @@ function BrowserRecordingFrameRateSetting({ disabled }: { readonly disabled: boo
 
 const LINK_TARGET_LABELS: Readonly<Record<BrowserLinkTarget, string>> = {
   system: "Your default browser",
-  app: "T3 Code",
+  app: APP_BASE_NAME,
 };
 
 function BrowserLinkTargetSetting({ disabled }: { readonly disabled: boolean }) {

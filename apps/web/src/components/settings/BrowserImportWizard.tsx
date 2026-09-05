@@ -3,6 +3,7 @@ import { BROWSER_IMPORT_FAILURE_COPY } from "@t3tools/contracts";
 import { ArrowDownIcon, ArrowRightIcon, CheckIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
+import { APP_BASE_NAME } from "~/branding";
 import { cn, randomUUID } from "~/lib/utils";
 
 import { Button } from "../ui/button";
@@ -258,18 +259,20 @@ function FullDiskAccessStep({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Let T3 Code read {source.name}&rsquo;s cookies</DialogTitle>
+        <DialogTitle>
+          Let {APP_BASE_NAME} read {source.name}&rsquo;s cookies
+        </DialogTitle>
         <DialogDescription>
-          To import cookies from {source.name}, T3 Code needs Full Disk Access. Turn it on in System
-          Settings, then come back to finish the import — you can revoke it again once the import is
-          done.
+          To import cookies from {source.name}, {APP_BASE_NAME} needs Full Disk Access. Turn it on
+          in System Settings, then come back to finish the import — you can revoke it again once the
+          import is done.
         </DialogDescription>
       </DialogHeader>
       {stillRequired ? (
         <DialogPanel>
           <p role="status" className="text-sm text-muted-foreground">
-            Full Disk Access is still required. If you just turned it on, quit and reopen T3 Code,
-            then try again.
+            Full Disk Access is still required. If you just turned it on, quit and reopen{" "}
+            {APP_BASE_NAME}, then try again.
           </p>
         </DialogPanel>
       ) : null}

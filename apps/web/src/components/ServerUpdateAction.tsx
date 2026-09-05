@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { ComponentProps } from "react";
 
+import { APP_BASE_NAME } from "~/branding";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
@@ -134,7 +135,7 @@ export function ServerUpdateAction({
       // remote machine installs without asking anyone there.
       const confirmed =
         (await requestConfirmDialog(
-          `Update the T3 Code desktop app that runs the ${serverLabel}? It will close and relaunch on that machine.`,
+          `Update the ${APP_BASE_NAME} desktop app that runs the ${serverLabel}? It will close and relaunch on that machine.`,
         )) ?? true;
       if (!confirmed) {
         return;

@@ -1877,8 +1877,10 @@ function AutoSettleDaysInput({
 const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
   "legacy-plan-mode",
   "legacy-context-window-indicator",
+  "legacy-static-composer",
   "legacy-token-streaming",
   "legacy-sidebar",
+  "legacy-expanded-sidebar-footer",
 ]);
 
 /**
@@ -1968,6 +1970,22 @@ function LegacyFeaturesSection() {
               }
             />
             <SettingsRow
+              {...searchableSetting("legacy-static-composer")}
+              description="Keep the chat input expanded when it loses focus or the conversation scrolls."
+              control={
+                <Switch
+                  checked={!settings.composerCollapseOnBlur && !settings.composerCollapseOnScroll}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      composerCollapseOnBlur: !Boolean(checked),
+                      composerCollapseOnScroll: !Boolean(checked),
+                    })
+                  }
+                  aria-label="Static composer (legacy)"
+                />
+              }
+            />
+            <SettingsRow
               serverScoped
               {...searchableSetting("legacy-token-streaming")}
               description="Stream output token by token. This legacy mode is slower and harder to follow."
@@ -2004,6 +2022,19 @@ function LegacyFeaturesSection() {
                     updateSettings({ legacySidebarEnabled: Boolean(checked) })
                   }
                   aria-label="Sidebar (legacy)"
+                />
+              }
+            />
+            <SettingsRow
+              {...searchableSetting("legacy-expanded-sidebar-footer")}
+              description="Restore the full-width update notice and labeled Usage and Settings rows at the bottom of the sidebar."
+              control={
+                <Switch
+                  checked={settings.legacyExpandedSidebarFooter}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ legacyExpandedSidebarFooter: Boolean(checked) })
+                  }
+                  aria-label="Expanded sidebar footer (legacy)"
                 />
               }
             />

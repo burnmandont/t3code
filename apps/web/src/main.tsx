@@ -5,7 +5,9 @@ import { createHashHistory, createBrowserHistory } from "@tanstack/react-router"
 import "./index.css";
 
 import { isElectron } from "./env";
-import { hasCloudPublicConfig } from "./cloud/publicConfig";
+import { ManagedRelayAuthProvider } from "./cloud/managedAuth";
+import { SovereignCloudAuthProvider } from "./cloud/auth";
+import { hasCloudPublicConfig, resolveCloudIdentityConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
 import {
   syncDocumentElectronPlatformClasses,
@@ -24,7 +26,10 @@ if (isElectron) {
   syncDocumentWindowControlsOverlayClass();
 }
 
-const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+const identityConfig = resolveCloudIdentityConfig();
+const cloudPublicConfigAvailable = hasCloudPublicConfig();
+const clerkPublishableKey =
+  identityConfig?.provider === "clerk" ? identityConfig.publishableKey : null;
 
 // A failed split-chunk fetch usually means the hashed assets went stale under
 // a deploy; one guarded reload picks up the fresh index.html.
@@ -45,7 +50,7 @@ const app = <AppRoot router={router} />;
 // every Clerk byte out of the startup graph for local-mode users, and keeps
 // the bundled clerk-js out of the browser build entirely.
 const managedAuthShellModule =
-  clerkPublishableKey && hasCloudPublicConfig()
+  clerkPublishableKey && cloudPublicConfigAvailable
     ? isElectron
       ? import("./components/clerk/ElectronManagedAuthShell")
       : import("./components/clerk/BrowserManagedAuthShell")
@@ -67,14 +72,18 @@ export const startup = Promise.all([
     // that fetched every chunk it asked for.
     if (reloadScheduled) return;
     if (!chunkLoadFailed) clearChunkReloadGuard();
+    const appWithAuth =
+      identityConfig?.provider === "sovereign" && cloudPublicConfigAvailable ? (
+        <SovereignCloudAuthProvider config={identityConfig}>
+          <ManagedRelayAuthProvider>{app}</ManagedRelayAuthProvider>
+        </SovereignCloudAuthProvider>
+      ) : ManagedAuthShell && clerkPublishableKey ? (
+        <ManagedAuthShell publishableKey={clerkPublishableKey}>{app}</ManagedAuthShell>
+      ) : (
+        app
+      );
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-      <React.StrictMode>
-        {ManagedAuthShell && clerkPublishableKey ? (
-          <ManagedAuthShell publishableKey={clerkPublishableKey}>{app}</ManagedAuthShell>
-        ) : (
-          app
-        )}
-      </React.StrictMode>,
+      <React.StrictMode>{appWithAuth}</React.StrictMode>,
     );
   })
   .catch((error: unknown) => {

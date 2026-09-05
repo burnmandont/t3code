@@ -320,6 +320,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer meter usage tokens circle old"],
   },
   {
+    id: "legacy-static-composer",
+    title: "Static composer (legacy)",
+    to: "/settings/general",
+    searchTerms: ["chat input prompt expanded stable blur scroll old"],
+  },
+  {
     id: "legacy-token-streaming",
     title: "Stream responses live",
     to: "/settings/general",

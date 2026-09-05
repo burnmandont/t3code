@@ -48,6 +48,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
+import { APP_BASE_NAME } from "../../branding";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
@@ -1791,7 +1792,7 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       ) : null}
       <SettingsRow
         title={searchableSetting("publish-agent-activity").title}
-        description="Send activity to mobile notifications and Live Activities without T3 Connect."
+        description="Send activity to mobile notifications and Live Activities without a Sovereign Relay tunnel."
         control={
           <CloudLinkSwitch
             ariaLabel="Publish agent activity to mobile clients"
@@ -3135,7 +3136,7 @@ export function ConnectionsSettings() {
         {desktopWslState.enabled ? (
           <SettingsRow
             title="WSL only"
-            description="Run only the WSL backend. T3 Code restarts when this changes."
+            description={`Run only the WSL backend. ${APP_BASE_NAME} restarts when this changes.`}
             className="bg-muted/20 pl-7 sm:pl-8"
             control={
               <Switch
