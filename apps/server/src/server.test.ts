@@ -6734,7 +6734,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
-  it.effect("routes websocket rpc projects.listEntries and projects.readFile", () =>
+  it.effect("routes websocket rpc project file operations", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -6752,6 +6752,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) =>
           Effect.all({
             listing: client[WS_METHODS.projectsListEntries]({ cwd: workspaceDir }),
+            directory: client[WS_METHODS.projectsListDirectory]({
+              cwd: workspaceDir,
+              relativePath: "src",
+            }),
             file: client[WS_METHODS.projectsReadFile]({
               cwd: workspaceDir,
               relativePath: "src/index.ts",
@@ -6761,6 +6765,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.isTrue(response.listing.entries.some((entry) => entry.path === "src/index.ts"));
+      assert.deepEqual(response.directory.entries, [{ path: "src/index.ts", kind: "file" }]);
       assert.deepEqual(response.file, {
         relativePath: "src/index.ts",
         contents: "export const answer = 42;\n",
@@ -6859,6 +6864,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             list: client[WS_METHODS.projectsListEntries]({ cwd: invalidWorkspace }).pipe(
               Effect.result,
             ),
+            listDirectory: client[WS_METHODS.projectsListDirectory]({
+              cwd: invalidWorkspace,
+              relativePath: "",
+            }).pipe(Effect.result),
             read: client[WS_METHODS.projectsReadFile]({
               cwd: workspaceDir,
               relativePath: "linked-outside.txt",
@@ -6904,6 +6913,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(listError.failure, "workspace_root_not_found");
       assert.equal(listError.normalizedCwd, invalidWorkspace);
       assert.isDefined(listError.cause);
+
+      if (
+        results.listDirectory._tag !== "Failure" ||
+        results.listDirectory.failure._tag !== "ProjectListDirectoryError"
+      ) {
+        assert.fail("Expected a ProjectListDirectoryError");
+      }
+      const listDirectoryError = results.listDirectory.failure;
+      assert.equal(
+        listDirectoryError.message,
+        `Failed to list workspace directory '.' in '${invalidWorkspace}'.`,
+      );
+      assert.equal(listDirectoryError.cwd, invalidWorkspace);
+      assert.equal(listDirectoryError.relativePath, "");
+      assert.equal(listDirectoryError.failure, "workspace_root_not_found");
+      assert.equal(listDirectoryError.normalizedCwd, invalidWorkspace);
+      assert.isDefined(listDirectoryError.cause);
 
       if (results.read._tag !== "Failure" || results.read.failure._tag !== "ProjectReadFileError") {
         assert.fail("Expected a ProjectReadFileError");

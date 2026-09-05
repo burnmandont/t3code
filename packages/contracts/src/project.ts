@@ -10,6 +10,7 @@ const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
+const PROJECT_DIRECTORY_PATH_MAX_LENGTH = 512;
 
 export const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export type ProjectEntryKind = typeof ProjectEntryKind.Type;
@@ -30,6 +31,12 @@ export const ProjectEntry = Schema.Struct({
   kind: ProjectEntryKind,
 });
 export type ProjectEntry = typeof ProjectEntry.Type;
+
+export const ProjectDirectoryEntry = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  kind: ProjectEntryKind,
+});
+export type ProjectDirectoryEntry = typeof ProjectDirectoryEntry.Type;
 
 export const ProjectSearchEntriesResult = Schema.Struct({
   entries: Schema.Array(ProjectEntry),
@@ -80,6 +87,58 @@ export const ProjectListEntriesResult = Schema.Struct({
   truncated: Schema.Boolean,
 });
 export type ProjectListEntriesResult = typeof ProjectListEntriesResult.Type;
+
+export const ProjectListDirectoryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  // The project root is represented by an empty relative path.
+  relativePath: TrimmedString.check(Schema.isMaxLength(PROJECT_DIRECTORY_PATH_MAX_LENGTH)),
+});
+export type ProjectListDirectoryInput = typeof ProjectListDirectoryInput.Type;
+
+export const ProjectListDirectoryResult = Schema.Struct({
+  entries: Schema.Array(ProjectDirectoryEntry),
+});
+export type ProjectListDirectoryResult = typeof ProjectListDirectoryResult.Type;
+
+export const ProjectListDirectoryFailure = Schema.Literals([
+  "workspace_root_not_found",
+  "workspace_root_create_failed",
+  "workspace_root_stat_failed",
+  "workspace_root_not_directory",
+  "workspace_path_outside_root",
+  "read_directory_failed",
+]);
+export type ProjectListDirectoryFailure = typeof ProjectListDirectoryFailure.Type;
+
+export class ProjectListDirectoryError extends Schema.TaggedErrorClass<ProjectListDirectoryError>()(
+  "ProjectListDirectoryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedString),
+    failure: Schema.optional(ProjectListDirectoryFailure),
+    normalizedCwd: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // Structured fields are optional so newer peers can still decode legacy
+  // message-only failures.
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: {
+    readonly cwd: string;
+    readonly relativePath: string;
+    readonly failure: ProjectListDirectoryFailure;
+    readonly normalizedCwd?: string;
+    readonly cause?: unknown;
+  }) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to list workspace directory '${props.relativePath || "."}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
 
 export const ProjectEntriesFailure = Schema.Literals([
   "workspace_root_not_found",

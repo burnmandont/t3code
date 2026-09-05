@@ -11,6 +11,9 @@ import * as Schema from "effect/Schema";
 import type {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
+  ProjectDirectoryEntry,
+  ProjectListDirectoryInput,
+  ProjectListDirectoryResult,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
   ProjectSearchContentsInput,
@@ -73,6 +76,30 @@ export const WorkspaceEntriesBrowseError = Schema.Union([
 ]);
 export type WorkspaceEntriesBrowseError = typeof WorkspaceEntriesBrowseError.Type;
 
+export class WorkspaceEntriesListDirectoryReadError extends Schema.TaggedErrorClass<WorkspaceEntriesListDirectoryReadError>()(
+  "WorkspaceEntriesListDirectoryReadError",
+  {
+    cwd: Schema.String,
+    relativePath: Schema.String,
+    absolutePath: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to read workspace directory '${this.relativePath || "."}' in '${this.cwd}'.`;
+  }
+}
+
+export const WorkspaceEntriesListDirectoryError = Schema.Union([
+  WorkspacePaths.WorkspaceRootNotExistsError,
+  WorkspacePaths.WorkspaceRootCreateFailedError,
+  WorkspacePaths.WorkspaceRootStatFailedError,
+  WorkspacePaths.WorkspaceRootNotDirectoryError,
+  WorkspacePaths.WorkspacePathOutsideRootError,
+  WorkspaceEntriesListDirectoryReadError,
+]);
+export type WorkspaceEntriesListDirectoryError = typeof WorkspaceEntriesListDirectoryError.Type;
+
 export const WorkspaceEntriesError = Schema.Union([
   WorkspacePaths.WorkspaceRootNotExistsError,
   WorkspacePaths.WorkspaceRootCreateFailedError,
@@ -93,6 +120,9 @@ export class WorkspaceEntries extends Context.Service<
     readonly list: (
       input: ProjectListEntriesInput,
     ) => Effect.Effect<ProjectListEntriesResult, WorkspaceEntriesError>;
+    readonly listDirectory: (
+      input: ProjectListDirectoryInput,
+    ) => Effect.Effect<ProjectListDirectoryResult, WorkspaceEntriesListDirectoryError>;
     readonly search: (
       input: ProjectSearchEntriesInput,
     ) => Effect.Effect<ProjectSearchEntriesResult, WorkspaceEntriesError>;
@@ -278,7 +308,87 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return WorkspaceEntries.of({ browse, list, refresh, search, searchContents });
+  const listDirectory: WorkspaceEntries["Service"]["listDirectory"] = Effect.fn(
+    "WorkspaceEntries.listDirectory",
+  )(function* (input) {
+    const normalizedCwd = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
+    const target =
+      input.relativePath.length === 0
+        ? { absolutePath: normalizedCwd, relativePath: "" }
+        : yield* workspacePaths.resolveRelativePathWithinRoot({
+            workspaceRoot: normalizedCwd,
+            relativePath: input.relativePath,
+          });
+
+    const [resolvedWorkspaceRoot, resolvedTarget] = yield* Effect.tryPromise({
+      try: () =>
+        Promise.all([NodeFSP.realpath(normalizedCwd), NodeFSP.realpath(target.absolutePath)]),
+      catch: (cause) =>
+        new WorkspaceEntriesListDirectoryReadError({
+          cwd: input.cwd,
+          relativePath: input.relativePath,
+          absolutePath: target.absolutePath,
+          cause,
+        }),
+    });
+    const relativeResolvedTarget = path.relative(resolvedWorkspaceRoot, resolvedTarget);
+    if (
+      relativeResolvedTarget === ".." ||
+      relativeResolvedTarget.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativeResolvedTarget)
+    ) {
+      return yield* new WorkspacePaths.WorkspacePathOutsideRootError({
+        workspaceRoot: normalizedCwd,
+        relativePath: input.relativePath,
+      });
+    }
+
+    const dirents = yield* Effect.tryPromise({
+      try: () => NodeFSP.readdir(resolvedTarget, { withFileTypes: true }),
+      catch: (cause) =>
+        new WorkspaceEntriesListDirectoryReadError({
+          cwd: input.cwd,
+          relativePath: input.relativePath,
+          absolutePath: target.absolutePath,
+          cause,
+        }),
+    });
+    const prefix = target.relativePath.length > 0 ? `${target.relativePath}/` : "";
+    const classifiedDirents = yield* Effect.promise(() =>
+      Promise.all(
+        dirents.map(async (dirent) => {
+          if (!dirent.isSymbolicLink()) return { dirent, isDirectory: dirent.isDirectory() };
+          try {
+            const resolvedEntry = await NodeFSP.realpath(path.join(resolvedTarget, dirent.name));
+            const relativeEntry = path.relative(resolvedWorkspaceRoot, resolvedEntry);
+            const isWithinWorkspace =
+              relativeEntry !== ".." &&
+              !relativeEntry.startsWith(`..${path.sep}`) &&
+              !path.isAbsolute(relativeEntry);
+            if (!isWithinWorkspace) return { dirent, isDirectory: false };
+            const entryStat = await NodeFSP.stat(resolvedEntry);
+            return { dirent, isDirectory: entryStat.isDirectory() };
+          } catch {
+            return { dirent, isDirectory: false };
+          }
+        }),
+      ),
+    );
+    const entries: Array<ProjectDirectoryEntry> = classifiedDirents
+      .filter(({ dirent }) => !(target.relativePath.length === 0 && dirent.name === ".git"))
+      .map(({ dirent, isDirectory }) => ({
+        path: `${prefix}${dirent.name}`,
+        kind: isDirectory ? ("directory" as const) : ("file" as const),
+      }))
+      .toSorted((left, right) => {
+        if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1;
+        return left.path.localeCompare(right.path);
+      });
+
+    return { entries };
+  });
+
+  return WorkspaceEntries.of({ browse, list, listDirectory, refresh, search, searchContents });
 });
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(

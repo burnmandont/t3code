@@ -111,6 +111,7 @@ export function FileTreeBrowser(props: {
   readonly searchQuery: string;
   readonly selectedPath: string | null;
   readonly onPreviewFile?: (path: string) => void;
+  readonly onExpandDirectory?: (path: string) => void;
   readonly onRefresh: () => void;
   readonly onSelectFile: (path: string) => void;
 }) {
@@ -149,9 +150,10 @@ export function FileTreeBrowser(props: {
       if (current.size > 0 || defaultExpanded.size === 0) {
         return current;
       }
+      for (const path of defaultExpanded) props.onExpandDirectory?.(path);
       return new Set(defaultExpanded);
     });
-  }, [defaultExpanded]);
+  }, [defaultExpanded, props.onExpandDirectory]);
 
   useEffect(() => {
     if (!controlledSelectedPath) {
@@ -179,17 +181,21 @@ export function FileTreeBrowser(props: {
     [],
   );
 
-  const toggleDirectory = useCallback((path: string) => {
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-  }, []);
+  const toggleDirectory = useCallback(
+    (path: string) => {
+      setExpandedPaths((current) => {
+        const next = new Set(current);
+        if (next.has(path)) {
+          next.delete(path);
+        } else {
+          next.add(path);
+          props.onExpandDirectory?.(path);
+        }
+        return next;
+      });
+    },
+    [props.onExpandDirectory],
+  );
   const handleSelectFile = useCallback(
     (path: string) => {
       if (pendingSelectionTimeoutRef.current !== null) {

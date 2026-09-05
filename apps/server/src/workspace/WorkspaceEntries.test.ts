@@ -121,6 +121,142 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect(result.truncated).toBe(false);
       }),
     );
+
+    it.effect("includes image files outside Git repositories", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-non-git-image-" });
+        yield* fileSystem.writeFile(
+          path.join(cwd, "subgame.jpg"),
+          Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]),
+        );
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const result = yield* workspaceEntries.list({ cwd });
+
+        expect(result.entries).toContainEqual({ path: "subgame.jpg", kind: "file" });
+      }),
+    );
+  });
+
+  describe("listDirectory", () => {
+    it.effect("does not apply the workspace index limit to one directory", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-directory-large-" });
+        const childCount = 25_001;
+        const dirents = Array.from({ length: childCount }, (_, index) => ({
+          name: `file-${String(index).padStart(5, "0")}.txt`,
+          isDirectory: () => false,
+          isSymbolicLink: () => false,
+        }));
+        vi.mocked(NodeFSP.readdir).mockResolvedValueOnce(dirents as never);
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const result = yield* workspaceEntries.listDirectory({ cwd, relativePath: "" });
+
+        expect(result.entries).toHaveLength(childCount);
+        expect(result.entries.at(-1)).toEqual({ path: "file-25000.txt", kind: "file" });
+      }),
+    );
+
+    it.effect("lists immediate filesystem children including hidden and ignored paths", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-directory-", git: true });
+        yield* writeTextFile(cwd, ".gitignore", "profiles/**/assets/\n");
+        yield* writeTextFile(cwd, ".env", "SECRET=value\n");
+        yield* writeTextFile(
+          cwd,
+          "profiles/characters/assets/vi_pilot_001/candidates/xai/job.jpg",
+          "image",
+        );
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const root = yield* workspaceEntries.listDirectory({ cwd, relativePath: "" });
+        expect(root.entries).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ path: ".env", kind: "file" }),
+            expect.objectContaining({ path: "profiles", kind: "directory" }),
+          ]),
+        );
+        expect(root.entries.some((entry) => entry.path === ".git")).toBe(false);
+        expect(root.entries.some((entry) => entry.path.includes("characters"))).toBe(false);
+
+        const characters = yield* workspaceEntries.listDirectory({
+          cwd,
+          relativePath: "profiles/characters",
+        });
+        expect(characters.entries).toContainEqual({
+          path: "profiles/characters/assets",
+          kind: "directory",
+        });
+
+        const assets = yield* workspaceEntries.listDirectory({
+          cwd,
+          relativePath: "profiles/characters/assets",
+        });
+        expect(assets.entries).toContainEqual({
+          path: "profiles/characters/assets/vi_pilot_001",
+          kind: "directory",
+        });
+      }),
+    );
+
+    it.effect("rejects directory traversal outside the workspace", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-directory-traversal-" });
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const result = yield* workspaceEntries
+          .listDirectory({ cwd, relativePath: "../" })
+          .pipe(Effect.flip);
+
+        expect(result._tag).toBe("WorkspacePathOutsideRootError");
+      }),
+    );
+
+    it.effect("browses directory symlinks that stay inside the workspace", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-directory-symlink-" });
+        yield* writeTextFile(cwd, "real/nested.txt", "visible through link");
+        yield* Effect.promise(() =>
+          NodeFSP.symlink(path.join(cwd, "real"), path.join(cwd, "linked"), "dir"),
+        );
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const root = yield* workspaceEntries.listDirectory({ cwd, relativePath: "" });
+        expect(root.entries).toContainEqual(
+          expect.objectContaining({ path: "linked", kind: "directory" }),
+        );
+
+        const linked = yield* workspaceEntries.listDirectory({ cwd, relativePath: "linked" });
+        expect(linked.entries).toContainEqual(
+          expect.objectContaining({ path: "linked/nested.txt", kind: "file" }),
+        );
+      }),
+    );
+
+    it.effect("does not browse directory symlinks outside the workspace", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-directory-link-root-" });
+        const outside = yield* makeTempDir({ prefix: "t3code-workspace-directory-link-outside-" });
+        yield* writeTextFile(outside, "private.txt", "outside");
+        yield* Effect.promise(() =>
+          NodeFSP.symlink(outside, path.join(cwd, "outside-link"), "dir"),
+        );
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const root = yield* workspaceEntries.listDirectory({ cwd, relativePath: "" });
+        expect(root.entries).toContainEqual(
+          expect.objectContaining({ path: "outside-link", kind: "file" }),
+        );
+        const result = yield* workspaceEntries
+          .listDirectory({ cwd, relativePath: "outside-link" })
+          .pipe(Effect.flip);
+        expect(result._tag).toBe("WorkspacePathOutsideRootError");
+      }),
+    );
   });
 
   describe("search", () => {

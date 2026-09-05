@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
+  ProjectListDirectoryResult,
   ProjectListEntriesResult,
   ProjectReadFileResult,
 } from "@t3tools/contracts";
@@ -11,7 +12,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
@@ -35,6 +36,57 @@ interface ProjectQueryState<A> {
 
 function getProjectEntriesQueryAtom(environmentId: EnvironmentId, cwd: string) {
   return projectEnvironment.listEntries({ environmentId, input: { cwd } });
+}
+
+export function getProjectDirectoryQueryAtom(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+) {
+  return projectEnvironment.listDirectory({ environmentId, input: { cwd, relativePath } });
+}
+
+function legacyDirectoryResult(
+  result: ProjectListEntriesResult,
+  relativePath: string,
+): ProjectListDirectoryResult {
+  return {
+    entries: result.entries.filter((entry) => {
+      const separator = entry.path.lastIndexOf("/");
+      const parentPath = separator === -1 ? "" : entry.path.slice(0, separator);
+      return parentPath === relativePath;
+    }),
+  };
+}
+
+export async function loadProjectDirectory(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+  supportsDirectoryListing: boolean,
+  options?: { readonly refresh?: boolean },
+): Promise<ProjectListDirectoryResult> {
+  if (supportsDirectoryListing) {
+    const atom = getProjectDirectoryQueryAtom(environmentId, cwd, relativePath);
+    if (options?.refresh) appAtomRegistry.refresh(atom);
+    const result = await executeAtomQuery(appAtomRegistry, atom, {
+      reportDefect: false,
+      reportFailure: false,
+    });
+    if (result._tag === "Success") return result.value;
+    const cause = Cause.squash(result.cause);
+    throw cause instanceof Error ? cause : new Error("Failed to list workspace directory.");
+  }
+
+  const atom = getProjectEntriesQueryAtom(environmentId, cwd);
+  if (options?.refresh) appAtomRegistry.refresh(atom);
+  const result = await executeAtomQuery(appAtomRegistry, atom, {
+    reportDefect: false,
+    reportFailure: false,
+  });
+  if (result._tag === "Success") return legacyDirectoryResult(result.value, relativePath);
+  const cause = Cause.squash(result.cause);
+  throw cause instanceof Error ? cause : new Error("Failed to list workspace directory.");
 }
 
 export function getProjectFileQueryAtom(
@@ -133,6 +185,39 @@ export function useProjectEntriesQuery(
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  return {
+    data: Option.getOrNull(AsyncResult.value(result)),
+    error: errorMessage(result),
+    isPending: result.waiting,
+    refresh,
+  };
+}
+
+export function useProjectDirectoryQuery(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+  supportsDirectoryListing: boolean,
+): ProjectQueryState<ProjectListDirectoryResult> {
+  const directoryAtom = getProjectDirectoryQueryAtom(environmentId, cwd, relativePath);
+  const legacyEntriesAtom = getProjectEntriesQueryAtom(environmentId, cwd);
+  const legacyDirectoryAtom = useMemo(
+    () =>
+      Atom.make((get) =>
+        AsyncResult.map(get(legacyEntriesAtom), (result) =>
+          legacyDirectoryResult(result, relativePath),
+        ),
+      ).pipe(Atom.withLabel(`project-directory-query:legacy:${environmentId}:${relativePath}`)),
+    [environmentId, legacyEntriesAtom, relativePath],
+  );
+  const atom = supportsDirectoryListing ? directoryAtom : legacyDirectoryAtom;
+  const result = useAtomValue(atom);
+  const refreshDirectory = useAtomRefresh(directoryAtom);
+  const refreshLegacy = useAtomRefresh(legacyEntriesAtom);
+  const refresh = useCallback(
+    () => (supportsDirectoryListing ? refreshDirectory() : refreshLegacy()),
+    [refreshDirectory, refreshLegacy, supportsDirectoryListing],
+  );
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
     error: errorMessage(result),
