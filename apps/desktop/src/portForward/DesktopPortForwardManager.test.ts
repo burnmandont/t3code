@@ -203,6 +203,7 @@ it.layer(NodeServices.layer)("DesktopPortForwardManager", (it) => {
 
         const socket = yield* DesktopPortForwardManager.openSocksTarget({
           socksPort,
+          remoteHost: "127.0.0.1",
           remotePort: 5432,
         });
         yield* Effect.addFinalizer(() => Effect.sync(() => socket.destroy()));
@@ -263,12 +264,13 @@ it.layer(NodeServices.layer)("DesktopPortForwardManager", (it) => {
 
         const error = yield* DesktopPortForwardManager.openSocksTarget({
           socksPort,
+          remoteHost: "127.0.0.1",
           remotePort: 5432,
         }).pipe(Effect.flip, Effect.timeout("1 second"));
 
         expect(error).toMatchObject({
           operation: "connect-ssh",
-          detail: "The SSH proxy closed before connecting to the target.",
+          detail: `The SSH proxy closed before connecting to the target. (target 127.0.0.1:5432 as SSH localhost, proxy 127.0.0.1:${socksPort}, stage connect)`,
         });
       }),
     ),

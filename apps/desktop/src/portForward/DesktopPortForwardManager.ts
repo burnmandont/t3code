@@ -240,18 +240,21 @@ const appendBytes = (left: Uint8Array, right: Uint8Array): Uint8Array => {
 
 export const openSocksTarget = (input: {
   readonly socksPort: number;
+  readonly remoteHost: "127.0.0.1";
   readonly remotePort: number;
 }) =>
   Effect.callback<NodeNet.Socket, DesktopPortForwardError>((resume) => {
+    const socksHost = "127.0.0.1";
+    const targetHost = "localhost";
     const socket = NodeNet.createConnection({
-      host: "127.0.0.1",
+      host: socksHost,
       port: input.socksPort,
       allowHalfOpen: true,
     });
     let stage: "greeting" | "connect" = "greeting";
     let pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
     let settled = false;
-    const remoteHost = Buffer.from("localhost", "ascii");
+    const remoteHost = Buffer.from(targetHost, "ascii");
 
     const fail = (detail: string, cause?: unknown) => {
       if (settled) return;
@@ -261,7 +264,7 @@ export const openSocksTarget = (input: {
         Effect.fail(
           new DesktopPortForwardError({
             operation: "connect-ssh",
-            detail,
+            detail: `${detail} (target ${input.remoteHost}:${input.remotePort} as SSH localhost, proxy ${socksHost}:${input.socksPort}, stage ${stage})`,
             ...(cause === undefined ? {} : { cause }),
           }),
         ),
