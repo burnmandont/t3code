@@ -52,6 +52,9 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.10.0 --activate
 
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
       - name: Derive server runtime identity
         run: |
           server_runtime_id="$(node infra/sovereign/runtime/derive-server-runtime-id.mjs)"
