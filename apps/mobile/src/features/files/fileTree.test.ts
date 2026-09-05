@@ -106,4 +106,16 @@ describe("mobile file tree helpers", () => {
 
     expect([...defaultExpandedTreePaths(tree)]).toEqual(["src"]);
   });
+
+  it("keeps entries beyond the former 25,000-entry index limit reachable", () => {
+    const largeDirectory = Array.from({ length: 25_001 }, (_, index) => ({
+      kind: "file" as const,
+      path: `files/file-${String(index).padStart(5, "0")}.txt`,
+    }));
+    const tree = buildFileTree([{ kind: "directory", path: "files" }, ...largeDirectory]);
+    const visible = flattenFileTree({ nodes: tree, expanded: new Set(["files"]) });
+
+    expect(visible).toHaveLength(25_002);
+    expect(visible.at(-1)?.node.path).toBe("files/file-25000.txt");
+  });
 });

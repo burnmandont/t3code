@@ -32,27 +32,11 @@ export const ProjectEntry = Schema.Struct({
 });
 export type ProjectEntry = typeof ProjectEntry.Type;
 
-export const ProjectGitStatus = Schema.Literals([
-  "added",
-  "deleted",
-  "ignored",
-  "modified",
-  "renamed",
-  "untracked",
-]);
-export type ProjectGitStatus = typeof ProjectGitStatus.Type;
-
 export const ProjectDirectoryEntry = Schema.Struct({
   path: TrimmedNonEmptyString,
   kind: ProjectEntryKind,
 });
 export type ProjectDirectoryEntry = typeof ProjectDirectoryEntry.Type;
-
-export const ProjectGitStatusEntry = Schema.Struct({
-  path: TrimmedNonEmptyString,
-  status: ProjectGitStatus,
-});
-export type ProjectGitStatusEntry = typeof ProjectGitStatusEntry.Type;
 
 export const ProjectSearchEntriesResult = Schema.Struct({
   entries: Schema.Array(ProjectEntry),
@@ -113,7 +97,6 @@ export type ProjectListDirectoryInput = typeof ProjectListDirectoryInput.Type;
 
 export const ProjectListDirectoryResult = Schema.Struct({
   entries: Schema.Array(ProjectDirectoryEntry),
-  gitStatus: Schema.Array(ProjectGitStatusEntry),
 });
 export type ProjectListDirectoryResult = typeof ProjectListDirectoryResult.Type;
 

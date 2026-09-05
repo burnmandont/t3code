@@ -141,6 +141,25 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
   });
 
   describe("listDirectory", () => {
+    it.effect("does not apply the workspace index limit to one directory", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-directory-large-" });
+        const childCount = 25_001;
+        const dirents = Array.from({ length: childCount }, (_, index) => ({
+          name: `file-${String(index).padStart(5, "0")}.txt`,
+          isDirectory: () => false,
+          isSymbolicLink: () => false,
+        }));
+        vi.mocked(NodeFSP.readdir).mockResolvedValueOnce(dirents as never);
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const result = yield* workspaceEntries.listDirectory({ cwd, relativePath: "" });
+
+        expect(result.entries).toHaveLength(childCount);
+        expect(result.entries.at(-1)).toEqual({ path: "file-25000.txt", kind: "file" });
+      }),
+    );
+
     it.effect("lists immediate filesystem children including hidden and ignored paths", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTempDir({ prefix: "t3code-workspace-directory-", git: true });
@@ -162,7 +181,6 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         );
         expect(root.entries.some((entry) => entry.path === ".git")).toBe(false);
         expect(root.entries.some((entry) => entry.path.includes("characters"))).toBe(false);
-        expect(root.gitStatus).toContainEqual({ path: ".env", status: "untracked" });
 
         const characters = yield* workspaceEntries.listDirectory({
           cwd,
@@ -172,10 +190,6 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           path: "profiles/characters/assets",
           kind: "directory",
         });
-        expect(characters.gitStatus).toContainEqual({
-          path: "profiles/characters/assets",
-          status: "ignored",
-        });
 
         const assets = yield* workspaceEntries.listDirectory({
           cwd,
@@ -184,10 +198,6 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect(assets.entries).toContainEqual({
           path: "profiles/characters/assets/vi_pilot_001",
           kind: "directory",
-        });
-        expect(assets.gitStatus).toContainEqual({
-          path: "profiles/characters/assets",
-          status: "ignored",
         });
       }),
     );

@@ -56,7 +56,6 @@ function legacyDirectoryResult(
       const parentPath = separator === -1 ? "" : entry.path.slice(0, separator);
       return parentPath === relativePath;
     }),
-    gitStatus: [],
   };
 }
 

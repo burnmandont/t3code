@@ -12,7 +12,6 @@ import type {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
   ProjectDirectoryEntry,
-  ProjectGitStatus,
   ProjectListDirectoryInput,
   ProjectListDirectoryResult,
   ProjectListEntriesInput,
@@ -27,7 +26,6 @@ import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/p
 import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 
 import { expandHomePathWith } from "../pathExpansion.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
 
@@ -135,34 +133,6 @@ export class WorkspaceEntries extends Context.Service<
   }
 >()("t3/workspace/WorkspaceEntries") {}
 
-function gitStatusFromCode(code: string): ProjectGitStatus | null {
-  if (code === "!!") return "ignored";
-  if (code === "??") return "untracked";
-  if (code.includes("R")) return "renamed";
-  if (code.includes("D")) return "deleted";
-  if (code.includes("A")) return "added";
-  if (code.trim().length > 0) return "modified";
-  return null;
-}
-
-function parseGitStatus(output: string): ReadonlyArray<{
-  readonly path: string;
-  readonly status: ProjectGitStatus;
-}> {
-  const records = output.split("\0");
-  const entries: Array<{ path: string; status: ProjectGitStatus }> = [];
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index];
-    if (!record || record.length < 4) continue;
-    const code = record.slice(0, 2);
-    const status = gitStatusFromCode(code);
-    if (status === null) continue;
-    entries.push({ path: record.slice(3).replace(/\/$/, ""), status });
-    if (code.includes("R")) index += 1;
-  }
-  return entries;
-}
-
 const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(function* (
   input: FilesystemBrowseInput,
   path: Path.Path,
@@ -192,7 +162,6 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
-  const vcsProcess = yield* VcsProcess.VcsProcess;
 
   const normalizeWorkspaceRoot = Effect.fn("WorkspaceEntries.normalizeWorkspaceRoot")(function* (
     cwd: string,
@@ -416,34 +385,7 @@ export const make = Effect.gen(function* () {
         return left.path.localeCompare(right.path);
       });
 
-    const gitResult = yield* vcsProcess
-      .run({
-        operation: "WorkspaceEntries.listDirectory.gitStatus",
-        command: "git",
-        cwd: normalizedCwd,
-        args: [
-          "-c",
-          "core.quotepath=false",
-          "status",
-          "--porcelain=v1",
-          "-z",
-          "--ignored=matching",
-          "--untracked-files=normal",
-          "--",
-          target.relativePath || ".",
-        ],
-        allowNonZeroExit: true,
-        timeoutMs: 10_000,
-      })
-      .pipe(Effect.option);
-
-    const gitStatus =
-      gitResult._tag === "Some" &&
-      gitResult.value.exitCode === 0 &&
-      !gitResult.value.stdoutTruncated
-        ? parseGitStatus(gitResult.value.stdout)
-        : [];
-    return { entries, gitStatus };
+    return { entries };
   });
 
   return WorkspaceEntries.of({ browse, list, listDirectory, refresh, search, searchContents });
@@ -451,5 +393,4 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(
   Layer.provide(WorkspaceSearchIndex.WorkspaceSearchIndexMap.layer),
-  Layer.provide(VcsProcess.layer),
 );

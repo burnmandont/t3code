@@ -6,7 +6,6 @@ import type {
   EnvironmentId,
   ProjectDirectoryEntry,
   ProjectEntry,
-  ProjectGitStatus,
   ProjectListDirectoryResult,
 } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
@@ -123,7 +122,6 @@ export default function FileBrowserPanel({
   const entryKindsRef = useRef(new Map<string, ProjectEntry["kind"]>());
   const loadedDirectoriesRef = useRef(new Set<string>());
   const loadingDirectoriesRef = useRef(new Map<string, Promise<void>>());
-  const gitStatusesRef = useRef(new Map<string, ProjectGitStatus>());
   const rootResultRef = useRef<ProjectListDirectoryResult | null>(null);
   const loadGenerationRef = useRef(0);
   const refreshDirectoryQueriesRef = useRef(false);
@@ -288,7 +286,6 @@ export default function FileBrowserPanel({
       if (resetRoot) {
         entryKindsRef.current.clear();
         loadedDirectoriesRef.current.clear();
-        gitStatusesRef.current.clear();
         for (const entry of result.entries) entryKindsRef.current.set(entry.path, entry.kind);
         loadedDirectoriesRef.current.add("");
         model.resetPaths(paths);
@@ -303,8 +300,6 @@ export default function FileBrowserPanel({
         loadedDirectoriesRef.current.add(directoryPath);
       }
 
-      for (const entry of result.gitStatus) gitStatusesRef.current.set(entry.path, entry.status);
-      model.setGitStatus([...gitStatusesRef.current].map(([path, status]) => ({ path, status })));
       if (expandAllRequestedRef.current) {
         setAllDirectoriesExpanded(
           model,
@@ -370,9 +365,7 @@ export default function FileBrowserPanel({
     setLoadingDirectoryCount(0);
     entryKindsRef.current.clear();
     loadedDirectoriesRef.current.clear();
-    gitStatusesRef.current.clear();
     model.resetPaths([]);
-    model.setGitStatus([]);
     setTreeRevision((revision) => revision + 1);
   }, [cwd, environmentId, model]);
 
