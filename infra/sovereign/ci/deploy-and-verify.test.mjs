@@ -632,6 +632,7 @@ test("dispatches desktop and iOS releases to a separately trusted GitHub builder
 test("rejects Clerk and cloudflared implementations in sovereign artifacts", () => {
   const workflow = readSovereignFile("../../../.gitea/workflows/sovereign-ci-deploy.yml");
   const serverBuild = readSovereignFile("../../../apps/server/vite.config.ts");
+  const serverWebsocket = readSovereignFile("../../../apps/server/src/ws.ts");
 
   assert.match(workflow, /-e '@clerk\/electron'/u);
   assert.match(workflow, /-e '@clerk\/react'/u);
@@ -639,6 +640,8 @@ test("rejects Clerk and cloudflared implementations in sovereign artifacts", () 
   assert.match(workflow, /inactive external provider implementation/u);
   assert.match(serverBuild, /SovereignConnectorLayer[.]ts/u);
   assert.match(serverBuild, /CloudflareConnectorLayer[.]ts/u);
+  assert.match(serverWebsocket, /@t3tools\/shared\/connectorClient/u);
+  assert.doesNotMatch(serverWebsocket, /@t3tools\/shared\/relayClient/u);
 });
 
 test("allows only hosted and exact current or migration desktop origins to call the relay", () => {
