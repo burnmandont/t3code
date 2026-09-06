@@ -48,6 +48,16 @@ export function shouldUseRestingComposerLayout(input: {
   return input.isExistingThread && !input.isMobileViewport && collapsed && !input.hasExpandedChrome;
 }
 
+export function shouldShowContextWindowMeter(input: {
+  contextWindowMeterEnabled: boolean;
+  composerCollapseOnBlur: boolean;
+  composerCollapseOnScroll: boolean;
+}): boolean {
+  const legacyStaticComposerEnabled =
+    !input.composerCollapseOnBlur && !input.composerCollapseOnScroll;
+  return input.contextWindowMeterEnabled || legacyStaticComposerEnabled;
+}
+
 /**
  * How much taller the empty expanded composer is than its resting row on
  * desktop widths, from the layout classes in ChatComposer: the body loses

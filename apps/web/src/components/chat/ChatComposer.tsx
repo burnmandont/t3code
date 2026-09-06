@@ -157,6 +157,7 @@ import {
   shouldAnimateComposerRestingTransition,
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
+  shouldShowContextWindowMeter,
   shouldUseRestingComposerLayout,
 } from "../composerFooterLayout";
 import { measureRestingComposerControls } from "./restingComposerControlsMeasurement";
@@ -3602,6 +3603,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     hasExpandedChrome: composerHasExpandedChrome,
     collapseOnBlur: settings.composerCollapseOnBlur,
   });
+  const showContextWindowMeter = shouldShowContextWindowMeter(settings);
   // The relocated controls live in the context strip whenever the composer is
   // collapsed for any reason, the desktop resting layout or the phone
   // collapse. Both leave the footer unrendered, so the strip is the only place
@@ -5336,7 +5338,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   "relative",
                   isComposerResting && "flex min-w-0 items-center gap-1",
                   isComposerResting &&
-                    (settings.contextWindowMeterEnabled && activeContextWindow
+                    (showContextWindowMeter && activeContextWindow
                       ? "pr-28"
                       : showComposerAttachAction
                         ? "pr-20"
@@ -5509,9 +5511,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
-                    activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
-                    }
+                    activeContextWindow={showContextWindowMeter ? activeContextWindow : null}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}

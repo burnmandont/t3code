@@ -1997,7 +1997,7 @@ function LegacyFeaturesSection() {
             />
             <SettingsRow
               {...searchableSetting("legacy-static-composer")}
-              description="Keep the chat input expanded when it loses focus or the conversation scrolls."
+              description="Keep the chat input expanded and restore its circular context indicator."
               control={
                 <Switch
                   checked={!settings.composerCollapseOnBlur && !settings.composerCollapseOnScroll}

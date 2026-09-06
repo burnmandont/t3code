@@ -12,6 +12,7 @@ import {
   shouldAnimateComposerRestingTransition,
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
+  shouldShowContextWindowMeter,
   shouldUseRestingComposerLayout,
 } from "./composerFooterLayout";
 
@@ -29,6 +30,38 @@ describe("getRestingComposerImagePreviewCounts", () => {
       visibleCount: 3,
       overflowCount: 4,
     });
+  });
+});
+
+describe("shouldShowContextWindowMeter", () => {
+  it("restores the meter with the legacy static composer", () => {
+    expect(
+      shouldShowContextWindowMeter({
+        contextWindowMeterEnabled: false,
+        composerCollapseOnBlur: false,
+        composerCollapseOnScroll: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the standalone legacy meter preference", () => {
+    expect(
+      shouldShowContextWindowMeter({
+        contextWindowMeterEnabled: true,
+        composerCollapseOnBlur: true,
+        composerCollapseOnScroll: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("hides the meter for the default composer settings", () => {
+    expect(
+      shouldShowContextWindowMeter({
+        contextWindowMeterEnabled: false,
+        composerCollapseOnBlur: true,
+        composerCollapseOnScroll: true,
+      }),
+    ).toBe(false);
   });
 });
 
