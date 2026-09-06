@@ -28,6 +28,7 @@
     "@types/pg": "catalog:",
     "auth": "catalog:",
     "drizzle-kit": "0.31.10",
+    "esbuild": "0.28.1",
     "vite-plus": "catalog:"
   }
 }
