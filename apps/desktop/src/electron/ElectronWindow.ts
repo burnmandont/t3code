@@ -225,7 +225,11 @@ export const make = Effect.gen(function* () {
           }
 
           if (platform === "darwin") {
-            Electron.app.focus({ steal: true });
+            // Let macOS honor the user's currently active application. Dock/app
+            // activation has already made us active, while passive reveal paths
+            // (startup completion, auth callbacks, or duplicate-instance traffic)
+            // must not pull Sovereign in front of another app.
+            Electron.app.focus();
           }
 
           window.focus();

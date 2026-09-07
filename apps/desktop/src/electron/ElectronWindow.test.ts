@@ -30,6 +30,9 @@ import * as ElectronWindow from "./ElectronWindow.ts";
 const TestLayer = ElectronWindow.layer.pipe(
   Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
 );
+const MacTestLayer = ElectronWindow.layer.pipe(
+  Layer.provide(Layer.succeed(HostProcessPlatform, "darwin")),
+);
 
 function makeBrowserWindow(input: { readonly id: number; readonly destroyed: boolean }) {
   return {
@@ -180,6 +183,24 @@ describe("ElectronWindow", () => {
         assert.strictEqual(error.cause, cause);
       }
     }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("does not steal macOS focus when revealing a window", () =>
+    Effect.gen(function* () {
+      const window = {
+        id: 42,
+        isDestroyed: vi.fn(() => false),
+        isMinimized: vi.fn(() => false),
+        isVisible: vi.fn(() => true),
+        focus: vi.fn(),
+      } as unknown as Electron.BrowserWindow;
+
+      const electronWindow = yield* ElectronWindow.ElectronWindow;
+      yield* electronWindow.reveal(window);
+
+      assert.deepEqual(appFocusMock.mock.calls, [[]]);
+      assert.equal(vi.mocked(window.focus).mock.calls.length, 1);
+    }).pipe(Effect.provide(MacTestLayer)),
   );
 
   it.effect("preserves message delivery failures with window and channel context", () =>
