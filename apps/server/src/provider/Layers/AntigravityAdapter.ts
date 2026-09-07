@@ -220,6 +220,27 @@ function isInsideRoot(path: Path.Path, root: string, candidate: string): boolean
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+const realPathWithMissingTail = Effect.fn("AntigravityAdapter.realPathWithMissingTail")(function* (
+  fileSystem: FileSystem.FileSystem,
+  path: Path.Path,
+  target: string,
+) {
+  let cursor = path.resolve(target);
+  const missingSegments: string[] = [];
+  while (true) {
+    const canonical = yield* fileSystem.realPath(cursor).pipe(Effect.option);
+    if (Option.isSome(canonical)) {
+      return path.join(canonical.value, ...missingSegments.toReversed());
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) {
+      return path.resolve(target);
+    }
+    missingSegments.push(path.basename(cursor));
+    cursor = parent;
+  }
+});
+
 /** Resolves an agent-supplied path and rejects anything outside the session roots. */
 const resolveClientFilePath = Effect.fn("AntigravityAdapter.resolveClientFilePath")(
   function* (input: {
@@ -230,10 +251,10 @@ const resolveClientFilePath = Effect.fn("AntigravityAdapter.resolveClientFilePat
   }) {
     const { path } = input;
     const resolved = path.resolve(input.requestPath);
-    // Follow symlinks on the parent so a link out of the workspace cannot escape it.
-    const parent = yield* input.fileSystem
-      .realPath(path.dirname(resolved))
-      .pipe(Effect.orElseSucceed(() => path.dirname(resolved)));
+    // Follow the nearest existing ancestor so a link out of the workspace
+    // cannot escape it. New nested write targets have no real parent yet, so
+    // retain their missing suffix after canonicalizing the existing ancestor.
+    const parent = yield* realPathWithMissingTail(input.fileSystem, path, path.dirname(resolved));
     const real = path.join(parent, path.basename(resolved));
     const roots = yield* Effect.forEach(input.allowedRoots, (root) =>
       input.fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root)),
