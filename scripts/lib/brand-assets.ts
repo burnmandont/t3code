@@ -37,6 +37,7 @@ export const BRAND_ASSET_PATHS = {
   nightlyMobileUniversalIconPng:
     "apps/mobile/assets/branding/preview/sovereign-preview-universal-1024.png",
 
+  marketingIconPng: "apps/marketing/public/icon.png",
   mobileMonochromeMarkPng: "apps/mobile/assets/sovereign-mark.png",
   mobileNotificationMarkPng: "apps/mobile/assets/sovereign-notification-icon.png",
 } as const;

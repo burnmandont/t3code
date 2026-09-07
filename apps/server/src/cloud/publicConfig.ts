@@ -281,17 +281,15 @@ export function makeCloudCliOAuthConfig({
               }),
             ),
         }).pipe(
-          Effect.map(
-            (clerkFrontendApiUrl): CloudCliOAuthConfig => ({
-              provider: "clerk",
-              authorizationEndpoint: `${clerkFrontendApiUrl}/oauth/authorize`,
-              tokenEndpoint: `${clerkFrontendApiUrl}/oauth/token`,
-              clientId: clerkClientId,
-              loopbackPort: CLOUD_CLI_OAUTH_LOOPBACK_PORT,
-              redirectUri: connectLoopbackRedirectUri(CLOUD_CLI_OAUTH_LOOPBACK_PORT),
-              scopes: CONNECT_OAUTH_SCOPES,
-            }),
-          ),
+          Effect.map((clerkFrontendApiUrl): CloudCliOAuthConfig => ({
+            provider: "clerk",
+            authorizationEndpoint: `${clerkFrontendApiUrl}/oauth/authorize`,
+            tokenEndpoint: `${clerkFrontendApiUrl}/oauth/token`,
+            clientId: clerkClientId,
+            loopbackPort: CLOUD_CLI_OAUTH_LOOPBACK_PORT,
+            redirectUri: connectLoopbackRedirectUri(CLOUD_CLI_OAUTH_LOOPBACK_PORT),
+            scopes: CONNECT_OAUTH_SCOPES,
+          })),
         );
       },
     ),

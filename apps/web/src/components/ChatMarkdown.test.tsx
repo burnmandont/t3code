@@ -74,6 +74,7 @@ function codeButton(renderer: ReactTestRenderer, label: string) {
 
 describe("ChatMarkdown favicon privacy", () => {
   it("suppresses private link images while preserving public links across updates", async () => {
+    vi.stubEnv("VITE_REMOTE_FAVICONS", "");
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     let renderer: ReactTestRenderer | undefined;
     const markdown = (url: string) => <ChatMarkdown cwd="/tmp/project" text={`[Link](${url})`} />;
@@ -99,6 +100,7 @@ describe("ChatMarkdown favicon privacy", () => {
         renderer?.unmount();
       });
       vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
     }
   });
 });

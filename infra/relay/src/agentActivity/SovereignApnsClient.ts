@@ -1,10 +1,4 @@
-import {
-  connect,
-  constants as http2Constants,
-  type ClientHttp2Session,
-  type ClientHttp2Stream,
-  type OutgoingHttpHeaders,
-} from "node:http2";
+import * as NodeHttp2 from "node:http2";
 
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -39,12 +33,12 @@ function firstHeader(value: string | ReadonlyArray<string> | undefined): string 
 export function sendHttp2ApnsRequest(input: {
   readonly origin: string;
   readonly path: string;
-  readonly headers: OutgoingHttpHeaders;
+  readonly headers: NodeHttp2.OutgoingHttpHeaders;
   readonly payload: unknown;
 }): Promise<Http2Response> {
   return new Promise((resolve, reject: (failure: Http2Failure) => void) => {
-    let session: ClientHttp2Session | undefined;
-    let request: ClientHttp2Stream | undefined;
+    let session: NodeHttp2.ClientHttp2Session | undefined;
+    let request: NodeHttp2.ClientHttp2Stream | undefined;
     let status: number | null = null;
     let settled = false;
     const chunks: Buffer[] = [];
@@ -62,18 +56,18 @@ export function sendHttp2ApnsRequest(input: {
       finish(() => reject({ stage, status, cause }));
 
     try {
-      session = connect(input.origin);
+      session = NodeHttp2.connect(input.origin);
       session.once("error", (cause) => fail(status === null ? "send" : "read-response", cause));
       request = session.request({
-        [http2Constants.HTTP2_HEADER_METHOD]: "POST",
-        [http2Constants.HTTP2_HEADER_PATH]: input.path,
-        [http2Constants.HTTP2_HEADER_SCHEME]: "https",
+        [NodeHttp2.constants.HTTP2_HEADER_METHOD]: "POST",
+        [NodeHttp2.constants.HTTP2_HEADER_PATH]: input.path,
+        [NodeHttp2.constants.HTTP2_HEADER_SCHEME]: "https",
         "content-type": "application/json",
         ...input.headers,
       });
       request.setTimeout(REQUEST_TIMEOUT_MS, () => fail("read-response", new Error("timeout")));
       request.once("response", (headers) => {
-        const receivedStatus = headers[http2Constants.HTTP2_HEADER_STATUS];
+        const receivedStatus = headers[NodeHttp2.constants.HTTP2_HEADER_STATUS];
         status = typeof receivedStatus === "number" ? receivedStatus : Number(receivedStatus);
         const apnsId = firstHeader(headers["apns-id"]);
         request?.on("data", (chunk: Buffer | string) => {

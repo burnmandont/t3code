@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { faviconUrlForOrigin } from "./favicon";
+
+beforeEach(() => {
+  vi.stubEnv("VITE_REMOTE_FAVICONS", "");
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();

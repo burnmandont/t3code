@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   CloudPublicConfigMissingError,
@@ -6,6 +6,12 @@ import {
   resolveCloudIdentityConfig,
   resolveRelayClerkTokenOptions,
 } from "./publicConfig.ts";
+
+beforeEach(() => {
+  vi.stubEnv("VITE_T3CODE_OAUTH_ISSUER", "");
+  vi.stubEnv("VITE_T3CODE_OAUTH_CLIENT_ID", "");
+  vi.stubEnv("VITE_T3CODE_OAUTH_RESOURCE", "");
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();

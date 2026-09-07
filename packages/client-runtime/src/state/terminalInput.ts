@@ -101,7 +101,7 @@ export function createTerminalInputCommand<A, E>(
       const { target } = entry;
       lane.tail = lane.tail.then(async () => {
         let result: AtomCommandResult<A, E> | undefined;
-        for (let offset = 0; offset < target.input.data.length; ) {
+        for (let offset = 0; offset < target.input.data.length;) {
           let end = Math.min(offset + maxBatchChars, target.input.data.length);
           const splitsSurrogatePair =
             end - offset > 1 &&

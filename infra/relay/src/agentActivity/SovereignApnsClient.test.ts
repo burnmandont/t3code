@@ -1,10 +1,10 @@
-import { createServer } from "node:http2";
+import * as NodeHttp2 from "node:http2";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { sendHttp2ApnsRequest } from "./SovereignApnsClient.ts";
 
-const servers = new Set<ReturnType<typeof createServer>>();
+const servers = new Set<ReturnType<typeof NodeHttp2.createServer>>();
 
 afterEach(async () => {
   await Promise.all(
@@ -20,7 +20,7 @@ afterEach(async () => {
 
 describe("sovereign APNs HTTP/2 transport", () => {
   it("sends an HTTP/2 provider request and returns the APNs response metadata", async () => {
-    const server = createServer();
+    const server = NodeHttp2.createServer();
     servers.add(server);
     const received: Array<{
       path: string | undefined;
