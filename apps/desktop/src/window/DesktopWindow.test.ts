@@ -14,8 +14,15 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Electron from "electron";
 import { vi } from "vite-plus/test";
 
+const { appIsActiveMock } = vi.hoisted(() => ({
+  appIsActiveMock: vi.fn(() => false),
+}));
+
 vi.mock("electron", async (importOriginal) => ({
   ...(await importOriginal<typeof import("electron")>()),
+  app: {
+    isActive: appIsActiveMock,
+  },
   session: {
     fromPartition: vi.fn(() => ({
       getUserAgent: vi.fn(() => "Mozilla/5.0 Electron/41.5.0 t3code/1.2.3"),
@@ -209,6 +216,7 @@ function makeTestLayer(input: {
   ) => Effect.Effect<void>;
   readonly openedExternalUrls?: unknown[];
   readonly previewZoomReapplies?: number[];
+  readonly revealOptions?: Array<{ readonly activate?: boolean } | undefined>;
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -257,7 +265,10 @@ function makeTestLayer(input: {
     focusedMainOrFirst: Ref.get(input.mainWindow),
     setMain: (window) => Ref.set(input.mainWindow, Option.some(window)),
     clearMain: () => Ref.set(input.mainWindow, Option.none()),
-    reveal: () => Effect.void,
+    reveal: (_window, options) =>
+      Effect.sync(() => {
+        input.revealOptions?.push(options);
+      }),
     sendAll: () => Effect.void,
     destroyAll: Effect.void,
     syncAllAppearance: (sync) => sync(input.window),
@@ -639,10 +650,12 @@ describe("DesktopWindow", () => {
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const revealOptions: Array<{ readonly activate?: boolean } | undefined> = [];
       const layer = makeTestLayer({
         window: fakeWindow.window,
         createCount,
         mainWindow,
+        revealOptions,
       });
 
       yield* Effect.gen(function* () {
@@ -656,6 +669,7 @@ describe("DesktopWindow", () => {
         }
         readyToShow();
         assert.deepEqual(fakeWindow.setBackgroundThrottling.mock.calls, [[true]]);
+        assert.deepEqual(revealOptions, [{ activate: false }]);
       }).pipe(Effect.provide(layer));
     }),
   );

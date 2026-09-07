@@ -88,7 +88,10 @@ export class ElectronWindow extends Context.Service<
     readonly focusedMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly setMain: (window: Electron.BrowserWindow) => Effect.Effect<void>;
     readonly clearMain: (window: Option.Option<Electron.BrowserWindow>) => Effect.Effect<void>;
-    readonly reveal: (window: Electron.BrowserWindow) => Effect.Effect<void>;
+    readonly reveal: (
+      window: Electron.BrowserWindow,
+      options?: { readonly activate?: boolean },
+    ) => Effect.Effect<void>;
     readonly sendAll: (channel: string, ...args: readonly unknown[]) => Effect.Effect<void>;
     readonly destroyAll: Effect.Effect<void>;
     readonly syncAllAppearance: <E, R>(
@@ -209,10 +212,17 @@ export const make = Effect.gen(function* () {
         }
         return Option.none();
       }),
-    reveal: (window) =>
+    reveal: (window, options) =>
       Effect.try({
         try: () => {
           if (window.isDestroyed()) {
+            return;
+          }
+
+          if (platform === "darwin" && options?.activate === false) {
+            if (!window.isVisible()) {
+              window.showInactive();
+            }
             return;
           }
 

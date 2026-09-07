@@ -758,7 +758,16 @@ export const make = Effect.gen(function* () {
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
-      void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
+      // Loading can finish after the user has switched to another application.
+      // Show the completed window without routing their next keystroke into T3.
+      void runPromise(
+        Effect.andThen(
+          electronWindow.reveal(window, {
+            activate: environment.platform !== "darwin" || Electron.app.isActive(),
+          }),
+          dismissConnectingSplash,
+        ),
+      );
     });
 
     loadApplication();

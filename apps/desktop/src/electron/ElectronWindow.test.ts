@@ -203,6 +203,25 @@ describe("ElectronWindow", () => {
     }).pipe(Effect.provide(MacTestLayer)),
   );
 
+  it.effect("shows a passive macOS reveal without activating the window", () =>
+    Effect.gen(function* () {
+      const window = {
+        id: 43,
+        isDestroyed: vi.fn(() => false),
+        isVisible: vi.fn(() => false),
+        showInactive: vi.fn(),
+        focus: vi.fn(),
+      } as unknown as Electron.BrowserWindow;
+
+      const electronWindow = yield* ElectronWindow.ElectronWindow;
+      yield* electronWindow.reveal(window, { activate: false });
+
+      assert.equal(vi.mocked(window.showInactive).mock.calls.length, 1);
+      assert.equal(appFocusMock.mock.calls.length, 0);
+      assert.equal(vi.mocked(window.focus).mock.calls.length, 0);
+    }).pipe(Effect.provide(MacTestLayer)),
+  );
+
   it.effect("preserves message delivery failures with window and channel context", () =>
     Effect.gen(function* () {
       const cause = new Error("renderer send failed");
