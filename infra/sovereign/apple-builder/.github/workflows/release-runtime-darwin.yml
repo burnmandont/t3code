@@ -68,6 +68,16 @@ jobs:
             --filter=@t3tools/monorepo \
             --filter=t3...
 
+      - name: Expose pinned pnpm to runtime packager
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm_version="$(node --print "require('./package.json').packageManager.split('@').pop()")"
+          vp_pnpm_bin="$HOME/.vite-plus/package_manager/pnpm/$pnpm_version/pnpm/bin"
+          test -x "$vp_pnpm_bin/pnpm"
+          printf '%s\n' "$vp_pnpm_bin" >> "$GITHUB_PATH"
+          "$vp_pnpm_bin/pnpm" --version
+
       - name: Build Darwin runtime artifact
         shell: bash
         env:
