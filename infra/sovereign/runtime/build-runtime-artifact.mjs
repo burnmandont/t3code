@@ -163,17 +163,21 @@ if (typeof extract.extractStrings !== "function") process.exit(1);`,
   await NodeFSP.rename(deployed, t3Root);
 
   const frpcArchive = NodePath.join(workspace, "frpc.tar.gz");
+  const frpcAuthorization =
+    packageUsername && packageToken
+      ? `Basic ${Buffer.from(`${packageUsername}:${packageToken}`).toString("base64")}`
+      : undefined;
   const response = await fetch(frpcAssetUrl, {
-    headers:
-      packageUsername && packageToken
-        ? {
-            Authorization: `Basic ${Buffer.from(`${packageUsername}:${packageToken}`).toString("base64")}`,
-          }
-        : undefined,
-    redirect: "error",
+    headers: frpcAuthorization ? { Authorization: frpcAuthorization } : undefined,
+    // Never forward registry credentials through a redirect. Public GitHub
+    // release assets legitimately redirect to credentialless object storage.
+    redirect: frpcAuthorization ? "error" : "follow",
     signal: AbortSignal.timeout(120_000),
   });
   if (!response.ok) throw new Error(`FRP release download returned HTTP ${response.status}.`);
+  if (new URL(response.url).protocol !== "https:") {
+    throw new Error("FRP release download redirected away from HTTPS.");
+  }
   const frpcBytes = Buffer.from(await response.arrayBuffer());
   if (NodeCrypto.createHash("sha256").update(frpcBytes).digest("hex") !== target.frpcSha256) {
     throw new Error("FRP release checksum mismatch.");
@@ -201,22 +205,22 @@ if (typeof extract.extractStrings !== "function") process.exit(1);`,
   await NodeFSP.mkdir(outputDir, { recursive: true });
   const tarPath = NodePath.join(workspace, "runtime.tar");
   const archivePath = NodePath.join(outputDir, ARTIFACT_FILE_NAME);
-  NodeChildProcess.execFileSync(
-    "tar",
-    [
-      "--sort=name",
-      "--mtime=@0",
-      "--owner=0",
-      "--group=0",
-      "--numeric-owner",
-      "-cf",
-      tarPath,
-      "-C",
-      root,
-      ".",
-    ],
-    { stdio: "inherit" },
-  );
+  const tarArguments =
+    process.platform === "linux"
+      ? [
+          "--sort=name",
+          "--mtime=@0",
+          "--owner=0",
+          "--group=0",
+          "--numeric-owner",
+          "-cf",
+          tarPath,
+          "-C",
+          root,
+          ".",
+        ]
+      : ["-cf", tarPath, "-C", root, "."];
+  NodeChildProcess.execFileSync("tar", tarArguments, { stdio: "inherit" });
   NodeChildProcess.execFileSync("gzip", ["-n", "-9", tarPath], { stdio: "inherit" });
   // The runner commonly mounts /tmp and the checkout on different filesystems,
   // where rename(2) fails with EXDEV. This is an ephemeral, freshly emptied
