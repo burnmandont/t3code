@@ -265,9 +265,11 @@ jobs:
       - name: Build and publish Darwin runtime on GitHub macOS runner
         env:
           SOVEREIGN_GITHUB_BUILDER_TOKEN: ${{ secrets.SOVEREIGN_GITHUB_TOKEN }}
+          SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64: ${{ secrets.SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64 }}
         run: |
           test -n "$SOVEREIGN_GITHUB_REPOSITORY"
           test -n "$SOVEREIGN_GITHUB_BUILDER_TOKEN"
+          test -n "$SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64"
           darwin_dispatch="$(node infra/sovereign/ci/dispatch-darwin-runtime.mjs)"
           printf '%s\n' "$darwin_dispatch"
           darwin_run_id="$(printf '%s\n' "$darwin_dispatch" | sed -n 's/^DARWIN_RUNTIME_RUN_ID=//p')"
