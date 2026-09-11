@@ -4,6 +4,12 @@ export const ARTIFACT_SCHEMA_VERSION = 1;
 export const ARTIFACT_FILE_NAME = "t3-sovereign-runtime-linux-x64.tar.gz";
 export const MANIFEST_FILE_NAME = "linux-x64.manifest.json";
 
+export {
+  runtimeArtifactNames,
+  runtimePlatformKey,
+  resolveRuntimePlatform,
+} from "./runtime-platform.mjs";
+
 export function sha256(bytes) {
   return NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 }

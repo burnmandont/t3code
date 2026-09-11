@@ -6,10 +6,13 @@ import * as NodePath from "node:path";
 
 import { createSignedEnvelope } from "./artifact-format.mjs";
 import { renderInstaller } from "./render-installer.mjs";
+import {
+  resolveRuntimePlatform,
+  runtimeArtifactNames,
+  SUPPORTED_RUNTIME_PLATFORMS,
+} from "./runtime-platform.mjs";
 
 const API_VERSION = "2022-11-28";
-const ARTIFACT_FILE_NAME = "t3-sovereign-runtime-linux-x64.tar.gz";
-const MANIFEST_FILE_NAME = "linux-x64.manifest.json";
 
 export function createStableChannelEnvelope(input) {
   if (!/^\d+\.\d+\.\d+\+sovereign\.g[a-f0-9]{7,64}$/u.test(input.version)) {
@@ -162,6 +165,16 @@ async function publishRelease(client, repository, release) {
   process.stdout.write(`Published GitHub release ${release.tag_name}.\n`);
 }
 
+export function assertCompleteRuntimeRelease(release) {
+  const names = new Set(release.assets.map((asset) => asset.name));
+  for (const [key, target] of Object.entries(SUPPORTED_RUNTIME_PLATFORMS)) {
+    const expected = runtimeArtifactNames({ key, ...target });
+    for (const name of [expected.artifactFileName, expected.manifestFileName]) {
+      if (!names.has(name)) throw new Error(`Runtime release is missing required asset ${name}.`);
+    }
+  }
+}
+
 async function putRepositoryFile(client, repository, branch, path, bytes, message) {
   const encodedPath = path
     .split("/")
@@ -202,6 +215,7 @@ async function main() {
   const privateKey = process.env.SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64;
   const version = process.env.SOVEREIGN_RUNTIME_VERSION;
   const commit = process.env.GITEA_SHA ?? process.env.GITHUB_SHA;
+  const publishStableChannel = process.env.SOVEREIGN_PUBLISH_STABLE_CHANNEL !== "0";
   const outputDir = NodePath.resolve(
     process.env.SOVEREIGN_RUNTIME_OUTPUT_DIR ?? "infra/sovereign/dist/runtime",
   );
@@ -209,6 +223,12 @@ async function main() {
     throw new Error(
       "GitHub token, runtime signing key, runtime version, and Git commit are required.",
     );
+  }
+  const build = JSON.parse(await NodeFSP.readFile(NodePath.join(outputDir, "build.json"), "utf8"));
+  const target = resolveRuntimePlatform(build.platform, build.arch);
+  const { artifactFileName, manifestFileName } = runtimeArtifactNames(target);
+  if (build.version !== version || build.commit !== commit) {
+    throw new Error("Built runtime identity does not match the requested publication.");
   }
   const publicKey = (
     await NodeFSP.readFile(NodePath.join(outputDir, "public-key-spki.b64"), "utf8")
@@ -240,41 +260,37 @@ async function main() {
     throw new Error("The GitHub artifact repository has no default branch.");
   }
   const release = await ensureRelease(client, repository, version);
-  await ensureReleaseAsset(
-    client,
-    repository,
-    release,
-    NodePath.join(outputDir, ARTIFACT_FILE_NAME),
-  );
-  await ensureReleaseAsset(
-    client,
-    repository,
-    release,
-    NodePath.join(outputDir, MANIFEST_FILE_NAME),
-  );
-  await publishRelease(client, repository, release);
+  await ensureReleaseAsset(client, repository, release, NodePath.join(outputDir, artifactFileName));
+  await ensureReleaseAsset(client, repository, release, NodePath.join(outputDir, manifestFileName));
+  const completeRelease = await ensureRelease(client, repository, version);
+  if (publishStableChannel) assertCompleteRuntimeRelease(completeRelease);
+  await publishRelease(client, repository, completeRelease);
 
-  const message = `release: publish sovereign runtime ${version}`;
-  await putRepositoryFile(client, repository, branch, "install", Buffer.from(installer), message);
-  await putRepositoryFile(
-    client,
-    repository,
-    branch,
-    "CNAME",
-    Buffer.from(`${new URL(pagesOrigin).hostname}\n`),
-    message,
+  if (publishStableChannel) {
+    const message = `release: publish sovereign runtime ${version}`;
+    await putRepositoryFile(client, repository, branch, "install", Buffer.from(installer), message);
+    await putRepositoryFile(
+      client,
+      repository,
+      branch,
+      "CNAME",
+      Buffer.from(`${new URL(pagesOrigin).hostname}\n`),
+      message,
+    );
+    // The signed channel moves last, after every required platform publisher
+    // has completed and the bootstrap knows how to select those assets.
+    await putRepositoryFile(
+      client,
+      repository,
+      branch,
+      "channels/stable.json",
+      Buffer.from(`${JSON.stringify(channel.envelope)}\n`),
+      message,
+    );
+  }
+  process.stdout.write(
+    `Published sovereign ${target.key} runtime ${version} to GitHub${publishStableChannel ? " and advanced stable" : ""}.\n`,
   );
-  // The signed channel moves last, after both immutable assets and the
-  // bootstrap that knows how to verify them are publicly available.
-  await putRepositoryFile(
-    client,
-    repository,
-    branch,
-    "channels/stable.json",
-    Buffer.from(`${JSON.stringify(channel.envelope)}\n`),
-    message,
-  );
-  process.stdout.write(`Published credentialless sovereign runtime ${version} to GitHub.\n`);
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) await main();

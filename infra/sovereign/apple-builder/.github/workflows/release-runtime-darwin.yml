@@ -1,0 +1,86 @@
+name: Build sovereign Darwin runtime
+run-name: Darwin runtime ${{ github.event.client_payload.commit_sha }}
+
+on:
+  repository_dispatch:
+    types:
+      - sovereign_darwin_runtime
+
+concurrency:
+  group: sovereign-darwin-runtime-${{ github.event.client_payload.commit_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_REPOSITORY_URL: https://source.moondiner.com/t3_fork/sovereign.git
+  GITEA_SHA: ${{ github.event.client_payload.commit_sha }}
+  SOVEREIGN_RUNTIME_VERSION: ${{ github.event.client_payload.runtime_version }}
+
+jobs:
+  build-and-publish:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Validate release configuration
+        shell: bash
+        env:
+          GITEA_CLONE_USERNAME: ${{ vars.GITEA_CLONE_USERNAME }}
+          GITEA_CLONE_TOKEN: ${{ secrets.GITEA_CLONE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$GITEA_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$SOVEREIGN_RUNTIME_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+sovereign\.g[a-f0-9]{12}$ ]]
+          [[ "$SOVEREIGN_RUNTIME_VERSION" == *"${GITEA_SHA:0:12}" ]]
+          for name in GITEA_CLONE_USERNAME GITEA_CLONE_TOKEN; do
+            test -n "${!name}"
+          done
+
+      - name: Fetch exact source from Gitea
+        shell: bash
+        env:
+          GITEA_CLONE_USERNAME: ${{ vars.GITEA_CLONE_USERNAME }}
+          GITEA_CLONE_TOKEN: ${{ secrets.GITEA_CLONE_TOKEN }}
+        run: |
+          set -euo pipefail
+          askpass_path="$RUNNER_TEMP/gitea-askpass"
+          printf '#!/bin/sh\ncase "$1" in\n  *Username*) printf "%%s\\n" "$GITEA_CLONE_USERNAME" ;;\n  *Password*) printf "%%s\\n" "$GITEA_CLONE_TOKEN" ;;\n  *) exit 1 ;;\nesac\n' > "$askpass_path"
+          chmod 700 "$askpass_path"
+          export GIT_ASKPASS="$askpass_path" GIT_TERMINAL_PROMPT=0
+          git init .
+          git remote add origin "$SOURCE_REPOSITORY_URL"
+          git fetch --depth=1 origin "$GITEA_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITEA_SHA"
+
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=t3...
+
+      - name: Build Darwin runtime artifact
+        shell: bash
+        env:
+          T3CODE_BUILD_NEUTRAL_PUBLIC_RUNTIME: "1"
+          VITE_HOSTED_APP_CHANNEL: sovereign
+          VITE_REMOTE_FAVICONS: "0"
+          T3CODE_WEB_SOURCEMAP: "0"
+          SOVEREIGN_RUNTIME_UNSIGNED_BUILD: "1"
+          SOVEREIGN_FRPC_ASSET_URL: https://github.com/fatedier/frp/releases/download/v0.70.1/frp_0.70.1_darwin_arm64.tar.gz
+        run: |
+          set -euo pipefail
+          node infra/sovereign/runtime/set-runtime-version.mjs
+          pnpm exec vp run --filter t3 build
+          node infra/sovereign/runtime/build-runtime-artifact.mjs
+
+      - name: Upload Darwin runtime for Gitea signing
+        uses: actions/upload-artifact@v7
+        with:
+          name: darwin-runtime-${{ env.GITEA_SHA }}
+          path: infra/sovereign/dist/runtime/
+          if-no-files-found: error

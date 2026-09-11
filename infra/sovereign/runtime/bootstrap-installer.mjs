@@ -11,11 +11,21 @@ import * as NodeStreamPromises from "node:stream/promises";
 const CHANNEL_URL = "__SOVEREIGN_CHANNEL_URL__";
 const RELEASE_BASE_URL = "__SOVEREIGN_RELEASE_BASE_URL__";
 const PUBLIC_KEY_SPKI_B64 = "__SOVEREIGN_PUBLIC_KEY_SPKI_B64__";
-const ARTIFACT_FILE_NAME = "t3-sovereign-runtime-linux-x64.tar.gz";
-const MANIFEST_FILE_NAME = "linux-x64.manifest.json";
 const MAX_DOCUMENT_BYTES = 128 * 1024;
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024 * 1024;
 const CONTROL_PLANE_DISCOVERY_PATH = "/.well-known/t3-sovereign.json";
+
+function resolveRuntimeTarget() {
+  const key = `${process.platform}-${process.arch}`;
+  if (key !== "linux-x64" && key !== "darwin-arm64") {
+    throw new Error(`Sovereign installer does not support ${key}.`);
+  }
+  return {
+    key,
+    artifactFileName: `t3-sovereign-runtime-${key}.tar.gz`,
+    manifestFileName: `${key}.manifest.json`,
+  };
+}
 
 function normalizeOrigin(value, label) {
   const url = new URL(value.trim());
@@ -378,13 +388,13 @@ async function downloadArtifact(url, destination, payload) {
   }
 }
 
-function validateManifest(payload, version) {
+function validateManifest(payload, version, target) {
   if (
     payload.schemaVersion !== 1 ||
     payload.version !== version ||
-    payload.platform !== "linux" ||
-    payload.arch !== "x64" ||
-    payload.fileName !== ARTIFACT_FILE_NAME ||
+    payload.platform !== process.platform ||
+    payload.arch !== process.arch ||
+    payload.fileName !== target.artifactFileName ||
     !/^[a-f0-9]{64}$/u.test(payload.sha256 ?? "") ||
     !Number.isSafeInteger(payload.sizeBytes) ||
     payload.sizeBytes <= 0 ||
@@ -396,6 +406,7 @@ function validateManifest(payload, version) {
 }
 
 async function installRuntime(baseDir, version, runtimeEnv) {
+  const target = resolveRuntimeTarget();
   const versionsDir = NodePath.join(baseDir, "runtime", "versions");
   const destination = NodePath.join(versionsDir, version);
   const entryPath = NodePath.join(destination, "node_modules", "t3", "dist", "bin.mjs");
@@ -412,10 +423,13 @@ async function installRuntime(baseDir, version, runtimeEnv) {
   const staging = await NodeFSP.mkdtemp(NodePath.join(versionsDir, ".bootstrap-"));
   try {
     const manifest = verifySignedEnvelope(
-      await fetchSmallDocument(releaseAssetUrl(version, MANIFEST_FILE_NAME), "Runtime manifest"),
+      await fetchSmallDocument(
+        releaseAssetUrl(version, target.manifestFileName),
+        "Runtime manifest",
+      ),
       "Runtime manifest",
     );
-    validateManifest(manifest, version);
+    validateManifest(manifest, version, target);
     const archivePath = NodePath.join(staging, ".runtime-artifact.tar.gz");
     await downloadArtifact(releaseAssetUrl(version, manifest.fileName), archivePath, manifest);
     NodeChildProcess.execFileSync(
@@ -432,14 +446,14 @@ async function installRuntime(baseDir, version, runtimeEnv) {
     if (!reported.trim().endsWith(`v${version}`)) {
       throw new Error("The installed runtime reported the wrong version.");
     }
-    const bundledFrpc = NodePath.join(staging, "tools", "frpc", "0.70.1", "linux-x64", "frpc");
+    const bundledFrpc = NodePath.join(staging, "tools", "frpc", "0.70.1", target.key, "frpc");
     const frpcVersion = NodeChildProcess.execFileSync(bundledFrpc, ["--version"], {
       encoding: "utf8",
     });
     if (!frpcVersion.includes("0.70.1")) {
       throw new Error("The bundled FRP client reported the wrong version.");
     }
-    const managedFrpc = NodePath.join(baseDir, "tools", "frpc", "0.70.1", "linux-x64", "frpc");
+    const managedFrpc = NodePath.join(baseDir, "tools", "frpc", "0.70.1", target.key, "frpc");
     await NodeFSP.mkdir(NodePath.dirname(managedFrpc), { recursive: true });
     const stagedFrpc = `${managedFrpc}.${process.pid}.tmp`;
     await NodeFSP.copyFile(bundledFrpc, stagedFrpc);
@@ -544,14 +558,32 @@ function readConnectStatus(entryPath, baseDir, runtimeEnv) {
 }
 
 function isBackgroundServiceActive() {
-  return (
-    NodeChildProcess.spawnSync("systemctl", ["--user", "is-active", "--quiet", "t3code.service"], {
-      stdio: "ignore",
-    }).status === 0
-  );
+  if (process.platform === "linux") {
+    return (
+      NodeChildProcess.spawnSync(
+        "systemctl",
+        ["--user", "is-active", "--quiet", "t3code.service"],
+        {
+          stdio: "ignore",
+        },
+      ).status === 0
+    );
+  }
+  if (process.platform === "darwin") {
+    return (
+      NodeChildProcess.spawnSync(
+        "launchctl",
+        ["print", `gui/${process.getuid()}/com.t3tools.t3code.service`],
+        { stdio: "ignore" },
+      ).status === 0
+    );
+  }
+  return false;
 }
 
 function isBackgroundServiceInstalled() {
+  if (process.platform === "darwin") return isBackgroundServiceActive();
+  if (process.platform !== "linux") return false;
   return (
     NodeChildProcess.spawnSync("systemctl", ["--user", "cat", "--quiet", "t3code.service"], {
       stdio: "ignore",
@@ -593,9 +625,7 @@ function runRequestedCommand(entryPath, baseDir, command, runtimeEnv) {
 }
 
 async function main() {
-  if (process.platform !== "linux" || process.arch !== "x64") {
-    throw new Error("The sovereign installer currently supports Linux x64 only.");
-  }
+  resolveRuntimeTarget();
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (
     major < 22 ||

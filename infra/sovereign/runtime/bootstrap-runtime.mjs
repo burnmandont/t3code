@@ -9,15 +9,15 @@ import * as NodeStream from "node:stream";
 import * as NodeStreamPromises from "node:stream/promises";
 
 import { verifySignedEnvelope } from "./artifact-format.mjs";
+import { resolveRuntimePlatform, runtimeArtifactNames } from "./runtime-platform.mjs";
 
 const version = process.argv[2];
 const activate = process.argv.includes("--activate");
 if (!/^\d+\.\d+\.\d+-sovereign\.g[a-f0-9]{7,64}$/u.test(version ?? "")) {
   throw new Error("Usage: node bootstrap-runtime.mjs <exact-sovereign-version> [--activate]");
 }
-if (process.platform !== "linux" || process.arch !== "x64") {
-  throw new Error("This bootstrap artifact supports Linux x64 only.");
-}
+const target = resolveRuntimePlatform();
+const { artifactFileName, manifestFileName } = runtimeArtifactNames(target);
 
 const baseDir = NodePath.resolve(process.env.T3CODE_HOME ?? NodePath.join(NodeOS.homedir(), ".t3"));
 const configPath = NodePath.join(baseDir, "runtime", "artifact-source.json");
@@ -55,7 +55,7 @@ const headers =
 const artifactUrl = (name) =>
   `${source.baseUrl.replace(/\/$/u, "")}/${encodeURIComponent(version)}/${encodeURIComponent(name)}`;
 
-const manifestResponse = await fetch(artifactUrl("linux-x64.manifest.json"), {
+const manifestResponse = await fetch(artifactUrl(manifestFileName), {
   headers,
   redirect: "error",
   signal: AbortSignal.timeout(60_000),
@@ -70,9 +70,9 @@ const payload = verifySignedEnvelope(JSON.parse(manifestText), source.publicKeyS
 if (
   payload.schemaVersion !== 1 ||
   payload.version !== version ||
-  payload.platform !== "linux" ||
-  payload.arch !== "x64" ||
-  payload.fileName !== "t3-sovereign-runtime-linux-x64.tar.gz" ||
+  payload.platform !== target.platform ||
+  payload.arch !== target.arch ||
+  payload.fileName !== artifactFileName ||
   !/^[a-f0-9]{64}$/u.test(payload.sha256) ||
   !Number.isSafeInteger(payload.sizeBytes) ||
   payload.sizeBytes <= 0 ||
@@ -136,14 +136,14 @@ if (!installed) {
     if (!reported.trim().endsWith(`v${version}`))
       throw new Error("Runtime reported wrong version.");
 
-    const bundledFrpc = NodePath.join(staging, "tools", "frpc", "0.70.1", "linux-x64", "frpc");
+    const bundledFrpc = NodePath.join(staging, "tools", "frpc", "0.70.1", target.key, "frpc");
     if ((await NodeFSP.stat(bundledFrpc)).isFile()) {
       await NodeFSP.chmod(bundledFrpc, 0o755);
       const frpcVersion = NodeChildProcess.execFileSync(bundledFrpc, ["--version"], {
         encoding: "utf8",
       });
       if (!frpcVersion.includes("0.70.1")) throw new Error("Bundled FRP client is invalid.");
-      const managedFrpc = NodePath.join(baseDir, "tools", "frpc", "0.70.1", "linux-x64", "frpc");
+      const managedFrpc = NodePath.join(baseDir, "tools", "frpc", "0.70.1", target.key, "frpc");
       await NodeFSP.mkdir(NodePath.dirname(managedFrpc), { recursive: true });
       const stagedFrpc = `${managedFrpc}.${process.pid}.tmp`;
       await NodeFSP.copyFile(bundledFrpc, stagedFrpc);

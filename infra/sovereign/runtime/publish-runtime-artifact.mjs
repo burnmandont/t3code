@@ -5,12 +5,8 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeStreamPromises from "node:stream/promises";
 
-import {
-  ARTIFACT_FILE_NAME,
-  ARTIFACT_SCHEMA_VERSION,
-  MANIFEST_FILE_NAME,
-  verifySignedEnvelope,
-} from "./artifact-format.mjs";
+import { ARTIFACT_SCHEMA_VERSION, verifySignedEnvelope } from "./artifact-format.mjs";
+import { resolveRuntimePlatform, runtimeArtifactNames } from "./runtime-platform.mjs";
 
 const baseUrl = process.env.SOVEREIGN_PACKAGE_BASE_URL;
 const username = process.env.SOVEREIGN_PACKAGE_USERNAME;
@@ -20,6 +16,10 @@ const commit = process.env.GITEA_SHA ?? process.env.GITHUB_SHA;
 const outputDir = NodePath.resolve(
   process.env.SOVEREIGN_RUNTIME_OUTPUT_DIR ?? "infra/sovereign/dist/runtime",
 );
+const build = JSON.parse(await NodeFSP.readFile(NodePath.join(outputDir, "build.json"), "utf8"));
+const target = resolveRuntimePlatform(build.platform, build.arch);
+const { artifactFileName: ARTIFACT_FILE_NAME, manifestFileName: MANIFEST_FILE_NAME } =
+  runtimeArtifactNames(target);
 if (!baseUrl || !username || !token || !version || !commit) {
   throw new Error(
     "SOVEREIGN_PACKAGE_BASE_URL, SOVEREIGN_PACKAGE_USERNAME, SOVEREIGN_PACKAGE_TOKEN, SOVEREIGN_RUNTIME_VERSION, and the Git commit are required.",
@@ -51,8 +51,8 @@ function assertExistingPayload(payload) {
     payload.schemaVersion !== ARTIFACT_SCHEMA_VERSION ||
     payload.version !== version ||
     payload.commit !== commit ||
-    payload.platform !== "linux" ||
-    payload.arch !== "x64" ||
+    payload.platform !== target.platform ||
+    payload.arch !== target.arch ||
     payload.fileName !== ARTIFACT_FILE_NAME ||
     typeof payload.sha256 !== "string" ||
     !/^[a-f0-9]{64}$/u.test(payload.sha256) ||
@@ -166,5 +166,4 @@ async function upload(path) {
 await upload(NodePath.join(outputDir, ARTIFACT_FILE_NAME));
 await upload(NodePath.join(outputDir, MANIFEST_FILE_NAME));
 
-const build = JSON.parse(await NodeFSP.readFile(NodePath.join(outputDir, "build.json"), "utf8"));
 process.stdout.write(`Published sovereign runtime ${build.version}.\n`);

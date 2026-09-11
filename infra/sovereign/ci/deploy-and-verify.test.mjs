@@ -539,13 +539,17 @@ test("publishes the credentialless installer and runtime before production deplo
     "Publish credentialless sovereign runtime to GitHub",
   );
   const deployIndex = workflow.indexOf("Deploy observability, t3-control, and t3-web");
+  const darwinIndex = workflow.indexOf("Build and publish Darwin runtime on GitHub macOS runner");
 
   assert.ok(externalPublishIndex > 0);
+  assert.ok(darwinIndex > 0);
+  assert.ok(externalPublishIndex > darwinIndex);
   assert.ok(deployIndex > externalPublishIndex);
   assert.match(workflow, /SOVEREIGN_GITHUB_REPOSITORY/u);
   assert.match(workflow, /SOVEREIGN_GITHUB_PAGES_ORIGIN/u);
   assert.match(workflow, /SOVEREIGN_GITHUB_TOKEN/u);
   assert.match(workflow, /publish-github-runtime[.]mjs/u);
+  assert.match(workflow, /dispatch-darwin-runtime[.]mjs/u);
   assert.match(workflow, /T3CODE_SERVER_RUNTIME_ID/u);
   assert.match(workflow, /T3CODE_TARGET_SERVER_RUNTIME_ID/u);
 });

@@ -1,9 +1,10 @@
 /* oxlint-disable t3code/no-global-process-runtime -- Standalone operator script has no Effect runtime. */
 import * as NodeCrypto from "node:crypto";
+import { resolveRuntimePlatform } from "./runtime-platform.mjs";
 
-const upstreamUrl =
-  "https://github.com/fatedier/frp/releases/download/v0.70.1/frp_0.70.1_linux_amd64.tar.gz";
-const expectedSha256 = "333da23d1b9009d7c01638e9ba38cf4600f7d37d393f854e96ee1396adefa9a6";
+const target = resolveRuntimePlatform();
+const upstreamUrl = `https://github.com/fatedier/frp/releases/download/v0.70.1/${target.frpcArchiveDirectory}.tar.gz`;
+const expectedSha256 = target.frpcSha256;
 const destinationUrl = process.env.SOVEREIGN_FRPC_ASSET_URL;
 const username = process.env.SOVEREIGN_PACKAGE_USERNAME;
 const token = process.env.SOVEREIGN_PACKAGE_TOKEN;

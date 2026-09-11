@@ -3,7 +3,10 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeTest from "node:test";
 
 import { verifySignedEnvelope } from "./artifact-format.mjs";
-import { createStableChannelEnvelope } from "./publish-github-runtime.mjs";
+import {
+  assertCompleteRuntimeRelease,
+  createStableChannelEnvelope,
+} from "./publish-github-runtime.mjs";
 
 NodeTest.test("signs the stable channel to the exact commit-addressed runtime", () => {
   const { privateKey } = NodeCrypto.generateKeyPairSync("ed25519");
@@ -31,5 +34,21 @@ NodeTest.test("refuses to point stable at a version from another commit", () => 
         privateKeyPkcs8B64: privateKey.export({ format: "der", type: "pkcs8" }).toString("base64"),
       }),
     /does not match/u,
+  );
+});
+
+NodeTest.test("requires every supported platform before stable publication", () => {
+  const complete = {
+    assets: [
+      "linux-x64.manifest.json",
+      "t3-sovereign-runtime-linux-x64.tar.gz",
+      "darwin-arm64.manifest.json",
+      "t3-sovereign-runtime-darwin-arm64.tar.gz",
+    ].map((name) => ({ name })),
+  };
+  NodeAssert.doesNotThrow(() => assertCompleteRuntimeRelease(complete));
+  NodeAssert.throws(
+    () => assertCompleteRuntimeRelease({ assets: complete.assets.slice(0, 2) }),
+    /darwin-arm64/u,
   );
 });
