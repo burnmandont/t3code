@@ -75,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           node infra/sovereign/runtime/set-runtime-version.mjs
-          pnpm exec vp run --filter t3 build
+          vp run --filter t3 build
           node infra/sovereign/runtime/build-runtime-artifact.mjs
 
       - name: Upload Darwin runtime for Gitea signing
