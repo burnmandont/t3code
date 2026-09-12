@@ -232,3 +232,24 @@ export function selectConnectionRouteInCatalog(
     routes: connectionRoutes(document),
   };
 }
+
+export function putRemoteDpopTokenInCatalog(
+  document: ConnectionCatalogDocument,
+  token: TokenStore.RemoteDpopAccessToken,
+): ConnectionCatalogDocument {
+  const registered = document.targets.some(
+    (target) =>
+      target._tag === "RelayConnectionTarget" && target.environmentId === token.environmentId,
+  );
+  if (!registered) {
+    return document;
+  }
+  return {
+    ...document,
+    remoteDpopTokens: replaceCatalogValue(
+      document.remoteDpopTokens,
+      (value) => value.environmentId,
+      token,
+    ),
+  };
+}

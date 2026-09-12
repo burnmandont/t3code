@@ -49,6 +49,7 @@ import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
@@ -118,6 +119,13 @@ const MAX_SCREENSHOT_WIDTH = 1280;
 const RECORDING_ARM_GRACE_MS = 10_000;
 const PICTURE_IN_PICTURE_FRAME_INTERVAL_MS = Math.ceil(1_000 / 12);
 const PICTURE_IN_PICTURE_JPEG_QUALITY = 80;
+/**
+ * Cold guests can reject capturePage with UnknownVizError or never settle it.
+ * Bound each attempt so snapshots release control even when Chromium stalls.
+ */
+const CAPTURE_PAGE_RETRY_ATTEMPTS = 3;
+const CAPTURE_PAGE_RETRY_DELAY_MS = 120;
+const CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS = 1_000;
 const PICTURE_IN_PICTURE_INITIAL_WIDTH = 480;
 const PICTURE_IN_PICTURE_INITIAL_HEIGHT = 320;
 const PICTURE_IN_PICTURE_MIN_WIDTH = 240;
@@ -150,7 +158,7 @@ const DEFAULT_ANNOTATION_THEME: DesktopPreviewAnnotationTheme = {
   fontMono: "ui-monospace, monospace",
 };
 
-export const buildPreviewPictureInPictureDataUrl = (): string => {
+const buildPreviewPictureInPictureDataUrl = (): string => {
   const html = `<!doctype html>
 <html>
   <head>
@@ -644,6 +652,42 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       try: evaluate,
       catch: (cause) => new PreviewOperationError({ ...errorContext, cause }),
     });
+  const capturePageWithRetry = Effect.fn("PreviewManager.capturePageWithRetry")(function* (
+    errorContext: PreviewOperationContext,
+    tabId: string,
+    wc: Electron.WebContents,
+  ) {
+    const requireCurrentGuest = Effect.gen(function* () {
+      const tabs = yield* SynchronizedRef.get(tabsRef);
+      if (wc.isDestroyed() || tabs.get(tabId)?.webContentsId !== wc.id) {
+        return yield* new PreviewWebContentsNotFoundError({ tabId, webContentsId: wc.id });
+      }
+    });
+    const capture = Effect.gen(function* () {
+      // Check after the retry delay, and again before accepting its result.
+      yield* requireCurrentGuest;
+      const image = yield* Effect.tryPromise({
+        // An abort-signal parameter makes a stalled promise interruptible.
+        try: (_signal) => wc.capturePage(),
+        catch: (cause) => new PreviewOperationError({ ...errorContext, cause }),
+      }).pipe(
+        Effect.timeout(CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS),
+        Effect.catchTags({
+          TimeoutError: (cause) =>
+            Effect.fail(new PreviewOperationError({ ...errorContext, cause })),
+        }),
+      );
+      yield* requireCurrentGuest;
+      return image;
+    });
+    return yield* capture.pipe(
+      Effect.retry({
+        times: CAPTURE_PAGE_RETRY_ATTEMPTS - 1,
+        schedule: Schedule.spaced(CAPTURE_PAGE_RETRY_DELAY_MS),
+        while: isPreviewOperationError,
+      }),
+    );
+  });
   const currentIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const currentMillis = Clock.currentTimeMillis;
   const encodeJson = (errorContext: PreviewOperationContext, value: unknown) =>
@@ -2660,13 +2704,14 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     const [createdAt, millis, image] = yield* Effect.all([
       currentIso,
       currentMillis,
-      attemptPromise(
+      capturePageWithRetry(
         {
           operation: "captureScreenshot.capturePage",
           tabId,
           webContentsId: wc.id,
         },
-        () => wc.capturePage(),
+        tabId,
+        wc,
       ),
     ]);
     const id = `browser-screenshot-${artifactSiteSlug(wc.getURL())}-${millis.toString(36)}`;
@@ -3525,13 +3570,14 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       );
       const [accessibility, sourceImage, diagnostics, timelines] = yield* Effect.all([
         send("Accessibility.getFullAXTree"),
-        attemptPromise(
+        capturePageWithRetry(
           {
             operation: "automationSnapshot.capturePage",
             tabId,
             webContentsId: wc.id,
           },
-          () => wc.capturePage(),
+          tabId,
+          wc,
         ),
         Ref.get(diagnosticsRef),
         Ref.get(actionTimelineRef),
@@ -4502,7 +4548,7 @@ export class PreviewOperationError extends Schema.TaggedErrorClass<PreviewOperat
   }
 }
 
-export const isPreviewOperationError = Schema.is(PreviewOperationError);
+const isPreviewOperationError = Schema.is(PreviewOperationError);
 
 export class PreviewArtifactPathOutsideDirectoryError extends Schema.TaggedErrorClass<PreviewArtifactPathOutsideDirectoryError>()(
   "PreviewArtifactPathOutsideDirectoryError",
@@ -4703,14 +4749,11 @@ export const PreviewManagerError = Schema.Union([
 ]);
 export type PreviewManagerError = typeof PreviewManagerError.Type;
 
-export const isPreviewManagerError = Schema.is(PreviewManagerError);
-export const isPreviewAutomationControlInterruptedError = Schema.is(
+const isPreviewAutomationControlInterruptedError = Schema.is(
   PreviewAutomationControlInterruptedError,
 );
-export const isPreviewAutomationEvaluationError = Schema.is(PreviewAutomationEvaluationError);
-export const isPreviewAutomationInvalidSelectorError = Schema.is(
-  PreviewAutomationInvalidSelectorError,
-);
+const isPreviewAutomationEvaluationError = Schema.is(PreviewAutomationEvaluationError);
+const isPreviewAutomationInvalidSelectorError = Schema.is(PreviewAutomationInvalidSelectorError);
 
 export class PreviewManager extends Context.Service<
   PreviewManager,
@@ -4823,6 +4866,7 @@ export class PreviewManager extends Context.Service<
   }
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* PreviewManagerMake() {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const browserSession = yield* BrowserSession.BrowserSession;

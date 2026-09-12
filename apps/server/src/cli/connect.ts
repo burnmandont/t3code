@@ -614,7 +614,7 @@ const connectStatusCommand = Command.make("status", {
           retiredAt,
           cloudUserId: Option.isSome(cloudUserId) ? bytesToString(cloudUserId.value) : null,
           relayUrl: Option.isSome(relayUrl) ? bytesToString(relayUrl.value) : null,
-          publishAgentActivity: isPublishAgentActivityEnabledValue(
+          publishAgentActivity: isAgentActivityPublishingEnabledValue(
             Option.isSome(publishAgentActivity) ? bytesToString(publishAgentActivity.value) : null,
           ),
           relayClient: executable,

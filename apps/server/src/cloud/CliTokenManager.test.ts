@@ -163,7 +163,6 @@ it("sends standalone OIDC loopback authorization directly to its issuer", () => 
   assert.equal(url.searchParams.get("state"), "state-1");
   assert.equal(url.searchParams.get("code_challenge"), "challenge-1");
 });
-
 const makeTestTerminal = (queue: Queue.Queue<Terminal.UserInput>) =>
   Terminal.make({
     columns: Effect.succeed(80),

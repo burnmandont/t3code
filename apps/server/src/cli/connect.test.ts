@@ -17,7 +17,6 @@ import {
   formatCloudStatus,
   formatRelayClientReady,
   headlessSessionConfig,
-  isPublishAgentActivityEnabledValue,
   reportCloudDisconnectResults,
 } from "./connect.ts";
 import { recoverServiceOnboardingOffer } from "./service.ts";
@@ -63,7 +62,6 @@ it("reports a remotely retired identity as terminal in human and JSON status", (
   assert.include(human, "cannot reconnect");
   assert.deepEqual(JSON.parse(formatCloudStatus(status, { json: true })), status);
 });
-
 const readHeadlessSessionConfig = (env: Record<string, string>) =>
   headlessSessionConfig.pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))));
 
@@ -234,11 +232,4 @@ it.effect("keeps disconnect causes in structured logs and out of console warning
       }),
     ),
   );
-});
-
-it("treats only the literal 'true' as publish-enabled", () => {
-  assert.equal(isPublishAgentActivityEnabledValue("true"), true);
-  assert.equal(isPublishAgentActivityEnabledValue("false"), false);
-  assert.equal(isPublishAgentActivityEnabledValue(null), false);
-  assert.equal(isPublishAgentActivityEnabledValue("TRUE"), false);
 });

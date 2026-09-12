@@ -31,7 +31,7 @@ export {
 } from "./connectorClient.ts";
 
 export const CLOUDFLARED_VERSION = "2026.5.2";
-export const CLOUDFLARED_PATH_ENV_NAME = "T3CODE_CLOUDFLARED_PATH";
+const CLOUDFLARED_PATH_ENV_NAME = "T3CODE_CLOUDFLARED_PATH";
 
 class CloudflaredCommandError extends Data.TaggedError("CloudflaredCommandError")<{
   readonly command: string;
@@ -385,7 +385,7 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
           .pipe(wrapInstallFailure("write_failed", "Could not make the relay client executable."));
       }
       yield* report("validating");
-      yield* runCommand(executablePath, ["--version"]).pipe(
+      yield* runCommand(executablePath, ["version"]).pipe(
         wrapInstallFailure("validation_failed", "The downloaded relay client binary did not run."),
       );
 

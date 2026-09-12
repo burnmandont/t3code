@@ -263,7 +263,7 @@ const config: ExpoConfig = {
   slug: isSovereignBuild ? "sovereign" : "t3-code",
   platforms: ["ios", "android"],
   scheme: appScheme,
-  version: "1.0.4",
+  version: "1.1.0",
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
     // expensive native-project calculation there. Preview and production stay
@@ -291,6 +291,7 @@ const config: ExpoConfig = {
       // create the entitlement before expo-notifications runs, in which case
       // that plugin deliberately preserves the existing value.
       "aps-environment": APP_VARIANT === "development" ? "development" : "production",
+      "keychain-access-groups": [`$(AppIdentifierPrefix)${iosBundleIdentifier}`],
     },
     // Multitasking-capable iPad apps cannot rotate programmatically, so the
     // showcase capture build requires full screen (see infoPlist below).
@@ -333,6 +334,10 @@ const config: ExpoConfig = {
     package: androidPackage,
     adaptiveIcon: {
       backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
+      ...("androidAdaptiveBackgroundImage" in variant.assets &&
+      variant.assets.androidAdaptiveBackgroundImage
+        ? { backgroundImage: variant.assets.androidAdaptiveBackgroundImage as string }
+        : {}),
       foregroundImage: variant.assets.androidAdaptiveForeground,
       ...("androidMonochromeIcon" in variant.assets
         ? { monochromeImage: variant.assets.androidMonochromeIcon }
@@ -396,6 +401,10 @@ const config: ExpoConfig = {
           shortcut_icon: {
             foregroundImage: variant.assets.androidAdaptiveForeground,
             backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
+            ...("androidAdaptiveBackgroundImage" in variant.assets &&
+            variant.assets.androidAdaptiveBackgroundImage
+              ? { backgroundImage: variant.assets.androidAdaptiveBackgroundImage as string }
+              : {}),
           },
         },
       },
