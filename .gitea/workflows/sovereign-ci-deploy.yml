@@ -290,10 +290,8 @@ jobs:
           test -n "$SOVEREIGN_GITHUB_REPOSITORY"
           test -n "$SOVEREIGN_GITHUB_PAGES_ORIGIN"
           test -n "$SOVEREIGN_GITHUB_TOKEN"
-          SOVEREIGN_RUNTIME_OUTPUT_DIR=infra/sovereign/dist/runtime-darwin \
-            SOVEREIGN_PUBLISH_STABLE_CHANNEL=0 \
+          SOVEREIGN_ADDITIONAL_RUNTIME_OUTPUT_DIRS=infra/sovereign/dist/runtime-darwin \
             node infra/sovereign/runtime/publish-github-runtime.mjs
-          node infra/sovereign/runtime/publish-github-runtime.mjs
 
       - name: Validate deployment configuration
         run: |

@@ -551,10 +551,18 @@ test("publishes the credentialless installer and runtime before production deplo
   assert.match(workflow, /publish-github-runtime[.]mjs/u);
   assert.match(workflow, /dispatch-darwin-runtime[.]mjs/u);
   assert.match(workflow, /SOVEREIGN_RUNTIME_OUTPUT_DIR=infra\/sovereign\/dist\/runtime-darwin/u);
-  assert.match(workflow, /SOVEREIGN_PUBLISH_STABLE_CHANNEL=0/u);
   assert.match(
     workflow,
-    /Publish credentialless sovereign runtime to GitHub[\s\S]*SOVEREIGN_RUNTIME_OUTPUT_DIR=infra\/sovereign\/dist\/runtime-darwin[\s\S]*SOVEREIGN_PUBLISH_STABLE_CHANNEL=0[\s\S]*publish-github-runtime[.]mjs[\s\S]*publish-github-runtime[.]mjs/u,
+    /SOVEREIGN_ADDITIONAL_RUNTIME_OUTPUT_DIRS=infra\/sovereign\/dist\/runtime-darwin/u,
+  );
+  assert.doesNotMatch(workflow, /SOVEREIGN_PUBLISH_STABLE_CHANNEL=0/u);
+  assert.match(
+    workflow,
+    /Publish credentialless sovereign runtime to GitHub[\s\S]*SOVEREIGN_ADDITIONAL_RUNTIME_OUTPUT_DIRS=infra\/sovereign\/dist\/runtime-darwin[\s\S]*publish-github-runtime[.]mjs/u,
+  );
+  assert.equal(
+    workflow.match(/node infra\/sovereign\/runtime\/publish-github-runtime[.]mjs/gu)?.length,
+    1,
   );
   assert.match(
     workflow,

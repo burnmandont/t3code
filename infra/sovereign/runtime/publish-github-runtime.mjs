@@ -1,4 +1,3 @@
-/* oxlint-disable t3code/no-global-process-runtime -- Standalone CI publisher. */
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
@@ -132,7 +131,7 @@ async function ensureReleaseAsset(client, repository, release, path) {
       throw new Error(`GitHub release already contains different bytes for immutable ${name}.`);
     }
     process.stdout.write(`Verified existing GitHub release asset ${name}.\n`);
-    return;
+    return existing;
   }
   const file = await NodeFSP.stat(path);
   const uploadUrl = `https://uploads.github.com/repos/${repository}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`;
@@ -151,6 +150,7 @@ async function ensureReleaseAsset(client, repository, release, path) {
     throw new Error(`Publishing GitHub release asset ${name} returned HTTP ${response.status}.`);
   }
   process.stdout.write(`Published GitHub release asset ${name}.\n`);
+  return response.json();
 }
 
 async function publishRelease(client, repository, release) {
@@ -173,6 +173,28 @@ export function assertCompleteRuntimeRelease(release) {
       if (!names.has(name)) throw new Error(`Runtime release is missing required asset ${name}.`);
     }
   }
+}
+
+export function resolveRuntimeOutputDirs(primaryOutputDir, additionalOutputDirs = "") {
+  const outputDirs = [primaryOutputDir, ...additionalOutputDirs.split(NodePath.delimiter)]
+    .map((path) => path.trim())
+    .filter((path) => path.length > 0)
+    .map((path) => NodePath.resolve(path));
+  return [...new Set(outputDirs)];
+}
+
+async function readRuntimeBuild(outputDir, version, commit) {
+  const build = JSON.parse(await NodeFSP.readFile(NodePath.join(outputDir, "build.json"), "utf8"));
+  const target = resolveRuntimePlatform(build.platform, build.arch);
+  if (build.version !== version || build.commit !== commit) {
+    throw new Error(
+      `Built ${target.key} runtime identity does not match the requested publication.`,
+    );
+  }
+  const publicKey = (
+    await NodeFSP.readFile(NodePath.join(outputDir, "public-key-spki.b64"), "utf8")
+  ).trim();
+  return { build, outputDir, publicKey, target, ...runtimeArtifactNames(target) };
 }
 
 async function putRepositoryFile(client, repository, branch, path, bytes, message) {
@@ -219,20 +241,26 @@ async function main() {
   const outputDir = NodePath.resolve(
     process.env.SOVEREIGN_RUNTIME_OUTPUT_DIR ?? "infra/sovereign/dist/runtime",
   );
+  const outputDirs = resolveRuntimeOutputDirs(
+    outputDir,
+    process.env.SOVEREIGN_ADDITIONAL_RUNTIME_OUTPUT_DIRS,
+  );
   if (!token || !privateKey || !version || !commit) {
     throw new Error(
       "GitHub token, runtime signing key, runtime version, and Git commit are required.",
     );
   }
-  const build = JSON.parse(await NodeFSP.readFile(NodePath.join(outputDir, "build.json"), "utf8"));
-  const target = resolveRuntimePlatform(build.platform, build.arch);
-  const { artifactFileName, manifestFileName } = runtimeArtifactNames(target);
-  if (build.version !== version || build.commit !== commit) {
-    throw new Error("Built runtime identity does not match the requested publication.");
+  const builds = await Promise.all(
+    outputDirs.map((runtimeOutputDir) => readRuntimeBuild(runtimeOutputDir, version, commit)),
+  );
+  const targetKeys = new Set(builds.map(({ target }) => target.key));
+  if (targetKeys.size !== builds.length) {
+    throw new Error("Runtime publication contains the same platform more than once.");
   }
-  const publicKey = (
-    await NodeFSP.readFile(NodePath.join(outputDir, "public-key-spki.b64"), "utf8")
-  ).trim();
+  const publicKey = builds[0]?.publicKey;
+  if (!publicKey || builds.some((build) => build.publicKey !== publicKey)) {
+    throw new Error("Runtime platform builds do not share one signing public key.");
+  }
   const channel = createStableChannelEnvelope({
     version,
     commit,
@@ -260,9 +288,21 @@ async function main() {
     throw new Error("The GitHub artifact repository has no default branch.");
   }
   const release = await ensureRelease(client, repository, version);
-  await ensureReleaseAsset(client, repository, release, NodePath.join(outputDir, artifactFileName));
-  await ensureReleaseAsset(client, repository, release, NodePath.join(outputDir, manifestFileName));
-  const completeRelease = await ensureRelease(client, repository, version);
+  const assets = [...release.assets];
+  for (const build of builds) {
+    for (const name of [build.artifactFileName, build.manifestFileName]) {
+      const asset = await ensureReleaseAsset(
+        client,
+        repository,
+        { ...release, assets },
+        NodePath.join(build.outputDir, name),
+      );
+      const existingIndex = assets.findIndex((candidate) => candidate.name === asset.name);
+      if (existingIndex === -1) assets.push(asset);
+      else assets[existingIndex] = asset;
+    }
+  }
+  const completeRelease = { ...release, assets };
   if (publishStableChannel) assertCompleteRuntimeRelease(completeRelease);
   await publishRelease(client, repository, completeRelease);
 
@@ -289,7 +329,7 @@ async function main() {
     );
   }
   process.stdout.write(
-    `Published sovereign ${target.key} runtime ${version} to GitHub${publishStableChannel ? " and advanced stable" : ""}.\n`,
+    `Published sovereign ${builds.map(({ target }) => target.key).join(", ")} runtime ${version} to GitHub${publishStableChannel ? " and advanced stable" : ""}.\n`,
   );
 }
 
