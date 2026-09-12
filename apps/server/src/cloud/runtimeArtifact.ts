@@ -43,7 +43,7 @@ const RuntimeArtifactSourceSchema = Schema.Union([
 const RuntimeArtifactPayloadSchema = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   version: Schema.String,
-  platform: Schema.Literals(["linux"]),
+  platform: Schema.Literals(["linux", "darwin"]),
   arch: Schema.Literals(["x64", "arm64"]),
   fileName: Schema.String,
   sha256: Schema.String,
@@ -136,6 +136,7 @@ export const hasRuntimeArtifactProvenance = Effect.fn("cloud.runtime_artifact.ha
     return yield* decodePayload(provenance.value).pipe(
       Effect.map(
         (payload) =>
+          isSupportedRuntimeArtifactTarget(payload.platform, payload.arch) &&
           payload.version === input.version &&
           payload.platform === platform &&
           payload.arch === arch &&
@@ -221,6 +222,7 @@ export const verifyRuntimeArtifactEnvelope = Effect.fn("cloud.runtime_artifact.v
       Effect.mapError((cause) => fail("decoding the verified artifact manifest", cause)),
     );
     if (
+      !isSupportedRuntimeArtifactTarget(payload.platform, payload.arch) ||
       payload.version !== input.version ||
       payload.platform !== input.platform ||
       payload.arch !== input.arch ||
@@ -254,6 +256,13 @@ function artifactUrl(source: RuntimeArtifactSource, version: string, fileName: s
       ? encodeURIComponent(version)
       : `runtime-${encodeURIComponent(version)}`;
   return new URL(`${versionPath}/${encodeURIComponent(fileName)}`, baseUrl);
+}
+
+export function isSupportedRuntimeArtifactTarget(platform: NodeJS.Platform, arch: string): boolean {
+  return (
+    (platform === "linux" && ["x64", "arm64"].includes(arch)) ||
+    (platform === "darwin" && arch === "arm64")
+  );
 }
 
 async function fetchChecked(
@@ -328,7 +337,7 @@ export const installRuntimeArtifact = Effect.fn("cloud.runtime_artifact.install"
   }) {
     const platform = yield* HostProcessPlatform;
     const arch = yield* HostProcessArchitecture;
-    if (platform !== "linux" || !["x64", "arm64"].includes(arch)) {
+    if (!isSupportedRuntimeArtifactTarget(platform, arch)) {
       return yield* fail(`selecting an artifact for ${platform}-${arch}`);
     }
     const manifestName = `${platform}-${arch}.manifest.json`;
