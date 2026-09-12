@@ -554,6 +554,10 @@ test("publishes the credentialless installer and runtime before production deplo
   assert.match(workflow, /SOVEREIGN_PUBLISH_STABLE_CHANNEL=0/u);
   assert.match(
     workflow,
+    /Publish credentialless sovereign runtime to GitHub[\s\S]*SOVEREIGN_RUNTIME_OUTPUT_DIR=infra\/sovereign\/dist\/runtime-darwin[\s\S]*SOVEREIGN_PUBLISH_STABLE_CHANNEL=0[\s\S]*publish-github-runtime[.]mjs[\s\S]*publish-github-runtime[.]mjs/u,
+  );
+  assert.match(
+    workflow,
     /Build and publish Darwin runtime[\s\S]*SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64: \$\{\{ secrets[.]SOVEREIGN_RUNTIME_SIGNING_PRIVATE_KEY_B64 \}\}/u,
   );
   assert.match(workflow, /T3CODE_SERVER_RUNTIME_ID/u);

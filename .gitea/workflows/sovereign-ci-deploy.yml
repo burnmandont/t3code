@@ -281,10 +281,6 @@ jobs:
             node infra/sovereign/runtime/sign-runtime-artifact.mjs
           SOVEREIGN_RUNTIME_OUTPUT_DIR=infra/sovereign/dist/runtime-darwin \
             node infra/sovereign/runtime/publish-runtime-artifact.mjs
-          SOVEREIGN_RUNTIME_OUTPUT_DIR=infra/sovereign/dist/runtime-darwin \
-            SOVEREIGN_GITHUB_TOKEN="$SOVEREIGN_GITHUB_BUILDER_TOKEN" \
-            SOVEREIGN_PUBLISH_STABLE_CHANNEL=0 \
-            node infra/sovereign/runtime/publish-github-runtime.mjs
 
       - name: Publish credentialless sovereign runtime to GitHub
         env:
@@ -294,6 +290,9 @@ jobs:
           test -n "$SOVEREIGN_GITHUB_REPOSITORY"
           test -n "$SOVEREIGN_GITHUB_PAGES_ORIGIN"
           test -n "$SOVEREIGN_GITHUB_TOKEN"
+          SOVEREIGN_RUNTIME_OUTPUT_DIR=infra/sovereign/dist/runtime-darwin \
+            SOVEREIGN_PUBLISH_STABLE_CHANNEL=0 \
+            node infra/sovereign/runtime/publish-github-runtime.mjs
           node infra/sovereign/runtime/publish-github-runtime.mjs
 
       - name: Validate deployment configuration
