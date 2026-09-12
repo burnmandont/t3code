@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - upstream-sync/**
 
 permissions:
   contents: read
@@ -105,6 +106,9 @@ jobs:
 
       - name: Test nightly release checks
         run: node --test .github/scripts/check-nightly-release.test.cjs
+
+      - name: Test Sovereign fork invariants
+        run: vp run test:fork-invariants
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test

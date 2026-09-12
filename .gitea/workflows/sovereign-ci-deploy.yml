@@ -116,6 +116,9 @@ jobs:
           pnpm --filter @t3tools/mobile typecheck
           pnpm --filter @t3tools/web typecheck
 
+      - name: Test Sovereign fork invariants
+        run: node infra/sovereign/ci/test-fork-invariants.mjs
+
       - name: Test sovereign services
         run: |
           if [ "$(id -u)" -eq 0 ]; then

@@ -190,13 +190,19 @@ Small fixes discovered by validation may follow on the same disposable branch.
 
 ### 4. Validate without production credentials
 
-The current `.gitea/workflows/sovereign-ci-deploy.yml` is a production workflow:
+The `.gitea/workflows/sovereign-ci-deploy.yml` workflow is a production workflow:
 it signs, publishes, and deploys, and it is triggered from `sovereign/main`.
 **Do not manually dispatch it from an integration branch as a substitute for
-validation.** Before the next upstream import, provide or verify a separate
-credential-free validation lane for `upstream-sync/**`. Imported code must not
-run with signing, registry, GitHub publication, Coolify, or production database
-credentials before promotion.
+validation.** The credential-free `.gitea/workflows/sovereign-pr.yml` workflow
+runs for pull requests into `sovereign/main` and direct pushes to
+`upstream-sync/**`. Imported code must not run with signing, registry, GitHub
+publication, Coolify, or production database credentials before promotion.
+
+`infra/sovereign/ci/test-fork-invariants.mjs` is the executable catalog of
+downstream ownership. It names and runs focused behavioral tests for each
+Sovereign feature layer, so deleting or renaming a fork-owned test during an
+upstream merge fails before the broad package suites run. Add a focused test to
+that catalog whenever Sovereign adopts another durable product opinion.
 
 Validation covers:
 

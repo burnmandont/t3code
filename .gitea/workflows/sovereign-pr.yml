@@ -22,6 +22,10 @@ on:
       - pnpm-workspace.yaml
       - scripts/**
       - vite.config.ts
+  push:
+    branches:
+      - upstream-sync/**
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -98,6 +102,9 @@ jobs:
           pnpm --filter @t3tools/desktop typecheck
           pnpm --filter @t3tools/mobile typecheck
           pnpm --filter @t3tools/web typecheck
+
+      - name: Test Sovereign fork invariants
+        run: node infra/sovereign/ci/test-fork-invariants.mjs
 
       - name: Test Sovereign services and shared contracts
         run: |
