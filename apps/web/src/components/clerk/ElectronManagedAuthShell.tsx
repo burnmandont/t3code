@@ -2,6 +2,7 @@ import { passkeys } from "@clerk/electron/passkeys";
 import { ClerkProvider } from "@clerk/electron/react";
 import type { ReactNode } from "react";
 
+import { ClerkCloudAuthProvider } from "../../cloud/ClerkCloudAuthProvider";
 import { ManagedRelayAuthProvider } from "../../cloud/managedAuth";
 import { clerkAppearance } from "./clerkAppearance";
 
@@ -20,7 +21,9 @@ export default function ElectronManagedAuthShell({
 }) {
   return (
     <ClerkProvider appearance={clerkAppearance} publishableKey={publishableKey} passkeys={passkeys}>
-      <ManagedRelayAuthProvider>{children}</ManagedRelayAuthProvider>
+      <ClerkCloudAuthProvider>
+        <ManagedRelayAuthProvider>{children}</ManagedRelayAuthProvider>
+      </ClerkCloudAuthProvider>
     </ClerkProvider>
   );
 }
