@@ -126,6 +126,15 @@ export function sidebarListItemId(item: SidebarListItem): string {
   return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker);
 }
 
+/** Keep the Sovereign pinned/active divider visible at rest. During a drag,
+ * the same sortable boundary becomes the labeled Active drop target. */
+export function shouldShowRestingPinnedDivider(input: {
+  readonly pinnedThreadCount: number;
+  readonly isDragging: boolean;
+}): boolean {
+  return input.pinnedThreadCount > 0 && !input.isDragging;
+}
+
 /** The section a slot belongs to, read off the markers around it: from
     the top down, everything before the pinned divider is pinned, then the
     inbox until the snoozed header, the shelf until the settled header,

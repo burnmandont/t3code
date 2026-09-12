@@ -156,6 +156,7 @@ import {
   resolveSidebarThreadStatus,
   searchSidebarThreadsByTitle,
   shouldCreateNewThreadInCurrentProject,
+  shouldShowRestingPinnedDivider,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
   sidebarListItemId,
@@ -588,6 +589,7 @@ function SidebarDragBoundary(props: {
   label: string;
   visible: boolean;
   isDropTarget: boolean;
+  showRestingDivider?: boolean;
 }) {
   return (
     <SortableSidebarMarker
@@ -613,6 +615,12 @@ function SidebarDragBoundary(props: {
             )}
           />
         </div>
+      ) : props.showRestingDivider ? (
+        <span
+          aria-hidden
+          data-testid="sidebar-pinned-divider"
+          className="absolute inset-x-2.5 top-0 h-px bg-sidebar-border/60"
+        />
       ) : null}
     </SortableSidebarMarker>
   );
@@ -4780,6 +4788,10 @@ export default function Sidebar() {
                                 label="Active"
                                 visible={from !== null}
                                 isDropTarget={dragTargetSection === "active"}
+                                showRestingDivider={shouldShowRestingPinnedDivider({
+                                  pinnedThreadCount: pinnedThreads.length,
+                                  isDragging: from !== null,
+                                })}
                               />,
                             );
                             break;

@@ -39,6 +39,7 @@ import {
   planSidebarThreadDrop,
   sidebarMarkerId,
   sidebarListItemId,
+  shouldShowRestingPinnedDivider,
   sortPinnedThreadsForSidebar,
   sortThreadsForSidebar,
   sortProjectsForSidebar,
@@ -91,6 +92,20 @@ describe("animateSidebarLayoutChanges", () => {
 
   it("keeps layout movement while the user is sorting", () => {
     expect(animateSidebarLayoutChanges({ ...baseArgs, isSorting: true })).toBe(true);
+  });
+});
+
+describe("shouldShowRestingPinnedDivider", () => {
+  it("keeps the divider between pinned and active threads at rest", () => {
+    expect(shouldShowRestingPinnedDivider({ pinnedThreadCount: 1, isDragging: false })).toBe(true);
+  });
+
+  it("leaves no orphan divider when there are no pinned threads", () => {
+    expect(shouldShowRestingPinnedDivider({ pinnedThreadCount: 0, isDragging: false })).toBe(false);
+  });
+
+  it("gives the boundary to the labeled drop target during a drag", () => {
+    expect(shouldShowRestingPinnedDivider({ pinnedThreadCount: 1, isDragging: true })).toBe(false);
   });
 });
 
