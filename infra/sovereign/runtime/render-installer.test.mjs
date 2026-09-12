@@ -5,8 +5,9 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeStream from "node:stream";
 import * as NodeTest from "node:test";
+import * as NodeURL from "node:url";
 
-import { promptQuestions, renderCliWrapper } from "./bootstrap-installer.mjs";
+import { isMainModule, promptQuestions, renderCliWrapper } from "./bootstrap-installer.mjs";
 import { renderInstaller } from "./render-installer.mjs";
 
 const moduleSource = `const channel = "__SOVEREIGN_CHANNEL_URL__";
@@ -28,10 +29,33 @@ NodeTest.test("renders a credentialless installer with an external trust root", 
   NodeAssert.match(installer, /mktemp -d/u);
   NodeAssert.match(installer, /node_version=.*process[.]versions[.]node/u);
   NodeAssert.match(installer, /found Node \$node_version/u);
-  NodeAssert.match(installer, /node "\$installer_module" "\$@" < \/dev\/tty/u);
+  NodeAssert.match(installer, /if \{ exec 3<\/dev\/tty; \} 2>\/dev\/null/u);
+  NodeAssert.match(installer, /node "\$installer_module" "\$@" <&3/u);
   NodeAssert.doesNotMatch(installer, /node --input-type=module -/u);
   NodeAssert.equal(NodeChildProcess.spawnSync("sh", ["-n"], { input: installer }).status, 0);
 });
+
+NodeTest.test(
+  "recognizes the installer entry point through a canonicalized macOS temp path",
+  async () => {
+    const directory = await NodeFSP.mkdtemp(
+      NodePath.join(NodeOS.tmpdir(), "t3-installer-main-test-"),
+    );
+    try {
+      const modulePath = NodePath.join(directory, "install.mjs");
+      const aliasPath = NodePath.join(directory, "install-alias.mjs");
+      await NodeFSP.writeFile(modulePath, "");
+      await NodeFSP.symlink(modulePath, aliasPath);
+      NodeAssert.equal(isMainModule(NodeURL.pathToFileURL(modulePath), aliasPath), true);
+      NodeAssert.equal(
+        isMainModule(NodeURL.pathToFileURL(modulePath), import.meta.filename),
+        false,
+      );
+    } finally {
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 NodeTest.test("the production bootstrap onboards Connect before serving", async () => {
   const moduleSource = await NodeFSP.readFile(

@@ -7,6 +7,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeStream from "node:stream";
 import * as NodeStreamPromises from "node:stream/promises";
+import * as NodeURL from "node:url";
 
 const CHANNEL_URL = "__SOVEREIGN_CHANNEL_URL__";
 const RELEASE_BASE_URL = "__SOVEREIGN_RELEASE_BASE_URL__";
@@ -682,4 +683,9 @@ export async function runInstaller() {
   }
 }
 
-if (process.argv[1] === new URL(import.meta.url).pathname) await runInstaller();
+export function isMainModule(moduleUrl, invokedPath = process.argv[1]) {
+  if (!invokedPath) return false;
+  return NodeFS.realpathSync(invokedPath) === NodeFS.realpathSync(NodeURL.fileURLToPath(moduleUrl));
+}
+
+if (isMainModule(import.meta.url)) await runInstaller();

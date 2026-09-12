@@ -1,4 +1,3 @@
-/* oxlint-disable t3code/no-global-process-runtime -- Standalone CI script. */
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
@@ -71,8 +70,9 @@ ${renderedModule}
 ${INSTALLER_DELIMITER}
 
 chmod 600 "$installer_module"
-if [ -r /dev/tty ]; then
-  node "$installer_module" "$@" < /dev/tty
+if { exec 3</dev/tty; } 2>/dev/null; then
+  node "$installer_module" "$@" <&3
+  exec 3<&-
 else
   node "$installer_module" "$@"
 fi
