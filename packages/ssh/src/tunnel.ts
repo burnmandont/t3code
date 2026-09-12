@@ -580,18 +580,26 @@ SERVICE_PID=""
 if command -v systemctl >/dev/null 2>&1; then
   SERVICE_PID="$(systemctl --user show t3code.service --property=MainPID --value 2>/dev/null || true)"
 fi
+if [ -z "$SERVICE_PID" ]; then
+  SERVICE_CGROUP_PROCS="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/t3code.service/cgroup.procs"
+  if [ -f "$SERVICE_CGROUP_PROCS" ]; then
+    SERVICE_PID="$(sed -n '1p' "$SERVICE_CGROUP_PROCS" 2>/dev/null || true)"
+  fi
+fi
 case "$SERVICE_PID" in
   ''|*[!0-9]*|0) SERVICE_PID="" ;;
 esac
+SERVICE_BASE_DIR="$(sed -n 's/^Environment=T3CODE_HOME=//p' "$HOME/.config/systemd/user/t3code.service" 2>/dev/null | tail -n 1)"
 discover_running_runtime() {
-  node - "$DEFAULT_SERVER_HOME" "$BASE_DIR_FILE" "$DISCOVERED_BASE_DIR_FILE" "$SERVICE_PID" "\${T3CODE_HOME:-}" <<'NODE'
+  node - "$DEFAULT_SERVER_HOME" "$BASE_DIR_FILE" "$DISCOVERED_BASE_DIR_FILE" "$SERVICE_PID" "$SERVICE_BASE_DIR" "\${T3CODE_HOME:-}" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 const defaultBaseDir = process.argv[2] ?? "";
 const knownBaseDirPath = process.argv[3] ?? "";
 const baseDirOutputPath = process.argv[4] ?? "";
 const servicePid = Number.parseInt(process.argv[5] ?? "", 10);
-const environmentBaseDir = process.argv[6] ?? "";
+const serviceBaseDir = process.argv[6] ?? "";
+const environmentBaseDir = process.argv[7] ?? "";
 const candidates = [];
 const seen = new Set();
 const addBaseDir = (value, serviceOwned = false) => {
@@ -610,6 +618,7 @@ const addBaseDirFromPid = (pid, serviceOwned = false) => {
 };
 
 addBaseDirFromPid(servicePid, true);
+addBaseDir(serviceBaseDir);
 addBaseDir(environmentBaseDir);
 try {
   addBaseDir(fs.readFileSync(knownBaseDirPath, "utf8"));

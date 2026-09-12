@@ -190,6 +190,11 @@ describe("ssh tunnel scripts", () => {
     assert.notInclude(buildRemoteLaunchScript(), '--base-dir "$DEFAULT_SERVER_HOME"');
     assert.include(buildRemoteLaunchScript(), "discover_running_runtime()");
     assert.include(buildRemoteLaunchScript(), "systemctl --user show t3code.service");
+    assert.include(buildRemoteLaunchScript(), "t3code.service/cgroup.procs");
+    assert.include(
+      buildRemoteLaunchScript(),
+      "SERVICE_BASE_DIR=\"$(sed -n 's/^Environment=T3CODE_HOME=//p'",
+    );
     assert.include(buildRemoteLaunchScript(), `''|*[!0-9]*|0) SERVICE_PID=""`);
     assert.include(
       buildRemoteLaunchScript(),
@@ -199,6 +204,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(buildRemoteLaunchScript(), "knownBaseDirPath");
     assert.include(buildRemoteLaunchScript(), '"server-runtime.json"');
     assert.include(buildRemoteLaunchScript(), "addBaseDirFromPid(servicePid, true);");
+    assert.include(buildRemoteLaunchScript(), "addBaseDir(serviceBaseDir);");
     assert.include(buildRemoteLaunchScript(), "isDescendantOf(pid, servicePid)");
     assert.include(buildRemoteLaunchScript(), 'origin.protocol !== "http:"');
     assert.notInclude(buildRemoteLaunchScript(), "AbortSignal.timeout(2500)");
@@ -391,6 +397,62 @@ fi`,
 
       assert.equal(exitCode, 1, stderr);
       assert.include(stderr, "t3code.service is active");
+      assert.notInclude(stderr, "COMPETING_LAUNCH_REACHED");
+      assert.isFalse(yield* fs.exists(path.join(home, ".t3", "ssh-launch", stateKey, "pid")));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("discovers the generated service home when the user systemd bus is unavailable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ssh-service-unit-" });
+      const baseDir = path.join(home, "sovereign");
+      const runtimeDir = path.join(baseDir, "userdata");
+      const unitDir = path.join(home, ".config", "systemd", "user");
+      const stateKey = "service-unit-runtime-test";
+
+      yield* fs.makeDirectory(runtimeDir, { recursive: true });
+      yield* fs.makeDirectory(unitDir, { recursive: true });
+      yield* fs.writeFileString(
+        path.join(runtimeDir, "server-runtime.json"),
+        `{"version":1,"pid":${process.pid},"port":65534,"origin":"http://127.0.0.1:65534","startedAt":"2026-08-25T00:00:00.000Z"}\n`,
+      );
+      yield* fs.writeFileString(
+        path.join(unitDir, "t3code.service"),
+        `[Service]\nEnvironment=T3CODE_HOME=${baseDir}\n`,
+      );
+
+      const script = buildRemoteLaunchScript()
+        .replace('if wait_ready "20000"; then', 'if wait_ready "0"; then')
+        .replace(
+          'REMOTE_PORT="$(pick_port)" || true',
+          "printf 'COMPETING_LAUNCH_REACHED\\n' >&2; exit 42",
+        );
+      const handle = yield* spawner.spawn(
+        ChildProcess.make("sh", ["-s", "--", stateKey], {
+          env: { HOME: home, T3CODE_HOME: undefined },
+          extendEnv: true,
+        }),
+      );
+      yield* Stream.make(new TextEncoder().encode(script)).pipe(Stream.run(handle.stdin));
+      const [stderr, exitCode] = yield* Effect.all(
+        [
+          handle.stderr.pipe(
+            Stream.decodeText(),
+            Stream.runFold(
+              () => "",
+              (accumulator, chunk) => accumulator + chunk,
+            ),
+          ),
+          handle.exitCode,
+        ],
+        { concurrency: "unbounded" },
+      );
+
+      assert.equal(exitCode, 1, stderr);
+      assert.include(stderr, "Existing remote T3 server did not become ready");
       assert.notInclude(stderr, "COMPETING_LAUNCH_REACHED");
       assert.isFalse(yield* fs.exists(path.join(home, ".t3", "ssh-launch", stateKey, "pid")));
     }).pipe(Effect.provide(NodeServices.layer)),
